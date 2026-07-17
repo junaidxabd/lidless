@@ -63,7 +63,7 @@ extension AppState.MainPane {
 
     var systemImage: String {
         switch self {
-        case .overview: "eye"
+        case .overview: "gauge.with.needle"
         case .cutoffs: "moon.zzz"
         case .schedules: "calendar.badge.clock"
         case .history: "clock.arrow.circlepath"
