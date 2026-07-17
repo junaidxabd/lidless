@@ -163,6 +163,9 @@ struct AuroraBackground: View {
 
 // MARK: - Glass & glow
 
+/// Nested surface: a quiet solid tint with a hairline. Used for secondary
+/// content so it never competes with the one true glass element per view
+/// (liquid-glass layer economy: never stack translucent panes).
 struct GlassCard: ViewModifier {
     var tint: Color = .white
 
@@ -183,10 +186,59 @@ struct GlassCard: ViewModifier {
     }
 }
 
+/// The primary liquid-glass sheet: real material blur over the aurora, a
+/// specular top boundary, an interior light streak, and a floating shadow —
+/// highlight, illumination, and depth in three layers.
+struct GlassSheet: ViewModifier {
+    var cornerRadius: CGFloat = 24
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .background(.ultraThinMaterial, in: shape)
+            .background(Theme.void.opacity(0.2), in: shape)
+            .overlay(
+                // Interior illumination: a soft diagonal streak of light.
+                LinearGradient(
+                    stops: [
+                        .init(color: .white.opacity(0.10), location: 0.0),
+                        .init(color: .clear, location: 0.35),
+                        .init(color: .clear, location: 0.75),
+                        .init(color: .white.opacity(0.04), location: 1.0),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .clipShape(shape)
+                .allowsHitTesting(false)
+            )
+            .overlay(
+                // Specular boundary: bright top edge fading down the sides.
+                shape.strokeBorder(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .white.opacity(0.50), location: 0.0),
+                            .init(color: .white.opacity(0.10), location: 0.35),
+                            .init(color: .white.opacity(0.05), location: 1.0),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1
+                )
+            )
+            .shadow(color: .black.opacity(0.35), radius: 18, y: 10)
+    }
+}
+
 extension View {
     func card() -> some View { modifier(GlassCard()) }
 
     func card(tint: Color) -> some View { modifier(GlassCard(tint: tint)) }
+
+    func glassSheet(cornerRadius: CGFloat = 24) -> some View {
+        modifier(GlassSheet(cornerRadius: cornerRadius))
+    }
 
     /// Soft light bloom behind glowing foreground elements.
     func glow(_ color: Color, radius: CGFloat = 10, opacity: Double = 0.8) -> some View {

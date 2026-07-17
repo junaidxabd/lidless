@@ -246,7 +246,7 @@ private struct StatusHeader: View {
         let snapshot = entry.snapshot!
         let armed = entry.showsArmed
         HStack(spacing: 4) {
-            Image(systemName: armed ? "eye.fill" : "eye.slash")
+            Image(systemName: armed ? "bolt.fill" : "moon.zzz.fill")
                 .font(.caption.weight(.semibold))
             Text(armed ? "AWAKE" : (snapshot.armed && entry.isStale ? "STALE" : "OFF"))
                 .font(.caption2.weight(.bold))
@@ -296,7 +296,7 @@ private struct BatteryLine: View {
 private struct EmptyStateView: View {
     var body: some View {
         VStack(spacing: 6) {
-            Image(systemName: "eye.slash")
+            Image(systemName: "moon.zzz.fill")
                 .font(.title3)
                 .foregroundStyle(.secondary)
             Text("Open Lidless once to connect")

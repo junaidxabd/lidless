@@ -54,11 +54,15 @@ struct OverviewContent: View {
     private var heroCard: some View {
         HStack(spacing: Theme.s5) {
             ZStack {
-                Circle()
-                    .fill(state.isArmed ? AnyShapeStyle(Theme.armedGradient) : AnyShapeStyle(.quaternary.opacity(0.5)))
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(state.isArmed ? AnyShapeStyle(Theme.armedGradient) : AnyShapeStyle(.white.opacity(0.06)))
                     .frame(width: 64, height: 64)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(.white.opacity(state.isArmed ? 0.5 : 0.12), lineWidth: 1)
+                    )
                     .shadow(color: state.isArmed ? Theme.armed.opacity(0.4) : .clear, radius: 10)
-                Image(systemName: state.isArmed ? "eye.fill" : "eye.slash")
+                Image(systemName: state.isArmed ? "bolt.fill" : "moon.zzz.fill")
                     .font(.system(size: 26, weight: .medium))
                     .foregroundStyle(state.isArmed ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
             }

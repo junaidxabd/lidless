@@ -38,7 +38,7 @@
 		DB7918E03FDE6722CFCC71BA /* ProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8F9992CBE9E8679820DC476 /* ProcessRunner.swift */; };
 		DCF3058564EFF730CD44C1D4 /* ConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C7450A45A29DCBE17555B4 /* ConfigStore.swift */; };
 		DF78B629CE376DC1B11845FC /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDE86A4E2D2A0EFA9988903B /* Components.swift */; };
-		E1846233738AFFD2779B6031 /* PowerButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61A404947F54D11DD210B96E /* PowerButton.swift */; };
+		EF7C245ACF0126810781213A /* GlassSwitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CA8C1A5554EF913C7CA28B4 /* GlassSwitch.swift */; };
 		F32F16A388D05D7D9FD8EBD8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D01D44B6EE0908A919EEF33C /* Assets.xcassets */; };
 		F4FB4A002A1C39EEE40A434C /* LidlessCore in Frameworks */ = {isa = PBXBuildFile; productRef = 452AA747E2986C241F217001 /* LidlessCore */; };
 		F8A4962EDD7F1E0B93A993D2 /* PMSet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B8152EBD0301E91C97CF5B /* PMSet.swift */; };
@@ -96,11 +96,11 @@
 		4200970A1D6803D00E802E00 /* LidlessCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = LidlessCore; path = Packages/LidlessCore; sourceTree = SOURCE_ROOT; };
 		43CBB30107E810C4484B3497 /* LidlessHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = LidlessHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		57A130EFA7C313E1F7328CD9 /* SchedulesPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulesPane.swift; sourceTree = "<group>"; };
-		61A404947F54D11DD210B96E /* PowerButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerButton.swift; sourceTree = "<group>"; };
 		66C7450A45A29DCBE17555B4 /* ConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStore.swift; sourceTree = "<group>"; };
 		6AC139D0B89390D5646D1168 /* ScreenshotRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotRenderer.swift; sourceTree = "<group>"; };
 		6C0A7C56EF8D0D190977783B /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		8ADCAC7AFA4830867DD41F41 /* Simulation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Simulation.swift; sourceTree = "<group>"; };
+		8CA8C1A5554EF913C7CA28B4 /* GlassSwitch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassSwitch.swift; sourceTree = "<group>"; };
 		8E200E9D39E38CB68ABA6D2A /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		91E5EC26F0970C941C4ADB7B /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		957125BB507FE5ABD3CD162E /* com.lidless.helper.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = com.lidless.helper.plist; sourceTree = "<group>"; };
@@ -216,8 +216,8 @@
 		62B0F3FCA6BBE0DD8A9EAF3B /* MenuBar */ = {
 			isa = PBXGroup;
 			children = (
+				8CA8C1A5554EF913C7CA28B4 /* GlassSwitch.swift */,
 				A1A5CD5DA8D70B7B598D397D /* MenuPanelView.swift */,
-				61A404947F54D11DD210B96E /* PowerButton.swift */,
 			);
 			path = MenuBar;
 			sourceTree = "<group>";
@@ -512,6 +512,7 @@
 				DF78B629CE376DC1B11845FC /* Components.swift in Sources */,
 				DCF3058564EFF730CD44C1D4 /* ConfigStore.swift in Sources */,
 				C778F07803903124F24FD57E /* CutoffsPane.swift in Sources */,
+				EF7C245ACF0126810781213A /* GlassSwitch.swift in Sources */,
 				D93B907786DC3B44E4E60929 /* HelperClient.swift in Sources */,
 				05D88187B8FA73D29C5FF601 /* HistoryPane.swift in Sources */,
 				427A66B85F88DA4DB6AB797C /* LidlessApp.swift in Sources */,
@@ -520,7 +521,6 @@
 				8E02C973AABE0676F99EC781 /* NotificationService.swift in Sources */,
 				90455093EC0ECD09D2C5D092 /* OnboardingView.swift in Sources */,
 				B56660BB0000C5A2BF8C798D /* OverviewPane.swift in Sources */,
-				E1846233738AFFD2779B6031 /* PowerButton.swift in Sources */,
 				DB7918E03FDE6722CFCC71BA /* ProcessRunner.swift in Sources */,
 				D3C458D951E2955E407C4EC6 /* SchedulesPane.swift in Sources */,
 				2DF1B75A3D00D41D5BFB9847 /* ScreenshotRenderer.swift in Sources */,

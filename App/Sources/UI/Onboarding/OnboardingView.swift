@@ -43,11 +43,15 @@ struct OnboardingView: View {
     private var intro: some View {
         VStack(spacing: Theme.s5) {
             ZStack {
-                Circle()
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
                     .fill(Theme.armedGradient)
                     .frame(width: 96, height: 96)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 26, style: .continuous)
+                            .strokeBorder(.white.opacity(0.5), lineWidth: 1)
+                    )
                     .shadow(color: Theme.armed.opacity(0.5), radius: 22)
-                Image(systemName: "eye.fill")
+                Image(systemName: "bolt.fill")
                     .font(.system(size: 40, weight: .medium))
                     .foregroundStyle(.white)
             }

@@ -20,9 +20,24 @@ struct MenuPanelView: View {
                 banners
                     .padding(.horizontal, Theme.s4)
 
-                powerSection
-                    .padding(.top, Theme.s2)
-                    .padding(.bottom, Theme.s4)
+                hero
+                    .padding(.top, Theme.s5)
+                    .padding(.bottom, Theme.s5)
+
+                GlassSwitch(
+                    armed: state.isArmed,
+                    busy: state.phase == .arming || state.phase == .disarming,
+                    mood: state.mood
+                ) {
+                    if state.isArmed {
+                        Task { await state.disarm() }
+                    } else if state.pendingArm != nil {
+                        state.cancelArmFlow()
+                    } else {
+                        state.beginArmFlow()
+                    }
+                }
+                .padding(.bottom, Theme.s4)
 
                 Group {
                     if let pending = state.pendingArm {
@@ -34,11 +49,10 @@ struct MenuPanelView: View {
                     }
                 }
                 .padding(.horizontal, Theme.s4)
-                .padding(.bottom, Theme.s2)
+                .padding(.bottom, Theme.s3)
 
-                statsGrid
+                statStrip
                     .padding(.horizontal, Theme.s4)
-                    .padding(.top, Theme.s2)
                     .padding(.bottom, Theme.s4)
 
                 Divider()
@@ -60,10 +74,6 @@ struct MenuPanelView: View {
 
     private var header: some View {
         HStack(spacing: Theme.s2) {
-            Image(systemName: state.isArmed ? "eye" : "eye.slash")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(state.isArmed ? AnyShapeStyle(Theme.armedGradient) : AnyShapeStyle(.white.opacity(0.4)))
-                .glow(state.isArmed ? Theme.cyan : .clear, radius: 6, opacity: 0.6)
             Text("Lidless")
                 .font(.headline)
                 .foregroundStyle(.white.opacity(0.9))
@@ -137,69 +147,55 @@ struct MenuPanelView: View {
         }
     }
 
-    // MARK: - Power
+    // MARK: - Hero
 
-    private var powerSection: some View {
-        VStack(spacing: Theme.s2) {
-            PowerButton(
-                armed: state.isArmed,
-                busy: state.phase == .arming || state.phase == .disarming,
-                mood: state.mood
-            ) {
-                if state.isArmed {
-                    Task { await state.disarm() }
-                } else if state.pendingArm != nil {
-                    state.cancelArmFlow()
-                } else {
-                    state.beginArmFlow()
-                }
+    /// State first, numbers biggest: the headline says exactly what sleep is
+    /// doing; armed, the time remaining is the largest thing on screen.
+    private var hero: some View {
+        VStack(spacing: Theme.s1) {
+            if state.isArmed {
+                GlowText(
+                    text: state.statusHeadline,
+                    font: .title3.weight(.semibold),
+                    gradient: Theme.armedGradient,
+                    glowColor: Theme.cyan,
+                    glowRadius: 10
+                )
+            } else {
+                Text(state.statusHeadline)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(state.overrideLeaked ? AnyShapeStyle(Theme.ember) : AnyShapeStyle(.white.opacity(0.92)))
             }
 
-            VStack(spacing: Theme.s1) {
-                if state.isArmed {
+            if state.isArmed, let projected = state.projectedCutoff {
+                VStack(spacing: 0) {
                     GlowText(
-                        text: state.statusHeadline,
-                        font: .title3.weight(.semibold),
+                        text: Format.duration(projected.date.timeIntervalSince(state.now)),
+                        font: .system(size: 44, weight: .bold, design: .rounded),
                         gradient: Theme.armedGradient,
                         glowColor: Theme.cyan,
-                        glowRadius: 10
+                        glowRadius: 16
                     )
-                } else {
-                    Text(state.statusHeadline)
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(state.overrideLeaked ? AnyShapeStyle(Theme.ember) : AnyShapeStyle(.white.opacity(0.92)))
-                }
-
-                if state.isArmed, let projected = state.projectedCutoff {
-                    VStack(spacing: 0) {
-                        GlowText(
-                            text: Format.duration(projected.date.timeIntervalSince(state.now)),
-                            font: .system(size: 34, weight: .bold, design: .rounded),
-                            gradient: Theme.armedGradient,
-                            glowColor: Theme.cyan,
-                            glowRadius: 14
-                        )
-                        Text(projected.label)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.55))
-                    }
-                    .padding(.top, Theme.s1)
-                } else if let detail = state.statusDetail {
-                    Text(detail)
+                    Text(projected.label)
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(0.55))
-                        .multilineTextAlignment(.center)
                 }
-
-                if state.isArmed, state.lidClosed {
-                    Label("Lid closed — keeping watch", systemImage: "laptopcomputer")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.35))
-                        .padding(.top, 2)
-                }
+                .padding(.top, Theme.s1)
+            } else if let detail = state.statusDetail {
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.55))
+                    .multilineTextAlignment(.center)
             }
-            .padding(.horizontal, Theme.s4)
+
+            if state.isArmed, state.lidClosed {
+                Label("Lid closed — keeping watch", systemImage: "laptopcomputer")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.35))
+                    .padding(.top, 2)
+            }
         }
+        .padding(.horizontal, Theme.s4)
     }
 
     // MARK: - Presets
@@ -223,65 +219,29 @@ struct MenuPanelView: View {
 
     // MARK: - Stats
 
-    private var statsGrid: some View {
-        Grid(horizontalSpacing: Theme.s2, verticalSpacing: Theme.s2) {
-            GridRow {
-                StatCell(
-                    title: "Battery",
-                    systemImage: Symbols.battery(percent: state.battery.percent, charging: state.battery.isCharging),
-                    value: Format.percent(state.battery.percent),
-                    detail: state.battery.isCharging
-                        ? "Charging"
-                        : (state.battery.state == .ac ? "On power" : "On battery"),
-                    lit: state.isArmed
-                )
-                StatCell(
-                    title: "Drain",
-                    systemImage: "chart.line.downtrend.xyaxis",
-                    value: Format.drain(state.drainPerHour),
-                    detail: state.battery.isDischarging ? "Current rate" : "Not discharging",
-                    lit: state.isArmed
-                )
-            }
-            GridRow {
-                StatCell(
-                    title: "Cutoff",
-                    systemImage: "moon.zzz",
-                    value: cutoffValue,
-                    detail: cutoffDetail,
-                    lit: state.isArmed
-                )
-                StatCell(
-                    title: "Thermals",
-                    systemImage: "thermometer.medium",
-                    value: state.thermalStatusText,
-                    detail: state.thermalIsElevated ? "Elevated" : nil,
-                    tint: state.thermalIsElevated ? Theme.ember : .secondary
-                )
-            }
-        }
-    }
-
-    private var cutoffValue: String {
-        guard state.isArmed else { return "—" }
-        if let projected = state.projectedCutoff {
-            return Format.duration(projected.date.timeIntervalSince(state.now))
-        }
-        if state.effectiveConfig.batteryFloorEnabled {
-            return "At \(state.effectiveConfig.batteryFloorPercent)%"
-        }
-        return "None"
-    }
-
-    private var cutoffDetail: String? {
-        guard state.isArmed else { return "—" }
-        if let projected = state.projectedCutoff {
-            return projected.label
-        }
-        if state.effectiveConfig.batteryFloorEnabled {
-            return "Battery floor armed"
-        }
-        return "Disarm manually"
+    private var statStrip: some View {
+        StatStrip(items: [
+            .init(
+                icon: Symbols.battery(percent: state.battery.percent, charging: state.battery.isCharging),
+                value: Format.percent(state.battery.percent),
+                caption: state.battery.isCharging
+                    ? "Charging"
+                    : (state.battery.state == .ac ? "On power" : "Battery"),
+                lit: state.isArmed
+            ),
+            .init(
+                icon: "chart.line.downtrend.xyaxis",
+                value: Format.drain(state.drainPerHour),
+                caption: "Drain",
+                lit: state.isArmed
+            ),
+            .init(
+                icon: "thermometer.medium",
+                value: state.thermalStatusText,
+                caption: state.thermalIsElevated ? "Elevated" : "Thermals",
+                tint: state.thermalIsElevated ? Theme.ember : nil
+            ),
+        ])
     }
 
     // MARK: - Footer
@@ -385,7 +345,11 @@ struct ArmConfirmCard: View {
             }
         }
         .padding(Theme.s4)
-        .card(tint: warningTint || refused ? Theme.ember : .white)
+        .glassSheet(cornerRadius: Theme.cardRadius + 4)
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.cardRadius + 4, style: .continuous)
+                .strokeBorder((warningTint || refused ? Theme.ember : .clear).opacity(0.4), lineWidth: 1)
+        )
         .glow(warningTint || refused ? Theme.ember : Theme.armedDeep, radius: 18, opacity: 0.18)
     }
 

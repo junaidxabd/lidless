@@ -175,6 +175,80 @@ struct StatCell: View {
     }
 }
 
+// MARK: - Stat strip
+
+/// One quiet nested surface holding the live numbers, hairline-divided —
+/// a single strip instead of a grid of competing cards.
+struct StatStrip: View {
+    struct Item {
+        var icon: String
+        var value: String
+        var caption: String
+        var tint: Color?
+        var lit: Bool
+
+        init(icon: String, value: String, caption: String, tint: Color? = nil, lit: Bool = false) {
+            self.icon = icon
+            self.value = value
+            self.caption = caption
+            self.tint = tint
+            self.lit = lit
+        }
+    }
+
+    let items: [Item]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                cell(item)
+                if index < items.count - 1 {
+                    Rectangle()
+                        .fill(.white.opacity(0.08))
+                        .frame(width: 1, height: 40)
+                }
+            }
+        }
+        .padding(.vertical, Theme.s3)
+        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    private func cell(_ item: Item) -> some View {
+        VStack(spacing: Theme.s1) {
+            valueText(item)
+                .contentTransition(.numericText())
+            Label(item.caption, systemImage: item.icon)
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.4))
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func valueText(_ item: Item) -> some View {
+        let font = Font.system(.body, design: .rounded).weight(.semibold)
+        if let tint = item.tint {
+            Text(item.value)
+                .font(font)
+                .monospacedDigit()
+                .foregroundStyle(tint)
+                .glow(tint, radius: 6, opacity: 0.5)
+        } else if item.lit {
+            GlowText(text: item.value, font: font, gradient: Theme.armedGradient, glowColor: Theme.cyan, glowRadius: 5)
+        } else {
+            Text(item.value)
+                .font(font)
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.92))
+        }
+    }
+}
+
 // MARK: - Footer buttons
 
 struct FooterButton: View {
