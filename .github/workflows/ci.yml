@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Core tests
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run LidlessCore tests
+        run: swift test --package-path Packages/LidlessCore
+
+  build:
+    name: Build app
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (ad-hoc signed)
+        run: |
+          set -o pipefail
+          xcodebuild -project Lidless.xcodeproj -scheme Lidless \
+            -configuration Debug -derivedDataPath build/DerivedData \
+            build | tail -20
+      - name: Verify bundle layout
+        run: |
+          APP=build/DerivedData/Build/Products/Debug/Lidless.app
+          test -f "$APP/Contents/MacOS/LidlessHelper"
+          test -f "$APP/Contents/Library/LaunchDaemons/com.lidless.helper.plist"
+          test -d "$APP/Contents/PlugIns/LidlessWidget.appex"
+          codesign --verify --deep "$APP"

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.lidless.helper</string>
+	<key>BundleProgram</key>
+	<string>Contents/MacOS/LidlessHelper</string>
+	<key>MachServices</key>
+	<dict>
+		<key>com.lidless.helper</key>
+		<true/>
+	</dict>
+	<key>AssociatedBundleIdentifiers</key>
+	<array>
+		<string>com.lidless.app</string>
+	</array>
+	<!-- Boot-time restore pass: a sentinel surviving a crash or power loss
+	     is cleaned up the moment the system is back. -->
+	<key>RunAtLoad</key>
+	<true/>
+	<!-- While the sleep override is active (sentinel file exists), launchd
+	     guarantees the watchdog is alive by relaunching a crashed helper.
+	     Once the sentinel is gone, the helper may idle-exit freely. -->
+	<key>KeepAlive</key>
+	<dict>
+		<key>PathState</key>
+		<dict>
+			<key>/var/db/lidless/override-active</key>
+			<true/>
+		</dict>
+	</dict>
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>

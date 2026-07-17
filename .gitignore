@@ -1,0 +1,11 @@
+.DS_Store
+build/
+# Local working files, not part of the open-source project.
+PROMPT.md
+.claude/
+DerivedData/
+*.xcuserdatad/
+xcuserdata/
+Packages/LidlessCore/.build/
+Packages/LidlessCore/.swiftpm/
+dist/

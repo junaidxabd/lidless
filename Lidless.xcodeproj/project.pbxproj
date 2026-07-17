@@ -1,0 +1,847 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		05D88187B8FA73D29C5FF601 /* HistoryPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = B772E2B51379001AABBB24D0 /* HistoryPane.swift */; };
+		08B0161A79987AF815430248 /* com.lidless.helper.plist in CopyFiles */ = {isa = PBXBuildFile; fileRef = 957125BB507FE5ABD3CD162E /* com.lidless.helper.plist */; };
+		0F065C1C9DD77864707BCB37 /* HelperLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C16ACB2C13B551EBF73A75 /* HelperLog.swift */; };
+		1B46FD207F9E9BB94B819BE0 /* BatteryMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4FFC0172F6751F5EB2ADD24 /* BatteryMonitor.swift */; };
+		24313647CB578737D3784E1F /* Simulation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ADCAC7AFA4830867DD41F41 /* Simulation.swift */; };
+		2DF1B75A3D00D41D5BFB9847 /* ScreenshotRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AC139D0B89390D5646D1168 /* ScreenshotRenderer.swift */; };
+		362BB255CE2B6007E9ADCAB2 /* MenuPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A5CD5DA8D70B7B598D397D /* MenuPanelView.swift */; };
+		3A218B0D8B11B556F2878222 /* SystemStateMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 369E37E9ED5CB25B50FB60ED /* SystemStateMonitor.swift */; };
+		3C4251DBD72B94AA781AFDCD /* HelperDaemon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96AFE24A82E972776B1E4DDA /* HelperDaemon.swift */; };
+		3E0A03433AE750F4C12D256D /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C0A7C56EF8D0D190977783B /* AppState.swift */; };
+		427A66B85F88DA4DB6AB797C /* LidlessApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0707B3DABEEDFE69BA5CE1A3 /* LidlessApp.swift */; };
+		55BCA1E0E916F7233578AB7A /* LidlessWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DBE8AFD291B7F821538230F /* LidlessWidget.swift */; };
+		5BC374A670F10E2F020F3031 /* SetupPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC1DD41A189F5CC646CDB684 /* SetupPane.swift */; };
+		6DDABE53C632B30336F8B21A /* WidgetPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFD22E69446FD0DD7573EB13 /* WidgetPublisher.swift */; };
+		8E02C973AABE0676F99EC781 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B3A75BBCCBD9501741D2977 /* NotificationService.swift */; };
+		8FEA95ADD5A5BF9C2E962940 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEBF70A8EAEE5D89EC9415D5 /* SessionStore.swift */; };
+		90455093EC0ECD09D2C5D092 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E200E9D39E38CB68ABA6D2A /* OnboardingView.swift */; };
+		90C170B4969D0DF8214C36EC /* SimulatorPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99EAFD79FABCCD717286B7CC /* SimulatorPane.swift */; };
+		9A37E5B709E037B98B1290AD /* LidlessCore in Frameworks */ = {isa = PBXBuildFile; productRef = 2B0C664517B582965AF69DE8 /* LidlessCore */; };
+		A97D9B22F253EE5EF0EC161B /* MainWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25AE745088EB5ADA754ED4F7 /* MainWindowView.swift */; };
+		B025FBC59DB640A61137D092 /* LidlessCore in Frameworks */ = {isa = PBXBuildFile; productRef = 44EE0ECB87437EFA914FA24E /* LidlessCore */; };
+		B56660BB0000C5A2BF8C798D /* OverviewPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9393B7E6CDFB8447A94CE4F /* OverviewPane.swift */; };
+		B8CC6601B74909CACC34A24C /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC320A17229A84DDEE6D5731 /* Theme.swift */; };
+		C110D459455F30C113295E1F /* ThermalMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6BE7CEE170DAC6B39BE60F8 /* ThermalMonitor.swift */; };
+		C778F07803903124F24FD57E /* CutoffsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA4890285005CA500AADF1BB /* CutoffsPane.swift */; };
+		CADC3BAB8A65ADEA6D7C0355 /* LidlessWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AAA9633CFE5F966198834C3E /* LidlessWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		D3C458D951E2955E407C4EC6 /* SchedulesPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A130EFA7C313E1F7328CD9 /* SchedulesPane.swift */; };
+		D93B907786DC3B44E4E60929 /* HelperClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C38837509B48EEAD202C0164 /* HelperClient.swift */; };
+		DB7918E03FDE6722CFCC71BA /* ProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8F9992CBE9E8679820DC476 /* ProcessRunner.swift */; };
+		DCF3058564EFF730CD44C1D4 /* ConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C7450A45A29DCBE17555B4 /* ConfigStore.swift */; };
+		DF78B629CE376DC1B11845FC /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDE86A4E2D2A0EFA9988903B /* Components.swift */; };
+		E1846233738AFFD2779B6031 /* PowerButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61A404947F54D11DD210B96E /* PowerButton.swift */; };
+		F32F16A388D05D7D9FD8EBD8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D01D44B6EE0908A919EEF33C /* Assets.xcassets */; };
+		F4FB4A002A1C39EEE40A434C /* LidlessCore in Frameworks */ = {isa = PBXBuildFile; productRef = 452AA747E2986C241F217001 /* LidlessCore */; };
+		F8A4962EDD7F1E0B93A993D2 /* PMSet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B8152EBD0301E91C97CF5B /* PMSet.swift */; };
+		FB16E3AC0B080E471B3EF693 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91E5EC26F0970C941C4ADB7B /* main.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		220EB865DBEBCF049FB623F7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4C9F87A053F60DBA4B056A36 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7940FB92F60BAC99A91AD8C5;
+			remoteInfo = LidlessWidget;
+		};
+		3086B2735B355E4DD4BB595D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4C9F87A053F60DBA4B056A36 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AB04B9D684E52B2DE9846A94;
+			remoteInfo = LidlessHelper;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		543C8178470D57F32BF2C50E /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				CADC3BAB8A65ADEA6D7C0355 /* LidlessWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8007527B914F28B432653E50 /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Library/LaunchDaemons;
+			dstSubfolderSpec = 1;
+			files = (
+				08B0161A79987AF815430248 /* com.lidless.helper.plist in CopyFiles */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		0707B3DABEEDFE69BA5CE1A3 /* LidlessApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LidlessApp.swift; sourceTree = "<group>"; };
+		25AE745088EB5ADA754ED4F7 /* MainWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowView.swift; sourceTree = "<group>"; };
+		2B3A75BBCCBD9501741D2977 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		2DBE8AFD291B7F821538230F /* LidlessWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LidlessWidget.swift; sourceTree = "<group>"; };
+		369E37E9ED5CB25B50FB60ED /* SystemStateMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemStateMonitor.swift; sourceTree = "<group>"; };
+		3A0A911D53E24B9FCF04C547 /* Lidless.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Lidless.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4200970A1D6803D00E802E00 /* LidlessCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = LidlessCore; path = Packages/LidlessCore; sourceTree = SOURCE_ROOT; };
+		43CBB30107E810C4484B3497 /* LidlessHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = LidlessHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		57A130EFA7C313E1F7328CD9 /* SchedulesPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulesPane.swift; sourceTree = "<group>"; };
+		61A404947F54D11DD210B96E /* PowerButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerButton.swift; sourceTree = "<group>"; };
+		66C7450A45A29DCBE17555B4 /* ConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStore.swift; sourceTree = "<group>"; };
+		6AC139D0B89390D5646D1168 /* ScreenshotRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotRenderer.swift; sourceTree = "<group>"; };
+		6C0A7C56EF8D0D190977783B /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		8ADCAC7AFA4830867DD41F41 /* Simulation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Simulation.swift; sourceTree = "<group>"; };
+		8E200E9D39E38CB68ABA6D2A /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		91E5EC26F0970C941C4ADB7B /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		957125BB507FE5ABD3CD162E /* com.lidless.helper.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = com.lidless.helper.plist; sourceTree = "<group>"; };
+		96AFE24A82E972776B1E4DDA /* HelperDaemon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperDaemon.swift; sourceTree = "<group>"; };
+		99EAFD79FABCCD717286B7CC /* SimulatorPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorPane.swift; sourceTree = "<group>"; };
+		A1A5CD5DA8D70B7B598D397D /* MenuPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuPanelView.swift; sourceTree = "<group>"; };
+		A2B8152EBD0301E91C97CF5B /* PMSet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PMSet.swift; sourceTree = "<group>"; };
+		AAA9633CFE5F966198834C3E /* LidlessWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LidlessWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B772E2B51379001AABBB24D0 /* HistoryPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryPane.swift; sourceTree = "<group>"; };
+		B9393B7E6CDFB8447A94CE4F /* OverviewPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverviewPane.swift; sourceTree = "<group>"; };
+		BA4890285005CA500AADF1BB /* CutoffsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CutoffsPane.swift; sourceTree = "<group>"; };
+		BC320A17229A84DDEE6D5731 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		C38837509B48EEAD202C0164 /* HelperClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperClient.swift; sourceTree = "<group>"; };
+		CC1DD41A189F5CC646CDB684 /* SetupPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupPane.swift; sourceTree = "<group>"; };
+		CEBF70A8EAEE5D89EC9415D5 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
+		D01D44B6EE0908A919EEF33C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D2C16ACB2C13B551EBF73A75 /* HelperLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperLog.swift; sourceTree = "<group>"; };
+		DDE86A4E2D2A0EFA9988903B /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+		E4FFC0172F6751F5EB2ADD24 /* BatteryMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryMonitor.swift; sourceTree = "<group>"; };
+		EFD22E69446FD0DD7573EB13 /* WidgetPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetPublisher.swift; sourceTree = "<group>"; };
+		F6BE7CEE170DAC6B39BE60F8 /* ThermalMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThermalMonitor.swift; sourceTree = "<group>"; };
+		F8F9992CBE9E8679820DC476 /* ProcessRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessRunner.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8661D14050FB2EFE17C570CF /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9A37E5B709E037B98B1290AD /* LidlessCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		975CBFF3C6194C29F7C6D7B5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B025FBC59DB640A61137D092 /* LidlessCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9B194BA6AC9A881F94EA8E52 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F4FB4A002A1C39EEE40A434C /* LidlessCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0CAF122B41AD004DAED12473 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				2DBE8AFD291B7F821538230F /* LidlessWidget.swift */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		1539807F177301451394B62B /* Main */ = {
+			isa = PBXGroup;
+			children = (
+				BA4890285005CA500AADF1BB /* CutoffsPane.swift */,
+				B772E2B51379001AABBB24D0 /* HistoryPane.swift */,
+				25AE745088EB5ADA754ED4F7 /* MainWindowView.swift */,
+				B9393B7E6CDFB8447A94CE4F /* OverviewPane.swift */,
+				57A130EFA7C313E1F7328CD9 /* SchedulesPane.swift */,
+				CC1DD41A189F5CC646CDB684 /* SetupPane.swift */,
+				99EAFD79FABCCD717286B7CC /* SimulatorPane.swift */,
+			);
+			path = Main;
+			sourceTree = "<group>";
+		};
+		1EDDE0EBB288B5B23FB066DA /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				3A0A911D53E24B9FCF04C547 /* Lidless.app */,
+				43CBB30107E810C4484B3497 /* LidlessHelper */,
+				AAA9633CFE5F966198834C3E /* LidlessWidget.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		270F7F4391BAC54122C7A800 /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				8E200E9D39E38CB68ABA6D2A /* OnboardingView.swift */,
+			);
+			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		3185F86772FE37F6B82E18B7 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				66C7450A45A29DCBE17555B4 /* ConfigStore.swift */,
+				2B3A75BBCCBD9501741D2977 /* NotificationService.swift */,
+				6AC139D0B89390D5646D1168 /* ScreenshotRenderer.swift */,
+				CEBF70A8EAEE5D89EC9415D5 /* SessionStore.swift */,
+				EFD22E69446FD0DD7573EB13 /* WidgetPublisher.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		340FA77102A1784DDF626A2D /* Widget */ = {
+			isa = PBXGroup;
+			children = (
+				0CAF122B41AD004DAED12473 /* Sources */,
+			);
+			path = Widget;
+			sourceTree = "<group>";
+		};
+		62B0F3FCA6BBE0DD8A9EAF3B /* MenuBar */ = {
+			isa = PBXGroup;
+			children = (
+				A1A5CD5DA8D70B7B598D397D /* MenuPanelView.swift */,
+				61A404947F54D11DD210B96E /* PowerButton.swift */,
+			);
+			path = MenuBar;
+			sourceTree = "<group>";
+		};
+		765D500EE5676D722723B9D1 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				4200970A1D6803D00E802E00 /* LidlessCore */,
+			);
+			path = Packages;
+			sourceTree = "<group>";
+		};
+		7CF70D179FB585D8D8B383B2 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				DDE86A4E2D2A0EFA9988903B /* Components.swift */,
+				1539807F177301451394B62B /* Main */,
+				62B0F3FCA6BBE0DD8A9EAF3B /* MenuBar */,
+				270F7F4391BAC54122C7A800 /* Onboarding */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		85D3BADFA12A5B8FDCB95058 = {
+			isa = PBXGroup;
+			children = (
+				981EB0B6D8193EBA2AC3FD20 /* App */,
+				F8E7F9DABFCB27E8DD095FF6 /* Helper */,
+				765D500EE5676D722723B9D1 /* Packages */,
+				340FA77102A1784DDF626A2D /* Widget */,
+				1EDDE0EBB288B5B23FB066DA /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		8ED41AC3A287D42AF862B7D7 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				957125BB507FE5ABD3CD162E /* com.lidless.helper.plist */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		981EB0B6D8193EBA2AC3FD20 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				DD6874AE31E584DD651E1423 /* Resources */,
+				B6530CF3A0D52563154F30A5 /* Sources */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		987D0CE870770BAD19321488 /* Monitors */ = {
+			isa = PBXGroup;
+			children = (
+				E4FFC0172F6751F5EB2ADD24 /* BatteryMonitor.swift */,
+				369E37E9ED5CB25B50FB60ED /* SystemStateMonitor.swift */,
+				F6BE7CEE170DAC6B39BE60F8 /* ThermalMonitor.swift */,
+			);
+			path = Monitors;
+			sourceTree = "<group>";
+		};
+		AFFC8A217E9740C219F5B789 /* Helper */ = {
+			isa = PBXGroup;
+			children = (
+				C38837509B48EEAD202C0164 /* HelperClient.swift */,
+			);
+			path = Helper;
+			sourceTree = "<group>";
+		};
+		B6530CF3A0D52563154F30A5 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				6C0A7C56EF8D0D190977783B /* AppState.swift */,
+				0707B3DABEEDFE69BA5CE1A3 /* LidlessApp.swift */,
+				AFFC8A217E9740C219F5B789 /* Helper */,
+				987D0CE870770BAD19321488 /* Monitors */,
+				3185F86772FE37F6B82E18B7 /* Services */,
+				D97A01B2F69F1241E73F6705 /* Simulation */,
+				BE67F80CCB341BB8ECA81A27 /* Support */,
+				7CF70D179FB585D8D8B383B2 /* UI */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		BE67F80CCB341BB8ECA81A27 /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				F8F9992CBE9E8679820DC476 /* ProcessRunner.swift */,
+				BC320A17229A84DDEE6D5731 /* Theme.swift */,
+			);
+			path = Support;
+			sourceTree = "<group>";
+		};
+		D97A01B2F69F1241E73F6705 /* Simulation */ = {
+			isa = PBXGroup;
+			children = (
+				8ADCAC7AFA4830867DD41F41 /* Simulation.swift */,
+			);
+			path = Simulation;
+			sourceTree = "<group>";
+		};
+		DD6874AE31E584DD651E1423 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				D01D44B6EE0908A919EEF33C /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		F8E7F9DABFCB27E8DD095FF6 /* Helper */ = {
+			isa = PBXGroup;
+			children = (
+				96AFE24A82E972776B1E4DDA /* HelperDaemon.swift */,
+				D2C16ACB2C13B551EBF73A75 /* HelperLog.swift */,
+				91E5EC26F0970C941C4ADB7B /* main.swift */,
+				A2B8152EBD0301E91C97CF5B /* PMSet.swift */,
+				8ED41AC3A287D42AF862B7D7 /* Resources */,
+			);
+			path = Helper;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		009B86F112B829BCB31DC602 /* Lidless */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A12851160D2163E2B603A96A /* Build configuration list for PBXNativeTarget "Lidless" */;
+			buildPhases = (
+				A509035ACF791C20D2CC960E /* Sources */,
+				507F5FFE22D8CC3A417832B8 /* Resources */,
+				8007527B914F28B432653E50 /* CopyFiles */,
+				9B194BA6AC9A881F94EA8E52 /* Frameworks */,
+				543C8178470D57F32BF2C50E /* Embed Foundation Extensions */,
+				55913B44B623FB8CCCFF1681 /* Embed Privileged Helper */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				90A40E9A9F4F58AE265272C1 /* PBXTargetDependency */,
+				57F861E814BC1529DA0EE295 /* PBXTargetDependency */,
+			);
+			name = Lidless;
+			packageProductDependencies = (
+				452AA747E2986C241F217001 /* LidlessCore */,
+			);
+			productName = Lidless;
+			productReference = 3A0A911D53E24B9FCF04C547 /* Lidless.app */;
+			productType = "com.apple.product-type.application";
+		};
+		7940FB92F60BAC99A91AD8C5 /* LidlessWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C4B86499122A1F25E3901133 /* Build configuration list for PBXNativeTarget "LidlessWidget" */;
+			buildPhases = (
+				72B9EA587A7A4610A8CE2B6D /* Sources */,
+				8661D14050FB2EFE17C570CF /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = LidlessWidget;
+			packageProductDependencies = (
+				2B0C664517B582965AF69DE8 /* LidlessCore */,
+			);
+			productName = LidlessWidget;
+			productReference = AAA9633CFE5F966198834C3E /* LidlessWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		AB04B9D684E52B2DE9846A94 /* LidlessHelper */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B6710C4E04A2CEAA9DDEB99F /* Build configuration list for PBXNativeTarget "LidlessHelper" */;
+			buildPhases = (
+				7CD162890AB430B84E16A980 /* Sources */,
+				975CBFF3C6194C29F7C6D7B5 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = LidlessHelper;
+			packageProductDependencies = (
+				44EE0ECB87437EFA914FA24E /* LidlessCore */,
+			);
+			productName = LidlessHelper;
+			productReference = 43CBB30107E810C4484B3497 /* LidlessHelper */;
+			productType = "com.apple.product-type.tool";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		4C9F87A053F60DBA4B056A36 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					009B86F112B829BCB31DC602 = {
+						ProvisioningStyle = Manual;
+					};
+					7940FB92F60BAC99A91AD8C5 = {
+						ProvisioningStyle = Manual;
+					};
+					AB04B9D684E52B2DE9846A94 = {
+						ProvisioningStyle = Manual;
+					};
+				};
+			};
+			buildConfigurationList = 086B49143EEB355F133AAD7A /* Build configuration list for PBXProject "Lidless" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 85D3BADFA12A5B8FDCB95058;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				EE66E8B4D99C3AF565B18597 /* XCLocalSwiftPackageReference "Packages/LidlessCore" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 1EDDE0EBB288B5B23FB066DA /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				009B86F112B829BCB31DC602 /* Lidless */,
+				AB04B9D684E52B2DE9846A94 /* LidlessHelper */,
+				7940FB92F60BAC99A91AD8C5 /* LidlessWidget */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		507F5FFE22D8CC3A417832B8 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F32F16A388D05D7D9FD8EBD8 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		55913B44B623FB8CCCFF1681 /* Embed Privileged Helper */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/LidlessHelper",
+			);
+			name = "Embed Privileged Helper";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/MacOS/LidlessHelper",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nDEST=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/MacOS\"\nmkdir -p \"$DEST\"\n/usr/bin/ditto \"$BUILT_PRODUCTS_DIR/LidlessHelper\" \"$DEST/LidlessHelper\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		72B9EA587A7A4610A8CE2B6D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				55BCA1E0E916F7233578AB7A /* LidlessWidget.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7CD162890AB430B84E16A980 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3C4251DBD72B94AA781AFDCD /* HelperDaemon.swift in Sources */,
+				0F065C1C9DD77864707BCB37 /* HelperLog.swift in Sources */,
+				F8A4962EDD7F1E0B93A993D2 /* PMSet.swift in Sources */,
+				FB16E3AC0B080E471B3EF693 /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A509035ACF791C20D2CC960E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3E0A03433AE750F4C12D256D /* AppState.swift in Sources */,
+				1B46FD207F9E9BB94B819BE0 /* BatteryMonitor.swift in Sources */,
+				DF78B629CE376DC1B11845FC /* Components.swift in Sources */,
+				DCF3058564EFF730CD44C1D4 /* ConfigStore.swift in Sources */,
+				C778F07803903124F24FD57E /* CutoffsPane.swift in Sources */,
+				D93B907786DC3B44E4E60929 /* HelperClient.swift in Sources */,
+				05D88187B8FA73D29C5FF601 /* HistoryPane.swift in Sources */,
+				427A66B85F88DA4DB6AB797C /* LidlessApp.swift in Sources */,
+				A97D9B22F253EE5EF0EC161B /* MainWindowView.swift in Sources */,
+				362BB255CE2B6007E9ADCAB2 /* MenuPanelView.swift in Sources */,
+				8E02C973AABE0676F99EC781 /* NotificationService.swift in Sources */,
+				90455093EC0ECD09D2C5D092 /* OnboardingView.swift in Sources */,
+				B56660BB0000C5A2BF8C798D /* OverviewPane.swift in Sources */,
+				E1846233738AFFD2779B6031 /* PowerButton.swift in Sources */,
+				DB7918E03FDE6722CFCC71BA /* ProcessRunner.swift in Sources */,
+				D3C458D951E2955E407C4EC6 /* SchedulesPane.swift in Sources */,
+				2DF1B75A3D00D41D5BFB9847 /* ScreenshotRenderer.swift in Sources */,
+				8FEA95ADD5A5BF9C2E962940 /* SessionStore.swift in Sources */,
+				5BC374A670F10E2F020F3031 /* SetupPane.swift in Sources */,
+				24313647CB578737D3784E1F /* Simulation.swift in Sources */,
+				90C170B4969D0DF8214C36EC /* SimulatorPane.swift in Sources */,
+				3A218B0D8B11B556F2878222 /* SystemStateMonitor.swift in Sources */,
+				B8CC6601B74909CACC34A24C /* Theme.swift in Sources */,
+				C110D459455F30C113295E1F /* ThermalMonitor.swift in Sources */,
+				6DDABE53C632B30336F8B21A /* WidgetPublisher.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		57F861E814BC1529DA0EE295 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7940FB92F60BAC99A91AD8C5 /* LidlessWidget */;
+			targetProxy = 220EB865DBEBCF049FB623F7 /* PBXContainerItemProxy */;
+		};
+		90A40E9A9F4F58AE265272C1 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AB04B9D684E52B2DE9846A94 /* LidlessHelper */;
+			targetProxy = 3086B2735B355E4DD4BB595D /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		042EFB55238AA93C4C93BE44 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Widget/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.lidless.app.widget;
+				PRODUCT_NAME = LidlessWidget;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+		1C733E2B29254BC65C79245E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				OTHER_CODE_SIGN_FLAGS = "--identifier com.lidless.helper";
+				PRODUCT_BUNDLE_IDENTIFIER = com.lidless.helper;
+				PRODUCT_NAME = LidlessHelper;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+		1F5583289D089AA47DC1C59D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		2C9C4F5B35E27D407598C15F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = App/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.lidless.app;
+				PRODUCT_NAME = Lidless;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		86E4AC1AA67186C5E46B50B0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = App/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.lidless.app;
+				PRODUCT_NAME = Lidless;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		9EEB52CF8CF7E5BD9B04D274 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		A3CF6C1B53DA098468C5CD9E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Widget/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.lidless.app.widget;
+				PRODUCT_NAME = LidlessWidget;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		E2D25267286881AA3DF785F6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				OTHER_CODE_SIGN_FLAGS = "--identifier com.lidless.helper";
+				PRODUCT_BUNDLE_IDENTIFIER = com.lidless.helper;
+				PRODUCT_NAME = LidlessHelper;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		086B49143EEB355F133AAD7A /* Build configuration list for PBXProject "Lidless" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9EEB52CF8CF7E5BD9B04D274 /* Debug */,
+				1F5583289D089AA47DC1C59D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A12851160D2163E2B603A96A /* Build configuration list for PBXNativeTarget "Lidless" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				86E4AC1AA67186C5E46B50B0 /* Debug */,
+				2C9C4F5B35E27D407598C15F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B6710C4E04A2CEAA9DDEB99F /* Build configuration list for PBXNativeTarget "LidlessHelper" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E2D25267286881AA3DF785F6 /* Debug */,
+				1C733E2B29254BC65C79245E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C4B86499122A1F25E3901133 /* Build configuration list for PBXNativeTarget "LidlessWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A3CF6C1B53DA098468C5CD9E /* Debug */,
+				042EFB55238AA93C4C93BE44 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		EE66E8B4D99C3AF565B18597 /* XCLocalSwiftPackageReference "Packages/LidlessCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/LidlessCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		2B0C664517B582965AF69DE8 /* LidlessCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LidlessCore;
+		};
+		44EE0ECB87437EFA914FA24E /* LidlessCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LidlessCore;
+		};
+		452AA747E2986C241F217001 /* LidlessCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LidlessCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 4C9F87A053F60DBA4B056A36 /* Project object */;
+}
