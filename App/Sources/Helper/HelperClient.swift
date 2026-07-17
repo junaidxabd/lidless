@@ -152,9 +152,16 @@ final class HelperClient: HelperControlling {
                 ])
             }
         }
-        try await service.unregister()
+        try await Self.unregisterDaemon()
         invalidateConnection()
         await refreshInstallState()
+    }
+
+    /// SMAppService is not Sendable; constructing and unregistering it in one
+    /// nonisolated frame keeps it inside a single isolation region (older
+    /// Swift 6 compilers reject sending `self.service` into async work).
+    private nonisolated static func unregisterDaemon() async throws {
+        try await SMAppService.daemon(plistName: LidlessIDs.helperPlistName).unregister()
     }
 
     // MARK: - XPC surface
