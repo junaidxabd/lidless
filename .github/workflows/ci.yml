@@ -24,7 +24,10 @@ jobs:
           set -o pipefail
           xcodebuild -project Lidless.xcodeproj -scheme Lidless \
             -configuration Debug -derivedDataPath build/DerivedData \
-            build | tail -20
+            build 2>&1 | tee build.log | tail -5
+      - name: Show compiler errors on failure
+        if: failure()
+        run: grep -E "error:" -B 2 -A 4 build.log | head -160
       - name: Verify bundle layout
         run: |
           APP=build/DerivedData/Build/Products/Debug/Lidless.app
