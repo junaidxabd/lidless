@@ -31,15 +31,20 @@ space-black machine, rim-lit, screen as sole light source, face carved into the 
   threads/dribbble captures). Technique toolbox lives in the workflow results and is
   summarized in decisions.md §Design.
 
-### In progress / next up (in order)
-1. Derive **asleep / running-hot / low-battery** panel states + **app icon** mockups at
-   v4 fidelity (same HTML→Chrome→screenshot pipeline; reuse mock4-armed.html as base).
-2. Get Junaid's approval on the full set (+ open questions in decisions.md §Pending).
-3. Implement v4 in SwiftUI: mascot as Shape-based animatable view (blink-awake on arm,
-   state morphs), panel restyle per mock4 recipes, keep all existing logic untouched.
-4. Re-render `make screenshots`, update README imagery, push.
-5. Still open from earlier: real-hardware overnight helper shakedown; team signing for
-   widget + notarization; possible repo transfer junaidxabd → nugvue.
+### VERDICT ON v4 (end of session 1)
+Junaid: "better, but... it feels like the type of app that was cheaply made to look
+expensive." KEEP: mascot concept (Kare face on open MacBook screen), dark mood, panel
+structure. REJECTED: the visual execution — glow/gradient theatrics ≠ polish.
+
+### In progress / next up (in order) — see tasks/2026-07-17-design-rethink-brief.md
+1. TASTE BOARD FIRST: Threads "look" loop over Junaid's saved favorites (he scrolls the
+   automation Chrome on threads.com/saved; on "look" → screenshot + analyze why it reads
+   high-quality). Build the board before designing anything.
+2. Rethink the panel's visual execution against the taste board; mockups → approval.
+3. Implement approved design in SwiftUI (mascot = animatable Shape view; logic untouched;
+   Swift 6.0-compatible). Then screenshots, README, push.
+4. Still open from earlier: state-set + icon mockups; real-hardware overnight helper
+   shakedown; team signing for widget + notarization; possible repo transfer → nugvue.
 
 ### Collaboration loops with Junaid
 - Mockups BEFORE Swift. He iterates fast via chat feedback mid-turn; render → send image →

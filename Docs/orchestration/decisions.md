@@ -36,6 +36,12 @@
   inset stat well (battery/drain/thermals). No footer bar (user rejected it).
 - **Dark-mode locked** by design; Reduce Motion stills all animation, keeps glow.
 
+## Design execution verdict (2026-07-17, end of session 1)
+v4's rendering was rejected: "cheaply made to look expensive." Direction (mascot, structure,
+mood) stands; execution must be rebuilt taste-first from Junaid's own Threads references.
+Lesson recorded: glow quantity is not quality — polish is restraint, optics, spacing, true
+materials. Next session starts with the taste board, not with more effects.
+
 ## Pending user decisions
 - Mascot name? (appears in onboarding copy)
 - Replace app icon with the v4 mascot icon? (current icon is still the old eye)
