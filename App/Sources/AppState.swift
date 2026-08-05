@@ -1505,6 +1505,12 @@ final class AppState {
     /// deregister the daemon, drop login item, delete app data.
     /// Returns an error message, or nil on success.
     func uninstall() async -> String? {
+        guard HelperRemovalCompletionSafety.canAttemptVerifiedRemoval(
+            isSimulation: isSimulation
+        ) else {
+            return "Uninstall is unavailable in simulation. Exit simulation to remove the installed helper."
+        }
+
         guard !uninstallInProgress else {
             return "Helper removal is already in progress."
         }
@@ -1525,13 +1531,13 @@ final class AppState {
         do {
             try await helper.uninstall()
         } catch {
-            return "Could not remove the helper: \(error.localizedDescription)"
+            return "Helper removal could not be fully verified: \(error.localizedDescription)"
         }
         setLaunchAtLogin(false)
         ConfigStore.deleteAllData()
         notifications.post(
-            title: "Lidless uninstalled",
-            body: "Helper and Lidless data removed. Drag Lidless.app to the Trash to finish."
+            title: "Helper registration inactive",
+            body: "Normal sleep was verified and the helper is not registered. Drag Lidless.app to the Trash to finish."
         )
         return nil
     }

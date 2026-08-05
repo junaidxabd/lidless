@@ -144,7 +144,8 @@ struct HelperRemovalRegistrationSafetyTests {
         #expect(stabilityCheck.lowerBound < alreadyInactive.lowerBound)
         #expect(alreadyInactive.lowerBound < unregisterAction.lowerBound)
         #expect(unregisterAction.lowerBound < deregistration.lowerBound)
-        #expect(uninstall[alreadyInactive.lowerBound..<unregisterAction.lowerBound].contains("return"))
+        #expect(uninstall[alreadyInactive.lowerBound..<unregisterAction.lowerBound].contains("break"))
+        #expect(!uninstall[alreadyInactive.lowerBound..<unregisterAction.lowerBound].contains("return"))
         #expect(!uninstall[alreadyInactive.lowerBound..<unregisterAction.lowerBound]
             .contains("unregisterDaemon"))
     }

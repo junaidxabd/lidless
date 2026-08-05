@@ -186,14 +186,35 @@ final class HelperClient: HelperControlling {
         }
         switch removalAction {
         case .alreadyInactive:
-            invalidateConnection()
-            await refreshInstallState()
-            return
+            break
         case .unregister:
-            try await Self.unregisterDaemon()
-            invalidateConnection()
-            await refreshInstallState()
+            do {
+                try await Self.unregisterDaemon()
+            } catch {
+                invalidateConnection()
+                installState = .unknown
+                throw NSError(domain: "Lidless", code: 8, userInfo: [
+                    NSLocalizedDescriptionKey: "Helper deregistration returned an error (\(error.localizedDescription)), so its final state is unknown. The helper may already be unregistered. If normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand), then try again.",
+                ])
+            }
         }
+
+        // The pre-action proof authorizes an attempt; it cannot prove the
+        // result. Keep the final boundary synchronous so no later registration
+        // or registry observation can cross an await and still inherit success.
+        invalidateConnection()
+        let finalRegistrationState = removalRegistrationState()
+        let finalSleepDisabled = PowerRegistry.sleepDisabled()
+        guard HelperRemovalCompletionSafety.isUnregisterCompletionProven(
+            registrationState: finalRegistrationState,
+            independentlyObserved: finalSleepDisabled
+        ) else {
+            installState = .unknown
+            throw NSError(domain: "Lidless", code: 9, userInfo: [
+                NSLocalizedDescriptionKey: "Helper removal could not be fully verified. The helper may already be unregistered, but Lidless could not prove both inactive registration and normal sleep. If normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand), then try again.",
+            ])
+        }
+        installState = .notInstalled
     }
 
     private func removalRegistrationState() -> HelperRemovalSafety.RegistrationState {

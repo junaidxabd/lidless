@@ -230,14 +230,15 @@ struct SetupPane: View {
                     }
                 }
             } message: {
-                Text("This restores normal sleep, removes the privileged helper and its data, removes the login item, and deletes settings & history. The app itself is left for you to drag to the Trash.")
+                Text("Lidless verifies normal sleep and confirms the helper is not registered before reporting success.")
             }
+            .disabled(busy || state.isSimulation)
             .alert(item: $uninstallResult) { result in
                 switch result {
                 case .success:
                     Alert(
-                        title: Text("Lidless is uninstalled"),
-                        message: Text("Normal sleep is restored and all components are removed. Quit and drag Lidless.app to the Trash to finish."),
+                        title: Text("Helper registration inactive"),
+                        message: Text("Normal sleep was verified and the helper is not registered. Quit and drag Lidless.app to the Trash to finish."),
                         primaryButton: .default(Text("Quit Now")) {
                             NSApp.terminate(nil)
                         },
@@ -246,7 +247,7 @@ struct SetupPane: View {
                 case .failure(let message):
                     Alert(
                         title: Text("Uninstall didn't finish"),
-                        message: Text("\(message)\n\nNothing dangerous remains: if in doubt, run \(LidlessIDs.manualFallbackCommand) in Terminal."),
+                        message: Text("\(message)\n\nDo not assume the helper is still installed after an error. If normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand) in Terminal before retrying."),
                         dismissButton: .default(Text("OK"))
                     )
                 }
@@ -254,7 +255,9 @@ struct SetupPane: View {
         } header: {
             Text("Uninstall")
         } footer: {
-            Text("Leaving should be easy: one click removes every trace except the app bundle.")
+            Text(state.isSimulation
+                ? "Exit simulation to remove the installed helper."
+                : "Success requires inactive helper registration and a fresh normal-sleep reading.")
         }
     }
 
