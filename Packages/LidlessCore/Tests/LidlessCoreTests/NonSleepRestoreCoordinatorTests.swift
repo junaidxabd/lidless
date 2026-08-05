@@ -447,6 +447,11 @@ struct NonSleepRestoreCoordinatorTests {
             from: "func repairOverride() async",
             through: "func installHelper() async"
         )
+        let uninstall = try section(
+            of: app,
+            from: "func uninstall() async",
+            through: "// MARK: - Login item"
+        )
         let monitor = try section(
             of: app,
             from: "private func runRestoreMonitor(",
@@ -514,7 +519,13 @@ struct NonSleepRestoreCoordinatorTests {
             "sleepTerminationGeneration = nil\n"
                 + "                    sleepTerminationActuation = nil"
         ))
-        #expect(app.contains("uninstallInProgress = true"))
-        #expect(app.contains("defer { uninstallInProgress = false }"))
+        #expect(uninstall.contains("uninstallInProgress = true"))
+        #expect(uninstall.contains("beginHelperLifecycleOperation()"))
+        #expect(uninstall.contains(
+            "defer {\n"
+                + "            endHelperLifecycleOperation()\n"
+                + "            uninstallInProgress = false\n"
+                + "        }"
+        ))
     }
 }

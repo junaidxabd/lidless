@@ -43,6 +43,11 @@ final class AppState {
     /// claim additionally requires a current helper reply proving ownership.
     private var helperSessionProven = false
     private var helperProofEpoch: UInt64 = 0
+    /// Invalidates launch-time status replies across helper install/removal
+    /// operations even when their coarse install state returns to the same
+    /// value before the suspended reply resumes.
+    private var helperLifecycleEpoch: UInt64 = 0
+    private var helperLifecycleOperationsInFlight = 0
     private(set) var drainPerHour: Double?
     private(set) var rollingSamples: [BatterySample] = []
 
@@ -232,7 +237,7 @@ final class AppState {
         refreshSystemFlags()
 
         Task {
-            await helper.refreshInstallState()
+            await refreshHelperInstallState()
             await reconcileWithHelper()
         }
 
@@ -262,6 +267,22 @@ final class AppState {
     private func invalidateHelperSessionProof() {
         helperSessionProven = false
         helperProofEpoch &+= 1
+    }
+
+    private func beginHelperLifecycleOperation() {
+        helperLifecycleOperationsInFlight += 1
+        helperLifecycleEpoch &+= 1
+    }
+
+    private func endHelperLifecycleOperation() {
+        helperLifecycleOperationsInFlight -= 1
+        helperLifecycleEpoch &+= 1
+    }
+
+    private func refreshHelperInstallState() async {
+        beginHelperLifecycleOperation()
+        defer { endHelperLifecycleOperation() }
+        await helper.refreshInstallState()
     }
 
     private func recordSleepTransition() {
@@ -652,7 +673,7 @@ final class AppState {
         // upgraded or replaced. Probe the live service at the mutation
         // boundary; a cached ready state is not authorization to arm.
         let eligibilityEpoch = helperProofEpoch
-        await helper.refreshInstallState()
+        await refreshHelperInstallState()
         guard phase == .arming, eligibilityEpoch == helperProofEpoch else {
             if phase == .arming {
                 phase = .disarmed
@@ -781,7 +802,7 @@ final class AppState {
                         completionError: message
                     ))
                 }
-                await helper.refreshInstallState()
+                await refreshHelperInstallState()
                 return
             }
             helperSessionProven = true
@@ -856,7 +877,7 @@ final class AppState {
                 allowsUnownedExternalOverrideCompletion: true,
                 completionError: message
             ))
-            await helper.refreshInstallState()
+            await refreshHelperInstallState()
         }
     }
 
@@ -1454,6 +1475,8 @@ final class AppState {
     }
 
     func installHelper() async {
+        beginHelperLifecycleOperation()
+        defer { endHelperLifecycleOperation() }
         do {
             try await helper.install()
         } catch {
@@ -1463,7 +1486,7 @@ final class AppState {
     }
 
     func refreshHelperState() async {
-        await helper.refreshInstallState()
+        await refreshHelperInstallState()
         if (phase == .armed || phase == .arming),
            !helperState.isUsable {
             invalidateHelperSessionProof()
@@ -1487,7 +1510,11 @@ final class AppState {
         }
 
         uninstallInProgress = true
-        defer { uninstallInProgress = false }
+        beginHelperLifecycleOperation()
+        defer {
+            endHelperLifecycleOperation()
+            uninstallInProgress = false
+        }
 
         if phase == .armed {
             await disarm()
@@ -1619,28 +1646,63 @@ final class AppState {
         publishWidget()
     }
 
-    /// Launch reconciliation: a live helper session with no app session means
-    /// the app crashed while armed and relaunched before the safety nets
-    /// fired. Restore normal sleep — the session record was already folded
-    /// into history by SessionStore's crash journal.
+    /// Launch reconciliation: helper-owned supervision or unfinished recovery
+    /// without a matching app session must converge through the same verified
+    /// normal-sleep coordinator as every other terminal path.
+    private func launchReconciliationContext() -> LaunchReconciliationSafety.Context {
+        LaunchReconciliationSafety.Context(
+            isDisarmed: phase == .disarmed,
+            hasCurrentSession: currentSession != nil,
+            hasQueuedArmIntent: pendingArm != nil || scheduleOccurrence != nil,
+            hasPendingRestore: pendingRestore != nil,
+            armRequestsInFlight: armRequestsInFlight,
+            terminationPending: terminationPending,
+            uninstallInProgress: uninstallInProgress,
+            sleepTerminationInProgress: sleepTerminationGeneration != nil,
+            helperReachable: helperState.isReachable,
+            helperProofEpoch: helperProofEpoch,
+            helperLifecycleEpoch: helperLifecycleEpoch,
+            helperLifecycleOperationsInFlight: helperLifecycleOperationsInFlight,
+            sleepGeneration: sleepGeneration
+        )
+    }
+
     private func reconcileWithHelper() async {
-        guard phase == .disarmed else { return }
-        guard helperState.isUsable else { return }
-        if let status = try? await helper.status(), status.armed {
-            overrideStateVerified = false
-            publishWidget()
-            _ = try? await helper.disarm(HelperDisarmOptions(
-                forceSleep: false,
-                reason: "orphaned session found at app launch"
-            ))
-            systemMonitor?.refresh()
-            refreshSystemFlags()
-            if sleepPresentation == .verifiedNormal {
-                notifications.post(
-                    title: "Normal sleep restored",
-                    body: "Lidless found a keep-awake session from a previous run and ended it."
-                )
+        let initial = launchReconciliationContext()
+        let initialHelperState = helperState
+        guard LaunchReconciliationSafety.canQuery(initial) else { return }
+        guard let status = try? await helper.status() else { return }
+
+        switch LaunchReconciliationSafety.decide(
+            initial: initial,
+            current: launchReconciliationContext(),
+            helperStateUnchanged: helperState == initialHelperState,
+            status: status
+        ) {
+        case .abandon:
+            return
+        case .none:
+            break
+        case .restore(let cancelQueuedArmIntent):
+            if cancelQueuedArmIntent {
+                pendingArm = nil
+                suppressCurrentScheduleOccurrence()
             }
+            guard beginRestore(PendingRestore(
+                options: HelperDisarmOptions(
+                    forceSleep: false,
+                    reason: "unfinished helper recovery found at app launch"
+                ),
+                endReason: nil,
+                notificationTitle: "Normal sleep verified",
+                notificationBody: "Lidless found unfinished helper recovery from a previous run and verified normal sleep.",
+                notificationSound: false,
+                playChime: false,
+                completionError: nil
+            )) != nil else { return }
+            refreshSystemFlags()
+            publishWidget()
+            return
         }
         refreshSystemFlags()
         maintainScheduledWake()

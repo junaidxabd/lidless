@@ -295,7 +295,7 @@ struct SleepStatePresentationTests {
             range: transitionPublish.upperBound..<confirmArm.endIndex
         ))
         let helperRefresh = try #require(confirmArm.range(
-            of: "await helper.refreshInstallState()",
+            of: "await refreshHelperInstallState()",
             range: firstSuspension.upperBound..<confirmArm.endIndex
         ))
         let eligibilityEpoch = try #require(confirmArm.range(
