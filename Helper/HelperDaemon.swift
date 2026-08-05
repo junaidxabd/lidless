@@ -1,7 +1,6 @@
 import Foundation
 import IOKit
 import IOKit.pwr_mgt
-import Security
 import LidlessCore
 
 // IOKit's iokit_common_msg() message constants aren't bridged into Swift;
@@ -36,8 +35,19 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "com.lidless.helper.state")
     private let log = HelperLog()
+    /// Constructed once from the dynamically validated running helper before
+    /// the listener is exposed. A missing value means every peer is rejected.
+    private let peerCodeSigningRequirement: String?
 
     private var listener: NSXPCListener?
+
+    override init() {
+        peerCodeSigningRequirement = XPCPeerPolicy.validatedRequirementForCurrentProcess(
+            appBundleID: LidlessIDs.appBundleID,
+            helperBundleID: LidlessIDs.helperLabel
+        )
+        super.init()
+    }
 
     // Session state (queue-only).
     private var sentinel: OverrideSentinel?
@@ -572,22 +582,14 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     // MARK: - NSXPCListenerDelegate
 
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
-        // Only the Lidless app may talk to this daemon. With a real signing
-        // team, require same-team + bundle identifier; ad-hoc development
-        // builds fall back to identifier-only (loudly logged).
-        let requirement: String
-        if let team = Self.ownTeamIdentifier() {
-            requirement = "anchor apple generic and identifier \"\(LidlessIDs.appBundleID)\" and certificate leaf[subject.OU] = \"\(team)\""
-        } else {
-            requirement = "identifier \"\(LidlessIDs.appBundleID)\""
-            log.error("DEV MODE: helper is not team-signed; accepting peers by identifier only")
-        }
-        do {
-            try newConnection.setCodeSigningRequirement(requirement)
-        } catch {
-            log.error("rejecting connection: could not apply code-signing requirement: \(error)")
+        // Only the same-team Lidless app may talk to this root daemon. A
+        // bundle identifier alone is locally spoofable, so ad-hoc helpers
+        // fail closed and must be installed from a properly signed build.
+        guard let requirement = peerCodeSigningRequirement else {
+            log.critical("rejecting connection: helper identity could not be validated at startup")
             return false
         }
+        newConnection.setCodeSigningRequirement(requirement)
 
         let connectionID = ObjectIdentifier(newConnection)
         newConnection.exportedInterface = NSXPCInterface(with: LidlessHelperXPC.self)
@@ -616,17 +618,6 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         }
     }
 
-    private static func ownTeamIdentifier() -> String? {
-        var code: SecCode?
-        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
-        var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
-        var info: CFDictionary?
-        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
-              let dict = info as? [String: Any]
-        else { return nil }
-        return dict[kSecCodeInfoTeamIdentifier as String] as? String
-    }
 }
 
 // MARK: - Per-connection XPC facade

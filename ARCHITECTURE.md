@@ -29,12 +29,13 @@ wrapped in redundant supervision, driven by a completely unprivileged brain.
 
 ## Layering
 
-**`Packages/LidlessCore`** — pure Swift, Foundation+IOKit only, no side
-effects. `CutoffEngine` (arm assessment, planned cutoffs, per-tick
+**`Packages/LidlessCore`** — shared Swift over the Foundation, IOKit, and
+Security system frameworks; it performs no system mutations. `CutoffEngine`
+(arm assessment, planned cutoffs, per-tick
 evaluation), `ScheduleEngine` (recurring windows, midnight wrap, DST-safe),
 `DrainEstimator` (least-squares %/hr over the trailing discharge run),
 `PMSetParser` (every piece of pmset text parsing in one tested module), the
-XPC payload types, and the sentinel model. 151 deterministic tests; the
+XPC payload types, and the sentinel model. 159 deterministic tests; the
 policies that decide when your battery stops draining are never buried in UI
 code.
 
@@ -97,9 +98,11 @@ The helper accepts a connection only if the peer satisfies a code-signing
 requirement applied with `NSXPCConnection.setCodeSigningRequirement`:
 `anchor apple generic and identifier "com.lidless.app" and certificate
 leaf[subject.OU] = "<team>"`, where `<team>` is read from the helper's *own*
-signing info at runtime — no hardcoded team, and app & helper are always
-signed together. Ad-hoc dev builds (no team) fall back to an identifier-only
-requirement and log that loudly. Payloads are Codable JSON over `Data` (one
+signing info once at startup, but only after the running helper dynamically
+validates its Apple-anchored `com.lidless.helper` identity. There is no hardcoded
+runtime team anchor; missing or invalid helper identity rejects every peer.
+Ad-hoc helpers fail closed because an identifier-only requirement is locally
+spoofable. Payloads are Codable JSON over `Data` (one
 encoding for XPC, sentinel, and logs); malformed input produces an error
 reply, never a crash. Every reply carries a fresh `HelperStatus` including
 the *read-back* override value.
