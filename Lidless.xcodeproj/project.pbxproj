@@ -94,7 +94,7 @@
 		369E37E9ED5CB25B50FB60ED /* SystemStateMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemStateMonitor.swift; sourceTree = "<group>"; };
 		3A0A911D53E24B9FCF04C547 /* Lidless.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Lidless.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4200970A1D6803D00E802E00 /* LidlessCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = LidlessCore; path = Packages/LidlessCore; sourceTree = SOURCE_ROOT; };
-		43CBB30107E810C4484B3497 /* LidlessHelper */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text; path = LidlessHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		43CBB30107E810C4484B3497 /* LidlessHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = LidlessHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		57A130EFA7C313E1F7328CD9 /* SchedulesPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulesPane.swift; sourceTree = "<group>"; };
 		66C7450A45A29DCBE17555B4 /* ConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStore.swift; sourceTree = "<group>"; };
 		6AC139D0B89390D5646D1168 /* ScreenshotRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotRenderer.swift; sourceTree = "<group>"; };
@@ -414,11 +414,17 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					009B86F112B829BCB31DC602 = {
+						DevelopmentTeam = PN68V6WLK7;
+						ProvisioningStyle = Automatic;
+					};
 					7940FB92F60BAC99A91AD8C5 = {
-						ProvisioningStyle = Manual;
+						DevelopmentTeam = PN68V6WLK7;
+						ProvisioningStyle = Automatic;
 					};
 					AB04B9D684E52B2DE9846A94 = {
-						ProvisioningStyle = Manual;
+						DevelopmentTeam = PN68V6WLK7;
+						ProvisioningStyle = Automatic;
 					};
 				};
 			};
@@ -551,6 +557,7 @@
 		042EFB55238AA93C4C93BE44 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Widget/Resources/LidlessWidget.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				INFOPLIST_FILE = Widget/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -614,11 +621,11 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = PN68V6WLK7;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -647,10 +654,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_ENTITLEMENTS = App/Resources/Lidless.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = PN68V6WLK7;
 				INFOPLIST_FILE = App/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -658,7 +663,6 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.lidless.app;
 				PRODUCT_NAME = Lidless;
-				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 			};
 			name = Release;
@@ -667,10 +671,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_ENTITLEMENTS = App/Resources/Lidless.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = PN68V6WLK7;
 				INFOPLIST_FILE = App/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -678,7 +680,6 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.lidless.app;
 				PRODUCT_NAME = Lidless;
-				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 			};
 			name = Debug;
@@ -716,11 +717,11 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = PN68V6WLK7;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -755,6 +756,7 @@
 		A3CF6C1B53DA098468C5CD9E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Widget/Resources/LidlessWidget.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				INFOPLIST_FILE = Widget/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

@@ -16,12 +16,11 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     MACOSX_DEPLOYMENT_TARGET: "15.0"
-    # Ad-hoc "Sign to Run Locally" by default so the project builds with no
-    # Apple Developer account (Manual style: Automatic refuses entitlements
-    # without a development certificate). For distribution, switch to your
-    # team in Xcode's Signing pane — see README "Signing & notarization".
-    CODE_SIGN_STYLE: Manual
-    CODE_SIGN_IDENTITY: "-"
+    # The helper is a root daemon and rejects locally spoofable ad-hoc peers.
+    # All runtime targets must therefore share a real signing-team anchor.
+    # Account-free CI compiles explicitly with CODE_SIGNING_ALLOWED=NO.
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: PN68V6WLK7
     ENABLE_HARDENED_RUNTIME: YES
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     SWIFT_STRICT_CONCURRENCY: complete
@@ -47,11 +46,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.lidless.app
         INFOPLIST_FILE: App/Resources/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        # App-group entitlements need a signing team (provisioning); the
-        # zero-account default builds without them — everything works except
-        # the widget's live data. For distribution, set DEVELOPMENT_TEAM and
-        # uncomment (see README "Signing & notarization"):
-        # CODE_SIGN_ENTITLEMENTS: App/Resources/Lidless.entitlements
+        CODE_SIGN_ENTITLEMENTS: App/Resources/Lidless.entitlements
     dependencies:
       - package: LidlessCore
       - target: LidlessHelper
@@ -99,9 +94,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.lidless.app.widget
         INFOPLIST_FILE: Widget/Resources/Info.plist
         SKIP_INSTALL: YES
-        # See the app target's note; required for the widget to read shared
-        # state in team-signed builds:
-        # CODE_SIGN_ENTITLEMENTS: Widget/Resources/LidlessWidget.entitlements
+        CODE_SIGN_ENTITLEMENTS: Widget/Resources/LidlessWidget.entitlements
     dependencies:
       - package: LidlessCore
 

@@ -14,13 +14,16 @@ Thanks for helping. Two ground rules shape every change here:
 
 ```bash
 make gen      # xcodegen generate (brew install xcodegen)
-make build
 make test     # LidlessCore suite — must stay green
-make simulate # run the app in dry-run mode (no root, simulated inputs)
+xcodebuild -project Lidless.xcodeproj -scheme Lidless \
+  -configuration Debug -derivedDataPath build/DerivedData \
+  CODE_SIGNING_ALLOWED=NO build  # compile verification only
 ```
 
-The project builds with ad-hoc signing — no Apple Developer account needed.
-The helper approval re-prompts after each rebuild in dev; that's expected.
+Runtime builds require one Apple signing team across the app, widget, and root
+helper. Account-free contributors can run the core tests and the same unsigned
+compile verification as CI with `CODE_SIGNING_ALLOWED=NO`; unsigned builds must
+not be used with the privileged helper.
 
 ## Testing expectations
 
@@ -39,7 +42,10 @@ The helper approval re-prompts after each rebuild in dev; that's expected.
 
 ## Releases
 
-`Scripts/release.sh` produces a notarization-ready zip; the cask in
-`Casks/lidless.rb` tracks the GitHub release URL. Maintainers bump
+`Scripts/release.sh prepare` packages a policy-checked app as a notarization-
+submission zip, not a verified or publishable artifact. After separately
+authorized notarization and stapling, `Scripts/release.sh finalize` validates
+the app and hashes the resulting final zip. The
+cask in `Casks/lidless.rb` tracks the published release URL. Maintainers bump
 `CFBundleShortVersionString` in both Info.plists and `LidlessIDs.helperVersion`
 when the XPC surface changes.

@@ -19,12 +19,12 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: Build (ad-hoc signed)
+      - name: Build (unsigned compile verification)
         run: |
           set -o pipefail
           xcodebuild -project Lidless.xcodeproj -scheme Lidless \
             -configuration Debug -derivedDataPath build/DerivedData \
-            build 2>&1 | tee build.log | tail -5
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build.log | tail -5
       - name: Show compiler errors on failure
         if: failure()
         run: grep -E "error:" -B 2 -A 4 build.log | head -160
@@ -34,4 +34,3 @@ jobs:
           test -f "$APP/Contents/MacOS/LidlessHelper"
           test -f "$APP/Contents/Library/LaunchDaemons/com.lidless.helper.plist"
           test -d "$APP/Contents/PlugIns/LidlessWidget.appex"
-          codesign --verify --deep "$APP"
