@@ -59,12 +59,14 @@ enum HelperClientError: LocalizedError {
     case notInstalled
     case badProxy
     case malformedReply
+    case rejected(String)
 
     var errorDescription: String? {
         switch self {
         case .notInstalled: "The privileged helper is not installed."
         case .badProxy: "Could not create a connection to the helper."
         case .malformedReply: "The helper sent a malformed reply."
+        case .rejected(let message): message
         }
     }
 }
@@ -205,8 +207,13 @@ final class HelperClient: HelperControlling {
 
     func scheduleWake(_ date: Date?) async throws {
         let epoch = date?.timeIntervalSince1970 ?? 0
-        _ = try await callForReply { proxy, done in
+        let reply = try await callForReply { proxy, done in
             proxy.scheduleWake(epoch, reply: done)
+        }
+        guard reply.ok else {
+            throw HelperClientError.rejected(
+                reply.error ?? "The helper rejected scheduled-wake reconciliation."
+            )
         }
     }
 

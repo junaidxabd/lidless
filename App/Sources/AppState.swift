@@ -71,11 +71,9 @@ final class AppState {
     private var nextStrikeAllowedAt = Date.distantPast
     private var warnedKinds: Set<String> = []
     private var lastSessionSampleAt = Date.distantPast
-    /// Three-state reconciliation cache for the helper's RTC wake:
-    /// .none = helper state unknown (always reconcile), .some(nil) = known
-    /// cancelled, .some(date) = known set. Starts unknown so launch always
-    /// reconciles against whatever a previous run left registered.
-    private var lastScheduledWakeSent: Date??
+    /// Reply-committed reconciliation state for the helper's RTC wake. It
+    /// starts unknown and failed/rejected calls stay retryable.
+    private var scheduledWakeReconciliation = ScheduledWakeReconciliation()
     /// Most recent sleep/wake transition signal, used to distinguish "helper
     /// lost the session because the system slept" from "helper crashed".
     private var lastSleepSignal = Date.distantPast
@@ -1361,7 +1359,7 @@ final class AppState {
 
         // Recompute the RTC wake for the *next* window rather than blanket-
         // cancelling: ending tonight's session must not lose tomorrow's wake.
-        lastScheduledWakeSent = .none
+        scheduledWakeReconciliation.invalidate()
         maintainScheduledWake()
     }
 
@@ -1487,6 +1485,7 @@ final class AppState {
     }
 
     private func helperInterrupted() {
+        scheduledWakeReconciliation.invalidate()
         invalidateHelperSessionProof()
         overrideStateVerified = false
         let transitionPersisted = publishWidget()
@@ -1812,7 +1811,7 @@ final class AppState {
     /// Keep an RTC wake registered just before the next window so a closed,
     /// sleeping MacBook can wake up and arm itself (best effort — DarkWake
     /// still runs launchd + us long enough to arm). Desired-state
-    /// reconciliation against the three-state cache; an unusable helper
+    /// reconciliation against reply-committed evidence; an unusable helper
     /// pauses (never blindly cancels) maintenance.
     private func maintainScheduledWake() {
         guard !isSimulation, helperState.isUsable else { return }
@@ -1822,9 +1821,23 @@ final class AppState {
             : nil
         let desired: Date? = next.map { $0.start.addingTimeInterval(-60) }
 
-        if lastScheduledWakeSent != .some(desired) {
-            lastScheduledWakeSent = .some(desired)
-            Task { try? await helper.scheduleWake(desired) }
+        guard let request = scheduledWakeReconciliation.begin(desired: desired) else {
+            return
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            guard scheduledWakeReconciliation.isCurrent(request.id) else {
+                scheduledWakeReconciliation.discardUndispatched(request.id)
+                return
+            }
+            do {
+                try await helper.scheduleWake(request.desired)
+                scheduledWakeReconciliation.complete(request.id, outcome: .confirmed)
+            } catch HelperClientError.rejected(_) {
+                scheduledWakeReconciliation.complete(request.id, outcome: .rejected)
+            } catch {
+                scheduledWakeReconciliation.complete(request.id, outcome: .uncertain)
+            }
         }
     }
 
