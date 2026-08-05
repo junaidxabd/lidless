@@ -137,8 +137,9 @@ final class AppState {
     /// arm work cannot cross the quit decision.
     private var terminationPending = false
     private var terminationRestoreGeneration: NonSleepRestoreGeneration?
-    /// Prevents outside-override repair from crossing helper removal while
-    /// that app-side operation is suspended.
+    /// Fences new work routed through this AppState while helper removal is
+    /// suspended. This is process-local admission control only; it cannot
+    /// cancel an already-dispatched XPC call or constrain another process.
     private var uninstallInProgress = false
 
     /// Incremented to ask the menu-bar bridge to open the main window.
@@ -237,7 +238,7 @@ final class AppState {
         refreshSystemFlags()
 
         Task {
-            await refreshHelperInstallState()
+            guard await refreshHelperInstallState() else { return }
             await reconcileWithHelper()
         }
 
@@ -279,10 +280,12 @@ final class AppState {
         helperLifecycleEpoch &+= 1
     }
 
-    private func refreshHelperInstallState() async {
+    private func refreshHelperInstallState() async -> Bool {
+        guard !uninstallInProgress else { return false }
         beginHelperLifecycleOperation()
         defer { endHelperLifecycleOperation() }
         await helper.refreshInstallState()
+        return true
     }
 
     private func recordSleepTransition() {
@@ -554,7 +557,10 @@ final class AppState {
     // MARK: - Arm flow intents
 
     func beginArmFlow(preset: ArmPreset? = nil) {
-        guard !terminationPending, phase == .disarmed else { return }
+        guard !terminationPending,
+              !uninstallInProgress,
+              phase == .disarmed
+        else { return }
         lastError = nil
 
         guard sleepPresentation == .verifiedNormal else {
@@ -644,6 +650,7 @@ final class AppState {
 
     func confirmArm() async {
         guard !terminationPending,
+              !uninstallInProgress,
               let intent = pendingArm,
               phase == .disarmed
         else { return }
@@ -673,7 +680,16 @@ final class AppState {
         // upgraded or replaced. Probe the live service at the mutation
         // boundary; a cached ready state is not authorization to arm.
         let eligibilityEpoch = helperProofEpoch
-        await refreshHelperInstallState()
+        guard await refreshHelperInstallState() else {
+            if phase == .arming {
+                phase = .disarmed
+                pendingArm = nil
+                scheduleOccurrence = nil
+                lastError = "Couldn't arm because helper removal began during verification."
+                publishWidget()
+            }
+            return
+        }
         guard phase == .arming, eligibilityEpoch == helperProofEpoch else {
             if phase == .arming {
                 phase = .disarmed
@@ -802,7 +818,7 @@ final class AppState {
                         completionError: message
                     ))
                 }
-                await refreshHelperInstallState()
+                _ = await refreshHelperInstallState()
                 return
             }
             helperSessionProven = true
@@ -877,7 +893,7 @@ final class AppState {
                 allowsUnownedExternalOverrideCompletion: true,
                 completionError: message
             ))
-            await refreshHelperInstallState()
+            _ = await refreshHelperInstallState()
         }
     }
 
@@ -904,6 +920,7 @@ final class AppState {
     /// A disarmed phase is not enough: the independent registry state must be
     /// readable and normal.
     func prepareForImmediateTermination() -> Bool {
+        guard !uninstallInProgress else { return false }
         let independentlyObserved = refreshedSleepOverride()
         guard NonSleepRestoreGate.allowsImmediateTermination(
             isDisarmed: phase == .disarmed,
@@ -925,7 +942,7 @@ final class AppState {
     /// keeps its terminate-later request open during recovery, so an `.appQuit`
     /// history record cannot be written for a quit that was already cancelled.
     func disarmForQuit() async -> Bool {
-        guard phase == .armed else { return false }
+        guard !uninstallInProgress, phase == .armed else { return false }
         terminationPending = true
         pendingArm = nil
         scheduleOccurrence = nil
@@ -1475,6 +1492,10 @@ final class AppState {
     }
 
     func installHelper() async {
+        guard !uninstallInProgress else {
+            lastError = "Wait for helper removal to finish before installing it again."
+            return
+        }
         beginHelperLifecycleOperation()
         defer { endHelperLifecycleOperation() }
         do {
@@ -1486,7 +1507,7 @@ final class AppState {
     }
 
     func refreshHelperState() async {
-        await refreshHelperInstallState()
+        guard await refreshHelperInstallState() else { return }
         if (phase == .armed || phase == .arming),
            !helperState.isUsable {
             invalidateHelperSessionProof()
@@ -1501,9 +1522,10 @@ final class AppState {
         helper.openApprovalSettings()
     }
 
-    /// Full uninstall: restore pmset state, remove helper + its data,
-    /// deregister the daemon, drop login item, delete app data.
-    /// Returns an error message, or nil on success.
+    /// Attempts helper removal only after this AppState has excluded competing
+    /// lifecycle/termination work and verified local arm state is quiescent.
+    /// Remote cleanup and deregistration remain the helper client's separate
+    /// responsibility. Returns an error message, or nil on reported success.
     func uninstall() async -> String? {
         guard HelperRemovalCompletionSafety.canAttemptVerifiedRemoval(
             isSimulation: isSimulation
@@ -1511,21 +1533,45 @@ final class AppState {
             return "Uninstall is unavailable in simulation. Exit simulation to remove the installed helper."
         }
 
-        guard !uninstallInProgress else {
-            return "Helper removal is already in progress."
+        guard HelperRemovalAppSafety.canStartRemoval(
+            isSimulation: isSimulation,
+            removalInProgress: uninstallInProgress,
+            terminationPending: terminationPending,
+            helperLifecycleOperationsInFlight: helperLifecycleOperationsInFlight
+        ) else {
+            if isSimulation {
+                return "Uninstall is unavailable in simulation. Exit simulation to remove the installed helper."
+            }
+            if uninstallInProgress {
+                return "Helper removal is already in progress."
+            }
+            if terminationPending {
+                return "Wait for quit recovery to finish before removing the helper."
+            }
+            return "Wait for the current helper operation to finish before removing it."
         }
 
         uninstallInProgress = true
         beginHelperLifecycleOperation()
+        scheduledWakeReconciliation.invalidate()
+        pendingArm = nil
+        suppressCurrentScheduleOccurrence()
         defer {
             endHelperLifecycleOperation()
             uninstallInProgress = false
         }
 
-        if phase == .armed {
+        if phase == .armed || phase == .arming {
             await disarm()
         }
-        guard phase == .disarmed, pendingRestore == nil else {
+        guard HelperRemovalAppSafety.canProceedRemoval(
+            isDisarmed: phase == .disarmed,
+            hasCurrentSession: currentSession != nil,
+            hasPendingArm: pendingArm != nil,
+            hasPendingRestore: pendingRestore != nil,
+            armRequestsInFlight: armRequestsInFlight,
+            sleepTerminationInProgress: sleepTerminationGeneration != nil
+        ) else {
             return "Normal sleep has not been verified yet. Lidless is keeping the helper installed while recovery continues."
         }
         do {
@@ -1920,6 +1966,7 @@ final class AppState {
         }
 
         guard !terminationPending,
+              !uninstallInProgress,
               phase == .disarmed,
               pendingArm == nil,
               helperState.isUsable,
@@ -1955,7 +2002,10 @@ final class AppState {
     /// reconciliation against reply-committed evidence; an unusable helper
     /// pauses (never blindly cancels) maintenance.
     private func maintainScheduledWake() {
-        guard !isSimulation, helperState.isUsable else { return }
+        guard !isSimulation,
+              !uninstallInProgress,
+              helperState.isUsable
+        else { return }
 
         let next = config.scheduleAutomationEnabled
             ? ScheduleEngine.nextStart(windows: config.schedules, after: Date(), calendar: .current)
