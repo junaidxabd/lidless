@@ -343,6 +343,37 @@ struct NonSleepRestoreCoordinatorTests {
         #expect(!gate.isCompleted(quit))
     }
 
+    @Test func repairActuationCannotAcquireSessionOrUnownedCompletionSemantics() {
+        #expect(NonSleepRestoreActuation.repairOverride.allowsConfiguration(
+            forceSleepRequested: false,
+            finalizesSession: false,
+            allowsUnownedExternalOverrideCompletion: false
+        ))
+
+        let invalidRepairConfigurations: [(Bool, Bool, Bool)] = [
+            (true, false, false),
+            (false, true, false),
+            (false, false, true),
+            (true, true, false),
+            (true, false, true),
+            (false, true, true),
+            (true, true, true)
+        ]
+        for (forceSleep, finalizesSession, unownedCompletion) in invalidRepairConfigurations {
+            #expect(!NonSleepRestoreActuation.repairOverride.allowsConfiguration(
+                forceSleepRequested: forceSleep,
+                finalizesSession: finalizesSession,
+                allowsUnownedExternalOverrideCompletion: unownedCompletion
+            ))
+        }
+
+        #expect(NonSleepRestoreActuation.disarm.allowsConfiguration(
+            forceSleepRequested: true,
+            finalizesSession: true,
+            allowsUnownedExternalOverrideCompletion: true
+        ))
+    }
+
     @Test func appUsesTheBehavioralGateAndTruthfulSleepRequestCopy() throws {
         let app = try repositoryFile("App/Sources/AppState.swift")
         let delegate = try repositoryFile("App/Sources/LidlessApp.swift")
@@ -402,5 +433,88 @@ struct NonSleepRestoreCoordinatorTests {
             of: "NSApp.reply(toApplicationShouldTerminate: restored)"
         ))
         #expect(awaitedRestore.lowerBound < appKitReply.lowerBound)
+    }
+
+    @Test func outsideOverrideRepairUsesTheGenerationBoundRestoreWorker() throws {
+        let app = try repositoryFile("App/Sources/AppState.swift")
+        let pendingRestore = try section(
+            of: app,
+            from: "private struct PendingRestore",
+            through: "private var pendingRestore: PendingRestore?"
+        )
+        let repair = try section(
+            of: app,
+            from: "func repairOverride() async",
+            through: "func installHelper() async"
+        )
+        let monitor = try section(
+            of: app,
+            from: "private func runRestoreMonitor(",
+            through: "private func dispatchForceSleepFollowUp("
+        )
+        let sleepTransition = try section(
+            of: app,
+            from: "private func recordSleepTransition()",
+            through: "private func trackedArm("
+        )
+        let transitionRestore = try section(
+            of: app,
+            from: "private func restoreAfterSleepTransition()",
+            through: "var effectiveConfig: CutoffConfig"
+        )
+
+        #expect(pendingRestore.contains("var actuation: NonSleepRestoreActuation"))
+        #expect(app.contains("pending.actuation.allowsConfiguration("))
+        #expect(app.contains("pending.options.forceSleep || pending.forceSleepFollowUp != nil"))
+        #expect(repair.contains("actuation: .repairOverride"))
+        #expect(repair.contains("sleepPresentation == .outsideOverride"))
+        #expect(repair.contains("phase == .disarmed"))
+        #expect(repair.contains("currentSession == nil"))
+        #expect(repair.contains("pendingArm == nil"))
+        #expect(repair.contains("pendingRestore == nil"))
+        #expect(repair.contains("armRequestsInFlight == 0"))
+        #expect(repair.contains("!uninstallInProgress"))
+        #expect(repair.contains("helperState.isUsable"))
+        #expect(repair.contains("refreshedSleepOverride() == true"))
+        #expect(repair.contains("forceSleepFollowUp: nil"))
+        #expect(repair.contains("allowsUnownedExternalOverrideCompletion: false"))
+        #expect(!repair.contains("lastError = nil"))
+        #expect(!repair.contains("let reply = try await helper.repairOverride()"))
+        #expect(monitor.contains("switch pending.actuation"))
+        #expect(monitor.contains("case .repairOverride:"))
+        #expect(monitor.contains("reply = try await helper.repairOverride()"))
+        #expect(monitor.contains("restoreGate.evaluateBaseProof("))
+        #expect(app.contains("guard case .disarm = pending.actuation else"))
+        #expect(sleepTransition.contains("sleepTerminationActuation = pendingRestore?.actuation ?? .disarm"))
+        let sleepActuationSnapshot = try #require(sleepTransition.range(
+            of: "sleepTerminationActuation = pendingRestore?.actuation ?? .disarm"
+        ))
+        let pendingRestoreCancellation = try #require(sleepTransition.range(
+            of: "cancelPendingRestoreForSleepTransition()"
+        ))
+        #expect(sleepActuationSnapshot.lowerBound < pendingRestoreCancellation.lowerBound)
+        #expect(sleepTransition.contains(
+            "if sleepTerminationGeneration == nil {\n"
+                + "                sleepTerminationGeneration = sleepGeneration\n"
+                + "                sleepTerminationActuation = pendingRestore?.actuation ?? .disarm\n"
+                + "            }\n"
+                + "            cancelPendingRestoreForSleepTransition()"
+        ))
+        #expect(transitionRestore.contains("switch terminalActuation"))
+        #expect(transitionRestore.contains("case .repairOverride:"))
+        #expect(transitionRestore.contains("reply = try await helper.repairOverride()"))
+        let transitionRepairCall = try #require(transitionRestore.range(
+            of: "reply = try await helper.repairOverride()"
+        ))
+        let postAwaitGenerationFence = try #require(transitionRestore.range(
+            of: "guard terminalGeneration == sleepTerminationGeneration else { continue }"
+        ))
+        #expect(transitionRepairCall.lowerBound < postAwaitGenerationFence.lowerBound)
+        #expect(transitionRestore.contains(
+            "sleepTerminationGeneration = nil\n"
+                + "                    sleepTerminationActuation = nil"
+        ))
+        #expect(app.contains("uninstallInProgress = true"))
+        #expect(app.contains("defer { uninstallInProgress = false }"))
     }
 }

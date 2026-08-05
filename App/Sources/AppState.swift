@@ -82,6 +82,9 @@ final class AppState {
     /// settle and a later helper reply plus registry read prove normal sleep.
     private var sleepGeneration: UInt64 = 0
     private var sleepTerminationGeneration: UInt64?
+    /// A sleep transition may replace the local worker but must preserve the
+    /// privileged mutation needed by its interrupted restore generation.
+    private var sleepTerminationActuation: NonSleepRestoreActuation?
     private var armRequestsInFlight = 0
 
     private var tickTask: Task<Void, Never>?
@@ -98,6 +101,11 @@ final class AppState {
     private struct PendingRestore {
         /// Unforgeable identity fences late XPC results from an older restore.
         var id: NonSleepRestoreGeneration? = nil
+        /// The helper mutation that must remain retryable for this generation.
+        /// Outside-override repair cannot degrade to a plain disarm: if the
+        /// first XPC delivery was lost, only another repair attempt can create
+        /// the helper recovery sentinel and restore the external override.
+        var actuation: NonSleepRestoreActuation = .disarm
         var options: HelperDisarmOptions
         /// A cutoff may ask for sleep only after ordinary sleep has been
         /// restored. This follow-up is dispatched at most once because a lost
@@ -124,6 +132,9 @@ final class AppState {
     /// arm work cannot cross the quit decision.
     private var terminationPending = false
     private var terminationRestoreGeneration: NonSleepRestoreGeneration?
+    /// Prevents outside-override repair from crossing helper removal while
+    /// that app-side operation is suspended.
+    private var uninstallInProgress = false
 
     /// Incremented to ask the menu-bar bridge to open the main window.
     private(set) var mainWindowRequestToken = 0
@@ -284,6 +295,7 @@ final class AppState {
         if terminatesActiveIntent {
             if sleepTerminationGeneration == nil {
                 sleepTerminationGeneration = sleepGeneration
+                sleepTerminationActuation = pendingRestore?.actuation ?? .disarm
             }
             cancelPendingRestoreForSleepTransition()
             phase = .disarming
@@ -328,13 +340,21 @@ final class AppState {
         defer { sleepTerminationTask = nil }
 
         while !Task.isCancelled {
-            guard let terminalGeneration = sleepTerminationGeneration else { return }
+            guard let terminalGeneration = sleepTerminationGeneration,
+                  let terminalActuation = sleepTerminationActuation
+            else { return }
 
             do {
-                let reply = try await helper.disarm(HelperDisarmOptions(
-                    forceSleep: false,
-                    reason: "system sleep terminal fence"
-                ))
+                let reply: HelperReply
+                switch terminalActuation {
+                case .disarm:
+                    reply = try await helper.disarm(HelperDisarmOptions(
+                        forceSleep: false,
+                        reason: "system sleep terminal fence"
+                    ))
+                case .repairOverride:
+                    reply = try await helper.repairOverride()
+                }
                 guard terminalGeneration == sleepTerminationGeneration else { continue }
 
                 systemMonitor?.refresh()
@@ -352,6 +372,7 @@ final class AppState {
                         stopHeartbeat()
                     }
                     sleepTerminationGeneration = nil
+                    sleepTerminationActuation = nil
                     phase = .disarmed
                     lastError = nil
                     systemMonitor?.refresh()
@@ -942,6 +963,14 @@ final class AppState {
         }
 
         var pending = requested
+        guard pending.actuation.allowsConfiguration(
+            forceSleepRequested: pending.options.forceSleep || pending.forceSleepFollowUp != nil,
+            finalizesSession: pending.endReason != nil,
+            allowsUnownedExternalOverrideCompletion: pending.allowsUnownedExternalOverrideCompletion
+        ) else {
+            lastError = "Invalid normal-sleep recovery configuration."
+            return nil
+        }
         let restoreID = restoreGate.begin(
             forceSleepRequested: pending.forceSleepFollowUp != nil,
             requiresFinalProof: pending.endReason == .appQuit
@@ -1010,6 +1039,7 @@ final class AppState {
               pending.endReason == .appQuit,
               restoreGate.isAwaitingFinalProof(restoreID)
         else { return false }
+        guard case .disarm = pending.actuation else { return false }
 
         do {
             let reply = try await helper.disarm(pending.options)
@@ -1149,7 +1179,13 @@ final class AppState {
             shouldDelay = true
 
             do {
-                let reply = try await helper.disarm(pending.options)
+                let reply: HelperReply
+                switch pending.actuation {
+                case .disarm:
+                    reply = try await helper.disarm(pending.options)
+                case .repairOverride:
+                    reply = try await helper.repairOverride()
+                }
                 guard pendingRestore?.id == restoreID else { return }
                 guard sleepTerminationGeneration == nil else {
                     cancelPendingRestoreForSleepTransition()
@@ -1376,15 +1412,45 @@ final class AppState {
     // MARK: - Repair / uninstall
 
     func repairOverride() async {
-        do {
-            let reply = try await helper.repairOverride()
-            if !reply.ok { lastError = reply.error }
-        } catch {
-            lastError = "Repair failed: \(error.localizedDescription)"
+        guard !terminationPending,
+              !uninstallInProgress,
+              sleepTerminationGeneration == nil,
+              phase == .disarmed,
+              currentSession == nil,
+              pendingArm == nil,
+              pendingRestore == nil,
+              armRequestsInFlight == 0,
+              sleepPresentation == .outsideOverride
+        else { return }
+        guard helperState.isUsable else {
+            lastError = "The current helper is unavailable or incompatible. Open Setup before restoring the outside sleep override."
+            requestMainWindow()
+            return
         }
-        systemMonitor?.refresh()
-        refreshSystemFlags()
-        publishWidget()
+        guard refreshedSleepOverride() == true,
+              sleepPresentation == .outsideOverride
+        else {
+            lastError = "Lidless could not freshly verify the outside sleep override. Check the system state and try again."
+            publishWidget()
+            return
+        }
+
+        _ = beginRestore(PendingRestore(
+            actuation: .repairOverride,
+            options: HelperDisarmOptions(
+                forceSleep: false,
+                reason: "repairing outside sleep override"
+            ),
+            forceSleepFollowUp: nil,
+            waitsForCompletion: false,
+            endReason: nil,
+            notificationTitle: nil,
+            notificationBody: nil,
+            notificationSound: false,
+            playChime: false,
+            allowsUnownedExternalOverrideCompletion: false,
+            completionError: nil
+        ))
     }
 
     func installHelper() async {
@@ -1416,6 +1482,13 @@ final class AppState {
     /// deregister the daemon, drop login item, delete app data.
     /// Returns an error message, or nil on success.
     func uninstall() async -> String? {
+        guard !uninstallInProgress else {
+            return "Helper removal is already in progress."
+        }
+
+        uninstallInProgress = true
+        defer { uninstallInProgress = false }
+
         if phase == .armed {
             await disarm()
         }

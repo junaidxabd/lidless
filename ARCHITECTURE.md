@@ -35,7 +35,7 @@ Security system frameworks; it performs no system mutations. `CutoffEngine`
 evaluation), `ScheduleEngine` (recurring windows, midnight wrap, DST-safe),
 `DrainEstimator` (least-squares %/hr over the trailing discharge run),
 `PMSetParser` (every piece of pmset text parsing in one tested module), the
-XPC payload types, and the sentinel model. 175 deterministic tests; the
+XPC payload types, and the sentinel model. 227 deterministic tests; the
 policies that decide when your battery stops draining are never buried in UI
 code.
 
@@ -113,6 +113,14 @@ never-established arm request may end without mutation if the exact current
 helper proves it owns no session or pending recovery while the app independently
 sees an outside override. Once a Lidless session was established, that evidence
 is causally ambiguous; recovery stays visible until normal sleep is proven.
+Repairing an outside override is also generation-bound: the app records the
+repair transition before its first XPC call and keeps the repair operation
+selected whenever an attempt returns without complete proof. Completion still
+requires the helper and a fresh, independent registry read to prove normal
+sleep. A repair generation cannot inherit session-finalization,
+outside-ownership, or force-sleep semantics. The generation is app-local: it
+cannot cancel a remotely delivered mutation, and an XPC call that never replies
+remains an open transport-liveness condition.
 
 ## XPC hardening
 
@@ -173,7 +181,7 @@ mode (`--render-screenshots`), so the docs can never drift from the real UI.
 ## Project layout
 
 ```
-Packages/LidlessCore/    pure logic + 175 tests (swift test)
+Packages/LidlessCore/    pure logic + 227 tests (swift test)
 App/Sources/             AppState, monitors, HelperClient, services, SwiftUI
 Helper/                  daemon (PMSet, HelperDaemon, launchd plist)
 Widget/                  WidgetKit mirror of the published snapshot
