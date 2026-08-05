@@ -33,7 +33,7 @@ final class PMSetThermalMonitor: ThermalMonitoring {
             forName: ProcessInfo.thermalStateDidChangeNotification,
             object: nil,
             queue: .main
-        ) { _ in
+        ) { [weak self] _ in
             // Notification arrives on the main queue; re-enter the actor
             // explicitly to keep Swift 6 happy.
             Task { @MainActor [weak self] in
