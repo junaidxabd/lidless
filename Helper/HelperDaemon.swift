@@ -59,6 +59,10 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
     /// A restore that failed; retried on every tick until it succeeds.
     private var restorePending: OverrideSentinel?
+    /// Invalidates delayed force-sleep follow-ups whenever any later helper or
+    /// system lifecycle intent arrives. This closes the nil -> active -> nil
+    /// ABA window that a sentinel-only guard cannot detect.
+    private var lifecycleGeneration = UUID()
 
     // Supervision clocks are monotonic (mach time), never wall-clock: an NTP
     // step or manual clock change must neither extend the unsupervised
@@ -79,6 +83,9 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     private var powerNotifyPort: IONotificationPortRef?
     private var powerNotifier: io_object_t = 0
     private var rootPowerConnection: io_connect_t = 0
+    /// A delayed force-sleep request is never authorized when the helper
+    /// cannot observe an intervening sleep/wake lifecycle.
+    private var powerObservationAvailable = false
 
     /// The exact rendered date string is stored alongside the Date so
     /// cancellation always matches what pmset was given — re-rendering after
@@ -219,10 +226,12 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         IONotificationPortSetDispatchQueue(notifyPort, queue)
         powerNotifyPort = notifyPort
         powerNotifier = notifier
+        powerObservationAvailable = true
     }
 
     /// Runs on `queue` (the notification port's dispatch queue).
     private func handlePowerMessage(_ messageType: UInt32, argument: UnsafeMutableRawPointer?) {
+        advanceLifecycle()
         switch messageType {
         case UInt32(kIOMessageSystemWillSleep):
             // With the override on, ordinary sleep is impossible — reaching
@@ -245,6 +254,10 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
     // MARK: - Arm / restore core
 
+    private func advanceLifecycle() {
+        lifecycleGeneration = UUID()
+    }
+
     private func writeSentinel(_ sentinel: OverrideSentinel) throws {
         ensureWorkDirectory()
         let url = URL(fileURLWithPath: HelperPaths.sentinel)
@@ -258,6 +271,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     }
 
     fileprivate func handleArm(_ options: HelperArmOptions, connectionID: ObjectIdentifier?, reply: @escaping @Sendable (Data) -> Void) {
+        advanceLifecycle()
         guard restorePending == nil else {
             reply(replyData(ok: false, error: "helper is recovering from a failed restore; cannot arm"))
             return
@@ -612,6 +626,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                 reply(replyData(ok: false, error: "malformed disarm options"))
                 return
             }
+            advanceLifecycle()
 
             if let record = sentinel ?? restorePending {
                 performRestore(record, reason: "disarm: \(options.reason)")
@@ -626,9 +641,24 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
             if options.forceSleep, restored {
                 // Give the app a moment to post its notification/sound, and
-                // skip if a new session armed in the window.
+                // skip if any newer lifecycle intent crossed the delay.
+                let forceSleepGeneration = lifecycleGeneration
+                let forceSleepCreatedAt = DispatchTime.now().uptimeNanoseconds
                 queue.asyncAfter(deadline: .now() + 3) { [self] in
-                    guard sentinel == nil else { return }
+                    let observedClamshellClosed = PowerRegistry.clamshellClosed()
+                    let observedSleepDisabled = PMSet.readSleepDisabled()
+                    let authorizationCheckedAt = DispatchTime.now().uptimeNanoseconds
+                    guard DelayedSleepSafety.allowsForceSleep(
+                        capturedGeneration: forceSleepGeneration,
+                        currentGeneration: lifecycleGeneration,
+                        requestCreatedAtNanoseconds: forceSleepCreatedAt,
+                        currentNanoseconds: authorizationCheckedAt,
+                        hasActiveSentinel: sentinel != nil,
+                        hasPendingRestore: restorePending != nil,
+                        powerObservationAvailable: powerObservationAvailable,
+                        observedClamshellClosed: observedClamshellClosed,
+                        observedSleepDisabled: observedSleepDisabled
+                    ) else { return }
                     log.info("forcing sleep (\(options.reason))")
                     do { try PMSet.sleepNow() }
                     catch { log.error("sleepnow failed: \(error)") }
@@ -640,6 +670,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     fileprivate func handleRepairOverride(reply: @escaping @Sendable (Data) -> Void) {
         queue.async { [self] in
             lastActivity = Date()
+            advanceLifecycle()
 
             let record: OverrideSentinel
             if let existing = sentinel ?? restorePending {
@@ -724,6 +755,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     fileprivate func handleUninstall(reply: @escaping @Sendable (Data) -> Void) {
         queue.async { [self] in
             lastActivity = Date()
+            advanceLifecycle()
             if let record = sentinel ?? restorePending {
                 performRestore(record, reason: "uninstall")
             }

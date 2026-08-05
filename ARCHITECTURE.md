@@ -64,8 +64,8 @@ Mechanisms, layered so no single failure strands the override:
    (0600, root) *before* `disablesleep 1` runs and removed only *after* a
    verified restore. It records the LPM key (`lowpowermode`/`powermode` —
    differs across macOS releases), `tcpkeepalive` priors, and a legacy
-   `disablesleep` field, so recovery needs no app state. Protocol v5 refuses
-   to arm over a measured external override and always restores ordinary
+   `disablesleep` field, so recovery needs no app state. Protocol v5 and later
+   refuse to arm over a measured external override and always restore ordinary
    sleep (`disablesleep 0`). The disk record is immutable while active;
    heartbeat and re-arm deadlines live only in queue-owned memory because
    filesystem latency is not bounded.

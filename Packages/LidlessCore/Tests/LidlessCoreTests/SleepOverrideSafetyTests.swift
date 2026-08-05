@@ -3,8 +3,8 @@ import LidlessCore
 
 @Suite("SleepOverrideSafety")
 struct SleepOverrideSafetyTests {
-    @Test func verifiedSleepStateProtocolIsVersionFive() {
-        #expect(LidlessIDs.helperVersion == 5)
+    @Test func verifiedSleepStateProtocolIsVersionSix() {
+        #expect(LidlessIDs.helperVersion == 6)
     }
 
     @Test func unknownReadbackNeverVerifiesAMutation() {
