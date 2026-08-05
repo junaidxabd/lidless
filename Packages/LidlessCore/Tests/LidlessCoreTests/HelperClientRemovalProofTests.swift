@@ -82,7 +82,7 @@ struct HelperClientRemovalProofTests {
             of: "let independentlyObserved = PowerRegistry.sleepDisabled()"
         ))
         let combinedProof = try #require(uninstall.range(
-            of: "SleepOverrideSafety.isRestoreProven(\n                reply,\n                independentlyObserved: independentlyObserved\n            )"
+            of: "HelperRemovalSafety.removalAction(\n                .enabled,\n                helperReply: reply,\n                independentlyObserved: independentlyObserved\n            )"
         ))
         let unregister = try #require(uninstall.range(of: "Self.unregisterDaemon()"))
 

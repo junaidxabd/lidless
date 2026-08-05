@@ -134,7 +134,10 @@ final class HelperClient: HelperControlling {
         // helper reports (or the registry shows) the override might still be
         // active. Gate on launchd's own status, not our cached installState —
         // a wedged helper reads as .notResponding but was fully able to arm.
-        if service.status == .enabled {
+        let registrationState = removalRegistrationState()
+        let removalAction: HelperRemovalSafety.RegistrationRemovalAction
+        switch registrationState {
+        case .enabled:
             let reply: HelperReply
             do {
                 reply = try await callForReply { proxy, done in proxy.uninstall(done) }
@@ -144,30 +147,66 @@ final class HelperClient: HelperControlling {
                 ])
             }
 
-            // Deregistration removes launchd's recovery supervision. Require
-            // both the current helper's exact restoration proof and a fresh,
-            // independent registry read from the app after the XPC reply.
             let independentlyObserved = PowerRegistry.sleepDisabled()
-            guard SleepOverrideSafety.isRestoreProven(
-                reply,
+            guard let authorized = HelperRemovalSafety.removalAction(
+                .enabled,
+                helperReply: reply,
                 independentlyObserved: independentlyObserved
             ) else {
                 throw NSError(domain: "Lidless", code: 4, userInfo: [
                     NSLocalizedDescriptionKey: "Normal sleep was not independently verified after helper cleanup (\(reply.error ?? "incomplete proof")). The helper remains installed. Run \(LidlessIDs.manualFallbackCommand), then try again.",
                 ])
             }
-        } else {
-            // Never-approved / never-registered helpers can't have armed;
-            // block only on positive evidence of a live override.
-            guard PowerRegistry.sleepDisabled() != true else {
+            removalAction = authorized
+        case .inactive:
+            let independentlyObserved = PowerRegistry.sleepDisabled()
+            guard let authorized = HelperRemovalSafety.removalAction(
+                .inactive,
+                helperReply: nil,
+                independentlyObserved: independentlyObserved
+            ) else {
                 throw NSError(domain: "Lidless", code: 5, userInfo: [
-                    NSLocalizedDescriptionKey: "The system sleep override is active. Run \(LidlessIDs.manualFallbackCommand) first, then uninstall.",
+                    NSLocalizedDescriptionKey: "Normal sleep could not be verified while the helper registration is inactive. Run \(LidlessIDs.manualFallbackCommand), then try again.",
                 ])
             }
+            removalAction = authorized
+        case .unknown:
+            throw NSError(domain: "Lidless", code: 6, userInfo: [
+                NSLocalizedDescriptionKey: "The helper registration state is unknown. Lidless will not remove supervision until the state can be classified.",
+            ])
         }
-        try await Self.unregisterDaemon()
-        invalidateConnection()
-        await refreshInstallState()
+
+        // A registration-state transition during the proof window invalidates
+        // that evidence. Retry from a fresh classification instead of
+        // unregistering a service different from the one just verified.
+        guard removalRegistrationState() == registrationState else {
+            throw NSError(domain: "Lidless", code: 7, userInfo: [
+                NSLocalizedDescriptionKey: "The helper registration changed during removal. Lidless did not request deregistration; try again.",
+            ])
+        }
+        switch removalAction {
+        case .alreadyInactive:
+            invalidateConnection()
+            await refreshInstallState()
+            return
+        case .unregister:
+            try await Self.unregisterDaemon()
+            invalidateConnection()
+            await refreshInstallState()
+        }
+    }
+
+    private func removalRegistrationState() -> HelperRemovalSafety.RegistrationState {
+        switch service.status {
+        case .enabled:
+            .enabled
+        case .notRegistered:
+            .inactive
+        case .notFound, .requiresApproval:
+            .unknown
+        @unknown default:
+            .unknown
+        }
     }
 
     /// SMAppService is not Sendable; constructing and unregistering it in one
