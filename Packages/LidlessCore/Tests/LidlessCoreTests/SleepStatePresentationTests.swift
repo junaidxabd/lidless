@@ -32,6 +32,13 @@ struct SleepStatePresentationTests {
         return source[startRange.lowerBound..<endRange.upperBound]
     }
 
+    private func occurrenceCount(
+        of needle: String,
+        in source: some StringProtocol
+    ) -> Int {
+        source.components(separatedBy: needle).count - 1
+    }
+
     private func snapshot(
         presentation: SleepPresentationState?,
         updatedAt: Date,
@@ -244,7 +251,7 @@ struct SleepStatePresentationTests {
         let usability = try section(
             of: helper,
             from: "var isUsable: Bool",
-            through: "/// A stale helper"
+            through: "var isReachable: Bool"
         )
         #expect(usability.contains("case .ready, .simulated: true"))
         #expect(!usability.contains(".stale"))
@@ -325,32 +332,22 @@ struct SleepStatePresentationTests {
         #expect(confirmArm.contains("pending.createdAt == intent.createdAt"))
         #expect(confirmArm.contains("freshAssessment == intent.assessment"))
 
-        let rearm = try section(
+        let proofLoss = try section(
             of: app,
             from: "private func helperInterrupted()",
             through: "private func resyncAfterWake()"
         )
-        #expect(rearm.contains("overrideStateVerified = false\n        guard publishWidget() else"))
-        #expect(rearm.contains("refreshSystemFlags()\n            publishWidget()"))
-        let rearmRefresh = try #require(rearm.range(of: "await helper.refreshInstallState()"))
-        let rearmEpoch = try #require(rearm.range(
-            of: "let eligibilityEpoch = helperProofEpoch",
-            range: rearm.startIndex..<rearmRefresh.lowerBound
-        ))
-        let rearmEligibility = try #require(rearm.range(
-            of: "guard helperState.isUsable else",
-            range: rearmRefresh.upperBound..<rearm.endIndex
-        ))
-        let rearmCall = try #require(rearm.range(
-            of: "try await trackedArm(options)",
-            range: rearmEligibility.upperBound..<rearm.endIndex
-        ))
-        #expect(rearm.contains("guard publishWidget() else"))
-        #expect(rearmEpoch.lowerBound < rearmRefresh.lowerBound)
-        #expect(rearmRefresh.lowerBound < rearmEligibility.lowerBound)
-        #expect(rearmEligibility.lowerBound < rearmCall.lowerBound)
-        #expect(rearm.contains("helperSessionProven = true"))
-        #expect(!rearm.contains("Date().timeIntervalSince(lastSleepSignal) < 60"))
+        #expect(proofLoss.contains("overrideStateVerified = false"))
+        #expect(occurrenceCount(
+            of: "startTerminalRecoveryAfterHelperProofLoss",
+            in: proofLoss
+        ) == 2)
+        #expect(proofLoss.contains("beginRestore(PendingRestore("))
+        #expect(proofLoss.contains("endReason: currentSession == nil ? nil : .helperProofLost"))
+        #expect(!proofLoss.contains("trackedArm("))
+        #expect(!proofLoss.contains("helper.arm("))
+        #expect(!proofLoss.contains("helperSessionProven = true"))
+        #expect(!proofLoss.contains("rearmAfterHelperRestart"))
 
         let wake = try section(
             of: app,
@@ -370,7 +367,9 @@ struct SleepStatePresentationTests {
         #expect(flags.contains("if phase == .armed, observedOverride != true"))
         #expect(flags.contains("invalidateHelperSessionProof()"))
         #expect(app.contains("systemMonitor?.onWillSleep = { [weak self] in\n            self?.recordSleepTransition()"))
-        #expect(app.contains("if phase == .armed, !helperState.isUsable {\n            invalidateHelperSessionProof()"))
+        #expect(app.contains(
+            "if (phase == .armed || phase == .arming),\n           !helperState.isUsable"
+        ))
 
         #expect(publisher.contains("func publish(_ snapshot: WidgetSnapshot) -> Bool"))
         #expect(publisher.contains("guard WidgetStore.save(snapshot) else { return false }"))
@@ -415,15 +414,18 @@ struct SleepStatePresentationTests {
         #expect(confirm.contains("phase == .arming"))
         #expect(confirm.contains("armSleepGeneration == sleepGeneration"))
 
-        let rearm = try section(
+        let proofLoss = try section(
             of: app,
             from: "private func helperInterrupted()",
             through: "private func resyncAfterWake()"
         )
-        #expect(rearm.contains("let armSleepGeneration = sleepGeneration"))
-        #expect(rearm.contains("try await trackedArm(options)"))
-        #expect(rearm.contains("phase == .armed"))
-        #expect(rearm.contains("armSleepGeneration == sleepGeneration"))
+        #expect(occurrenceCount(
+            of: "startTerminalRecoveryAfterHelperProofLoss",
+            in: proofLoss
+        ) == 2)
+        #expect(proofLoss.contains("phase == .armed || phase == .arming"))
+        #expect(!proofLoss.contains("trackedArm(options)"))
+        #expect(!proofLoss.contains("rearmAfterHelperRestart"))
 
         let wake = try section(
             of: app,

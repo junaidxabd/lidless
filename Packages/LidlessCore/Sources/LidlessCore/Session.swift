@@ -11,6 +11,8 @@ public enum SessionEndReason: Codable, Sendable, Equatable, Hashable {
     case helperWatchdog
     /// Helper restarted (crash or upgrade) and restored sleep as a precaution.
     case helperRestored
+    /// Live helper/registry proof was lost, so Lidless ended the session.
+    case helperProofLost
     /// System slept anyway (user forced sleep); the override was released.
     case systemSlept
     case uninstalled

@@ -105,9 +105,14 @@ offline claim.
 The app side mirrors this: quitting while armed asks ("Disarm & Quit"), the
 session journal (`current-session.json`) folds crashed sessions into history
 on next launch, and launch reconciliation disarms an orphaned helper session
-if the app comes back before the watchdog fires. If the helper restarts
-mid-session, the app's interruption handler re-arms within seconds and the
-blip is logged on both sides; if re-arm fails, the session ends loudly.
+if the app comes back before the watchdog fires. A helper interruption or any
+heartbeat that cannot prove the live override is terminal for the current
+session: the app restores normal sleep and requires a fresh user/schedule arm.
+It never automatically re-enables an override after proof has been lost. A
+never-established arm request may end without mutation if the exact current
+helper proves it owns no session or pending recovery while the app independently
+sees an outside override. Once a Lidless session was established, that evidence
+is causally ambiguous; recovery stays visible until normal sleep is proven.
 
 ## XPC hardening
 

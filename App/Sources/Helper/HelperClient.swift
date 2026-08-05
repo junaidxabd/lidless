@@ -9,7 +9,7 @@ enum HelperInstallState: Equatable {
     /// Registered; waiting for the user's one-time approval in System Settings.
     case requiresApproval
     case ready(helperVersion: Int)
-    /// Helper responds but predates this app build; re-registration needed.
+    /// Helper responds with a protocol version incompatible with this app.
     case stale(helperVersion: Int)
     /// launchd says enabled, but XPC calls fail.
     case notResponding(String)
@@ -22,8 +22,8 @@ enum HelperInstallState: Equatable {
         }
     }
 
-    /// A stale helper must never arm under newer safety policy, but it is
-    /// still reachable so the app can inspect it and restore an old session.
+    /// A protocol-incompatible helper must never arm under this app's safety
+    /// policy, but remains reachable for inspection and recovery.
     var isReachable: Bool {
         switch self {
         case .ready, .stale, .simulated: true
@@ -37,8 +37,8 @@ enum HelperInstallState: Equatable {
 @MainActor
 protocol HelperControlling: AnyObject {
     var installState: HelperInstallState { get }
-    /// Fired when the XPC connection to a live helper is interrupted (helper
-    /// crash/restart). AppState re-arms if a session is active.
+    /// Fired when the XPC connection to a live helper is interrupted. AppState
+    /// terminally recovers the active request and requires a fresh arm.
     var onInterruption: (@MainActor () -> Void)? { get set }
 
     func refreshInstallState() async
@@ -92,7 +92,7 @@ final class HelperClient: HelperControlling {
         case .enabled:
             do {
                 let status = try await status()
-                installState = status.helperVersion >= LidlessIDs.helperVersion
+                installState = status.helperVersion == LidlessIDs.helperVersion
                     ? .ready(helperVersion: status.helperVersion)
                     : .stale(helperVersion: status.helperVersion)
             } catch {

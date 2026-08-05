@@ -9,6 +9,19 @@ public enum SleepOverrideSafety {
         case stateUnverified
     }
 
+    public enum FailedArmDisposition: Sendable, Equatable {
+        /// The failed request nevertheless returned complete proof that normal
+        /// sleep is already restored, so no compensating mutation is needed.
+        case alreadyRestored
+        /// No helper-owned or recovering session exists, while the app's own
+        /// fresh registry read shows an active outside override. Lidless must
+        /// not seize that other owner's setting merely because its arm failed.
+        case externalOverride
+        /// Ownership or final state is still possible or unknown. Keep the
+        /// recovery path visible and retry an idempotent restore.
+        case recoveryRequired
+    }
+
     /// A fresh session may take ownership only when the registry proves the
     /// override is currently inactive. This prevents Lidless from inheriting
     /// another tool's override and later claiming it restored normal sleep.
@@ -42,7 +55,7 @@ public enum SleepOverrideSafety {
     /// Status-only probes can renew presentation proof, but only for the
     /// current safety protocol and an exact readable armed state.
     public static func isArmProven(_ status: HelperStatus) -> Bool {
-        status.helperVersion >= LidlessIDs.helperVersion
+        status.helperVersion == LidlessIDs.helperVersion
             && status.armed
             && status.sleepStateVerified == true
             && status.sleepDisabled
@@ -72,7 +85,8 @@ public enum SleepOverrideSafety {
     /// session, the registry read succeeded and reports normal sleep, and no
     /// retry remains pending. Missing fields from an older helper are unknown.
     public static func isRestoreProven(_ status: HelperStatus) -> Bool {
-        !status.armed
+        status.helperVersion == LidlessIDs.helperVersion
+            && !status.armed
             && status.sleepStateVerified == true
             && status.sleepDisabled == false
             && status.restorePending == false
@@ -87,5 +101,44 @@ public enum SleepOverrideSafety {
     ) -> Bool {
         isRestoreProven(status)
             && isVerified(expected: false, observed: independentlyObserved)
+    }
+
+    /// Proves that the current helper owns no live or recovering Lidless
+    /// session while the app independently observes an active override. This
+    /// is not restore proof: it only authorizes a terminal recovery path to
+    /// stop retrying mutations that would belong to another actor.
+    public static func isUnownedExternalOverride(
+        _ status: HelperStatus,
+        independentlyObserved: Bool?
+    ) -> Bool {
+        status.helperVersion == LidlessIDs.helperVersion
+            && !status.armed
+            && status.restorePending == false
+            && independentlyObserved == true
+    }
+
+    /// Classifies a completed arm reply that did not prove a live arm. The
+    /// only non-restoring ON case is fresh evidence that the helper owns no
+    /// session or retry and the app independently observes an outside
+    /// override. Contradictory or incomplete evidence remains recovery work.
+    public static func failedArmDisposition(
+        _ reply: HelperReply,
+        independentlyObserved: Bool?
+    ) -> FailedArmDisposition {
+        if isRestoreProven(
+            reply.status,
+            independentlyObserved: independentlyObserved
+        ) {
+            return .alreadyRestored
+        }
+
+        if isUnownedExternalOverride(
+            reply.status,
+            independentlyObserved: independentlyObserved
+        ) {
+            return .externalOverride
+        }
+
+        return .recoveryRequired
     }
 }

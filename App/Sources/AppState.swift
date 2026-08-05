@@ -88,6 +88,10 @@ final class AppState {
 
     private var tickTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
+    /// Fences a heartbeat reply that resumes after its owning session or task
+    /// has already been replaced. Cancellation alone cannot cancel an XPC
+    /// continuation that has not replied yet.
+    private var heartbeatGeneration = UUID()
     private var restoreMonitorTask: Task<Void, Never>?
     private var sleepTerminationTask: Task<Void, Never>?
 
@@ -109,8 +113,10 @@ final class AppState {
         var notificationBody: String?
         var notificationSound: Bool
         var playChime: Bool
-        /// Optional explanation to retain after safety is restored (for
-        /// example, an arm attempt that failed but was recovered safely).
+        /// A never-established arm request may end without mutating a
+        /// separately owned override once exact non-ownership is proven.
+        var allowsUnownedExternalOverrideCompletion = false
+        /// Optional explanation to retain after recovery terminates.
         var completionError: String?
     }
 
@@ -711,6 +717,7 @@ final class AppState {
         do {
             let reply = try await trackedArm(options)
             guard phase == .arming,
+                  helperState.isUsable,
                   armSleepGeneration == sleepGeneration,
                   armProofEpoch == helperProofEpoch,
                   SleepOverrideSafety.isArmProven(reply) else {
@@ -728,16 +735,22 @@ final class AppState {
                 }
                 let message = "Couldn't arm: \(reply.error ?? "The helper could not verify the sleep override.")"
                 pendingArm = nil
-                scheduleOccurrence = nil
+                suppressCurrentScheduleOccurrence()
 
-                if SleepOverrideSafety.isRestoreProven(
-                    reply.status,
-                    independentlyObserved: refreshedSleepOverride()
+                let independentlyObserved = refreshedSleepOverride()
+                switch SleepOverrideSafety.failedArmDisposition(
+                    reply,
+                    independentlyObserved: independentlyObserved
                 ) {
+                case .alreadyRestored:
                     phase = .disarmed
                     lastError = message
                     publishWidget()
-                } else {
+                case .externalOverride:
+                    phase = .disarmed
+                    lastError = "Couldn't arm because a sleep override is active outside Lidless. Lidless left it unchanged."
+                    publishWidget()
+                case .recoveryRequired:
                     _ = beginRestore(PendingRestore(
                         options: HelperDisarmOptions(forceSleep: false, reason: "recovering failed arm"),
                         endReason: nil,
@@ -745,6 +758,7 @@ final class AppState {
                         notificationBody: nil,
                         notificationSound: false,
                         playChime: false,
+                        allowsUnownedExternalOverrideCompletion: true,
                         completionError: message
                     ))
                 }
@@ -811,7 +825,7 @@ final class AppState {
                 return
             }
             pendingArm = nil
-            scheduleOccurrence = nil
+            suppressCurrentScheduleOccurrence()
             let message = "Couldn't arm: \(error.localizedDescription)"
             _ = beginRestore(PendingRestore(
                 options: HelperDisarmOptions(forceSleep: false, reason: "recovering interrupted arm"),
@@ -820,6 +834,7 @@ final class AppState {
                 notificationBody: nil,
                 notificationSound: false,
                 playChime: false,
+                allowsUnownedExternalOverrideCompletion: true,
                 completionError: message
             ))
             await helper.refreshInstallState()
@@ -830,6 +845,7 @@ final class AppState {
     func disarm() async {
         pendingArm = nil
         guard phase == .armed || phase == .arming else { return }
+        suppressCurrentScheduleOccurrence()
         guard let restoreID = beginRestore(PendingRestore(
             options: HelperDisarmOptions(forceSleep: false, reason: "manual disarm"),
             waitsForCompletion: true,
@@ -838,6 +854,7 @@ final class AppState {
             notificationBody: config.behavior.notifyOnStateChanges ? "Lidless is disarmed." : nil,
             notificationSound: false,
             playChime: false,
+            allowsUnownedExternalOverrideCompletion: currentSession == nil,
             completionError: nil
         )) else { return }
         _ = await waitForRestore(restoreID: restoreID)
@@ -1143,6 +1160,23 @@ final class AppState {
                 }
 
                 let independentlyObserved = refreshedSleepOverride()
+                if pending.allowsUnownedExternalOverrideCompletion {
+                    switch restoreGate.completeUnownedExternalOverride(
+                        generation: restoreID,
+                        helperReply: reply,
+                        independentlyObserved: independentlyObserved,
+                        armRequestsInFlight: armRequestsInFlight,
+                        establishedSessionExists: currentSession != nil
+                    ) {
+                    case .complete:
+                        completePendingRestore(expectedID: restoreID)
+                        return
+                    case .ignore:
+                        return
+                    case .retry, .dispatchForceSleep, .awaitFinalProof:
+                        break
+                    }
+                }
                 switch restoreGate.evaluateBaseProof(
                     generation: restoreID,
                     helperReply: reply,
@@ -1366,9 +1400,13 @@ final class AppState {
 
     func refreshHelperState() async {
         await helper.refreshInstallState()
-        if phase == .armed, !helperState.isUsable {
+        if (phase == .armed || phase == .arming),
+           !helperState.isUsable {
             invalidateHelperSessionProof()
             publishWidget()
+            startTerminalRecoveryAfterHelperProofLoss(
+                "The current helper is no longer eligible to supervise this keep-awake request."
+            )
         }
     }
 
@@ -1452,83 +1490,51 @@ final class AppState {
         invalidateHelperSessionProof()
         overrideStateVerified = false
         let transitionPersisted = publishWidget()
-        guard phase == .armed else { return }
-        guard transitionPersisted else {
-            lastError = "The helper connection changed, but the widget safety state couldn't be persisted. Re-arm was stopped."
-            return
-        }
-        // Helper crashed or was upgraded; its relaunch restored normal sleep
-        // (fail-safe). Re-arm to continue the session with a logged blip.
-        Task { await rearmAfterHelperRestart() }
+        let detail = transitionPersisted
+            ? "The helper connection changed, so Lidless ended the keep-awake session instead of re-arming it."
+            : "The helper connection changed and the widget safety transition could not be persisted. Lidless ended the keep-awake session instead of re-arming it."
+        startTerminalRecoveryAfterHelperProofLoss(detail)
     }
 
-    private func rearmAfterHelperRestart() async {
-        guard phase == .armed else { return }
-
-        // A new helper connection needs new proof. Do not carry the previous
-        // process's verified presentation through the re-arm attempt.
-        invalidateHelperSessionProof()
-        overrideStateVerified = false
-        guard publishWidget() else {
-            lastError = "The widget safety state couldn't be persisted, so Lidless did not re-arm."
+    /// Loss of live helper proof is a terminal safety event, not continuity
+    /// authorization. In particular, a user or another safety tool restoring
+    /// `disablesleep 0` must never be automatically reversed by a re-arm.
+    private func startTerminalRecoveryAfterHelperProofLoss(_ detail: String) {
+        guard phase == .armed || phase == .arming else {
+            if phase == .disarming { startRestoreMonitor() }
             return
         }
+        pendingArm = nil
+        suppressCurrentScheduleOccurrence()
+        _ = beginRestore(PendingRestore(
+            options: HelperDisarmOptions(forceSleep: false, reason: "helper proof lost"),
+            endReason: currentSession == nil ? nil : .helperProofLost,
+            notificationTitle: config.behavior.notifyOnStateChanges ? "Keep-awake ended" : nil,
+            notificationBody: config.behavior.notifyOnStateChanges
+                ? "Lidless could no longer prove the sleep override, so it restored normal sleep."
+                : nil,
+            notificationSound: false,
+            playChime: false,
+            allowsUnownedExternalOverrideCompletion: currentSession == nil,
+            completionError: detail
+        ))
+    }
 
-        let options = HelperArmOptions(
-            lowPowerMode: config.behavior.lowPowerModeWhileArmed,
-            tcpKeepAlive: config.behavior.tcpKeepAliveWhileArmed
-        )
-
-        let eligibilityEpoch = helperProofEpoch
-        await helper.refreshInstallState()
-        guard phase == .armed else { return }
-        guard eligibilityEpoch == helperProofEpoch else {
-            lastError = "The helper changed again during re-arm verification."
-            publishWidget()
-            return
+    /// A failed or terminal scheduled arm is suppressed for the rest of its
+    /// current window. Otherwise the 15-second automation tick could
+    /// immediately recreate the intent that safety recovery just ended.
+    private func suppressCurrentScheduleOccurrence() {
+        if let occurrence = scheduleOccurrence {
+            suppressedOccurrence = occurrence
+        } else if config.scheduleAutomationEnabled,
+                  let active = ScheduleEngine.activeOccurrence(
+                      windows: config.schedules,
+                      at: Date(),
+                      calendar: .current
+                  ) {
+            suppressedOccurrence = active
         }
-        guard helperState.isUsable else {
-            lastError = "The replacement helper is not eligible to re-arm."
-            publishWidget()
-            return
-        }
-
-        let armProofEpoch = eligibilityEpoch
-        let armSleepGeneration = sleepGeneration
-        do {
-            let reply = try await trackedArm(options)
-            guard phase == .armed,
-                  currentSession != nil,
-                  armSleepGeneration == sleepGeneration,
-                  armProofEpoch == helperProofEpoch,
-                  SleepOverrideSafety.isArmProven(reply) else {
-                invalidateHelperSessionProof()
-                overrideStateVerified = false
-                if sleepTerminationGeneration != nil {
-                    scheduleSleepTerminationRestore()
-                    publishWidget()
-                    return
-                }
-                lastError = reply.error ?? "The helper could not verify the renewed override."
-                publishWidget()
-                return
-            }
-            helperSessionProven = true
-            systemMonitor?.refresh()
-            refreshSystemFlags()
-            publishWidget()
-            lastError = nil
-        } catch {
-            invalidateHelperSessionProof()
-            overrideStateVerified = false
-            if sleepTerminationGeneration != nil {
-                scheduleSleepTerminationRestore()
-                publishWidget()
-                return
-            }
-            lastError = "The helper re-arm outcome is unknown (\(error.localizedDescription))."
-            publishWidget()
-        }
+        scheduleOccurrence = nil
     }
 
     private func resyncAfterWake() {
@@ -1628,6 +1634,9 @@ final class AppState {
                 overrideStateVerified = true
                 if phase == .armed, observedOverride != true {
                     invalidateHelperSessionProof()
+                    startTerminalRecoveryAfterHelperProofLoss(
+                        "The system sleep override changed or could no longer be verified."
+                    )
                 }
             }
         } else if let systemMonitor {
@@ -1640,6 +1649,9 @@ final class AppState {
                 overrideActive = observedOverride ?? false
                 if phase == .armed, observedOverride != true {
                     invalidateHelperSessionProof()
+                    startTerminalRecoveryAfterHelperProofLoss(
+                        "The system sleep override changed or could no longer be verified."
+                    )
                 }
             }
         }
@@ -1820,21 +1832,31 @@ final class AppState {
 
     private func startHeartbeat() {
         stopHeartbeat()
+        let generation = heartbeatGeneration
         heartbeatTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(HelperArmOptions.heartbeatInterval))
-                guard let self, self.phase == .armed else { continue }
+                guard let self,
+                      !Task.isCancelled,
+                      self.heartbeatGeneration == generation,
+                      self.phase == .armed
+                else { return }
                 let proofEpoch = self.helperProofEpoch
                 do {
                     let reply = try await self.helper.heartbeat()
+                    guard !Task.isCancelled,
+                          self.heartbeatGeneration == generation,
+                          self.phase == .armed
+                    else { return }
                     if proofEpoch != self.helperProofEpoch
                         || !SleepOverrideSafety.isArmProven(reply) {
-                        // The helper lost the session or could not prove the
-                        // live override; reconcile instead of trusting `ok`.
                         self.invalidateHelperSessionProof()
                         self.overrideStateVerified = false
                         self.publishWidget()
-                        await self.rearmAfterHelperRestart()
+                        self.startTerminalRecoveryAfterHelperProofLoss(
+                            reply.error ?? "The helper could no longer prove the live sleep override."
+                        )
+                        return
                     } else {
                         self.helperSessionProven = true
                         self.systemMonitor?.refresh()
@@ -1842,16 +1864,24 @@ final class AppState {
                         self.publishWidget()
                     }
                 } catch {
+                    guard !Task.isCancelled,
+                          self.heartbeatGeneration == generation,
+                          self.phase == .armed
+                    else { return }
                     self.invalidateHelperSessionProof()
                     self.overrideStateVerified = false
                     self.publishWidget()
-                    // Interruption handler drives the re-arm; next beat retries.
+                    self.startTerminalRecoveryAfterHelperProofLoss(
+                        "The helper heartbeat failed (\(error.localizedDescription))."
+                    )
+                    return
                 }
             }
         }
     }
 
     private func stopHeartbeat() {
+        heartbeatGeneration = UUID()
         heartbeatTask?.cancel()
         heartbeatTask = nil
     }

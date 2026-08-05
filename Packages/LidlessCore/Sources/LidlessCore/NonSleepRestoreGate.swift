@@ -89,6 +89,32 @@ public struct NonSleepRestoreGate: Sendable {
         completed.contains(generation)
     }
 
+    /// Ends a caller-authorized, never-established arm request only when an
+    /// exact current helper proves it owns no session or retry and the app
+    /// independently observes an outside override. An established session,
+    /// ordinary restore, and quit must not use this: ownership after proof
+    /// loss is ambiguous and normal sleep has not been restored.
+    public mutating func completeUnownedExternalOverride(
+        generation: NonSleepRestoreGeneration,
+        helperReply: HelperReply,
+        independentlyObserved: Bool?,
+        armRequestsInFlight: Int,
+        establishedSessionExists: Bool
+    ) -> Action {
+        guard let current = active,
+              current.generation == generation
+        else { return .ignore }
+        guard !establishedSessionExists,
+              armRequestsInFlight == 0,
+              SleepOverrideSafety.isUnownedExternalOverride(
+                  helperReply.status,
+                  independentlyObserved: independentlyObserved
+              )
+        else { return .retry }
+
+        return complete(current)
+    }
+
     /// Completion stays latched by generation until its waiter consumes it;
     /// a later restore can never overwrite an earlier waiter's result.
     @discardableResult

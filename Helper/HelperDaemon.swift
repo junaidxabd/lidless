@@ -121,9 +121,9 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
     /// First act of every launch — boot, crash relaunch, on-demand start:
     /// if a sentinel exists, the system may be overridden with nobody
-    /// supervising. Restore first, ask questions never. If the app is in
-    /// fact alive, its connection-interruption handler re-arms within
-    /// seconds and the blip is logged on both sides.
+    /// supervising. Restore first, ask questions never. If the app is alive,
+    /// its connection-interruption handler terminally ends that request; a
+    /// later keep-awake session always requires a fresh arm decision.
     private func recoveryPass() {
         let url = URL(fileURLWithPath: HelperPaths.sentinel)
         guard FileManager.default.fileExists(atPath: url.path) else {

@@ -88,7 +88,7 @@ struct SetupPane: View {
         case .ready(let version): "Installed and responding (v\(version))"
         case .simulated: "Simulated helper (dry-run mode)"
         case .requiresApproval: "Waiting for your approval"
-        case .stale(let version): "Helper v\(version) is outdated"
+        case .stale(let version): "Helper v\(version) is incompatible"
         case .notResponding: "Installed but not responding"
         case .notInstalled: "Not installed"
         case .unknown: "Checking…"
@@ -100,7 +100,7 @@ struct SetupPane: View {
         case .ready: "Keep-awake is fully operational."
         case .simulated: "No system changes are made in this mode."
         case .requiresApproval: "Open System Settings → General → Login Items & Extensions, and allow “Lidless”."
-        case .stale: "Reinstall to update the helper."
+        case .stale: "Reinstall the matching helper."
         case .notResponding(let error): error
         case .notInstalled: "One-time install; macOS asks for your password."
         case .unknown: ""

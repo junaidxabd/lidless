@@ -81,6 +81,7 @@ struct HistoryPane: View {
         case .appQuit: "App quit"
         case .helperWatchdog: "Watchdog restore"
         case .helperRestored: "Helper restarted"
+        case .helperProofLost: "Safety proof lost"
         case .systemSlept: "Mac was put to sleep"
         case .uninstalled: "Uninstalled"
         }
