@@ -17,13 +17,15 @@ enum PMSet {
         }
     }
 
-    /// A hung pmset (wedged powerd) must never wedge the daemon's serial
-    /// supervision queue — the watchdog, restore retries, and SIGTERM all
-    /// live there. Every invocation gets a hard deadline; on expiry the
-    /// child is killed and the call fails like any other pmset error, which
-    /// the restore-retry loop already handles.
+    /// A hung pmset (wedged powerd) must never consume the daemon's minimum
+    /// watchdog lifetime: the watchdog, connection invalidation, restore
+    /// retries, and SIGTERM all share the serial state queue. The timeout and
+    /// forced-reap grace are pinned by a tested core policy.
     @discardableResult
-    static func run(_ arguments: [String], timeout: TimeInterval = 20) throws -> String {
+    static func run(
+        _ arguments: [String],
+        timeout: TimeInterval = HelperSupervisionTiming.pmsetCommandTimeout
+    ) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
         process.arguments = arguments
@@ -36,9 +38,20 @@ enum PMSet {
         try process.run()
 
         if exited.wait(timeout: .now() + timeout) == .timedOut {
-            kill(process.processIdentifier, SIGKILL)
-            _ = exited.wait(timeout: .now() + 2)
-            throw CommandError(arguments: arguments, status: -1, output: "timed out after \(Int(timeout))s")
+            let killResult = kill(process.processIdentifier, SIGKILL)
+            let killErrno = killResult == 0 ? 0 : errno
+            let reapResult = exited.wait(
+                timeout: .now() + HelperSupervisionTiming.forcedTerminationGrace
+            )
+            let killAccepted = killResult == 0 || killErrno == ESRCH
+            var detail = "timed out after \(Int(timeout))s"
+            if !killAccepted {
+                detail += "; SIGKILL failed with errno \(killErrno)"
+            }
+            if reapResult == .timedOut {
+                detail += "; child exit was not observed within \(Int(HelperSupervisionTiming.forcedTerminationGrace))s"
+            }
+            throw CommandError(arguments: arguments, status: -1, output: detail)
         }
 
         // Read after exit: pmset output is far below the 64KB pipe buffer,

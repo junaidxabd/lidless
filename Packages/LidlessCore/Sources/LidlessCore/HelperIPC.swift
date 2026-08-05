@@ -83,6 +83,13 @@ public struct HelperStatus: Codable, Sendable, Equatable {
     /// Actual current value of the system-wide override (read back from the
     /// power-management root domain), not what the helper believes it set.
     public var sleepDisabled: Bool
+    /// `true` only when `sleepDisabled` came from a successful registry read.
+    /// Optional for wire compatibility with an older helper; missing is not
+    /// proof and must be treated as unverified by safety-sensitive callers.
+    public var sleepStateVerified: Bool?
+    /// The helper failed to prove restoration and is retaining its sentinel
+    /// while retrying. Optional for wire compatibility; missing is unknown.
+    public var restorePending: Bool?
     public var armedSince: Date?
     public var watchdogDeadline: Date?
     public var scheduledWake: Date?
@@ -91,6 +98,8 @@ public struct HelperStatus: Codable, Sendable, Equatable {
         helperVersion: Int,
         armed: Bool,
         sleepDisabled: Bool,
+        sleepStateVerified: Bool? = nil,
+        restorePending: Bool? = nil,
         armedSince: Date? = nil,
         watchdogDeadline: Date? = nil,
         scheduledWake: Date? = nil
@@ -98,6 +107,8 @@ public struct HelperStatus: Codable, Sendable, Equatable {
         self.helperVersion = helperVersion
         self.armed = armed
         self.sleepDisabled = sleepDisabled
+        self.sleepStateVerified = sleepStateVerified
+        self.restorePending = restorePending
         self.armedSince = armedSince
         self.watchdogDeadline = watchdogDeadline
         self.scheduledWake = scheduledWake
@@ -134,8 +145,9 @@ public struct OverrideSentinel: Codable, Sendable, Equatable {
     public var watchdogTTL: TimeInterval
     public var watchdogDeadline: Date
 
-    /// Value of the override before we touched it (true = some other tool
-    /// had already disabled sleep; restore puts it back rather than to 0).
+    /// Legacy wire field recording the value before the override. v5 refuses
+    /// to arm over an external override and always restores ordinary sleep;
+    /// the field remains so older on-disk sentinels can still be decoded.
     public var priorSleepDisabled: Bool
     /// Prior Low Power Mode value per pmset section ("Battery Power"/"AC
     /// Power"), nil when LPM automation was off for this session.

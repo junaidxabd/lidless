@@ -13,7 +13,7 @@ public enum LidlessIDs {
 
     /// Bumped whenever the XPC surface or helper behavior changes; the app
     /// re-registers the daemon when the running helper reports an older value.
-    public static let helperVersion = 4
+    public static let helperVersion = 5
 
     public static let appGroupID = "group.com.lidless.shared"
     public static let urlScheme = "lidless"

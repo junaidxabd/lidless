@@ -63,8 +63,9 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     // Supervision clocks are monotonic (mach time), never wall-clock: an NTP
     // step or manual clock change must neither extend the unsupervised
     // window (clock back) nor spuriously kill a healthy session (clock
-    // forward). The sentinel keeps wall-clock copies for diagnostics only —
-    // recovery never reads them (it restores unconditionally).
+    // forward). The in-memory record keeps a wall-clock copy for status;
+    // the disk sentinel is deliberately immutable while the override is on.
+    // Recovery never trusts either deadline (it restores unconditionally).
     private var watchdogDeadline = DispatchTime.distantFuture
     private var nextRestoreAttempt = DispatchTime.distantFuture
     /// Watchdog forbearance right after wake, so the app has time to resume
@@ -251,8 +252,9 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
-    private func removeSentinelFile() {
-        try? FileManager.default.removeItem(atPath: HelperPaths.sentinel)
+    private func removeSentinelFile() throws {
+        guard FileManager.default.fileExists(atPath: HelperPaths.sentinel) else { return }
+        try FileManager.default.removeItem(atPath: HelperPaths.sentinel)
     }
 
     fileprivate func handleArm(_ options: HelperArmOptions, connectionID: ObjectIdentifier?, reply: @escaping @Sendable (Data) -> Void) {
@@ -265,30 +267,65 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         let ttl = min(max(options.watchdogTTL, HelperArmOptions.watchdogTTLRange.lowerBound),
                       HelperArmOptions.watchdogTTLRange.upperBound)
 
-        if var current = sentinel {
-            // Re-arm: refresh supervision, keep the original priors — they
-            // describe the pre-session world we'll eventually restore.
-            current.watchdogTTL = ttl
-            current.watchdogDeadline = now.addingTimeInterval(ttl)
-            sentinel = current
-            try? writeSentinel(current)
-            watchdogDeadline = .now() + ttl
-            armedConnectionID = connectionID
-            log.info("re-armed (ttl \(Int(ttl))s)")
-            reply(replyData(ok: true))
+        // At most two blocking commands may run in either risky interval:
+        // enable + fail-safe rollback before success, or the two optional
+        // settings after success. Refuse to arm if their hard upper bound can
+        // consume the watchdog lifetime.
+        guard HelperSupervisionTiming.isWithinWatchdogBudget(
+            commandCount: 2,
+            watchdogTTL: ttl
+        ) else {
+            reply(replyData(ok: false, error: "helper command timing exceeds the watchdog safety budget"))
             return
         }
 
-        // Fresh arm. Capture priors, persist the undo record, then mutate.
+        if var current = sentinel {
+            // Re-arm: refresh supervision, keep the original priors — they
+            // describe the pre-session world we'll eventually restore. Do
+            // not rewrite the disk sentinel while armed: filesystem latency
+            // is unbounded and must not starve the watchdog queue.
+            current.watchdogTTL = ttl
+            current.watchdogDeadline = now.addingTimeInterval(ttl)
+            sentinel = current
+            watchdogDeadline = .now() + ttl
+            armedConnectionID = connectionID
+            let status = currentStatus()
+            let result = HelperReply(ok: true, status: status)
+            guard SleepOverrideSafety.isArmProven(result) else {
+                log.critical("re-arm could not prove the live override — restoring")
+                performRestore(current, reason: "re-arm proof failed")
+                reply(replyData(ok: false, error: "could not verify the re-armed override; normal sleep recovery started"))
+                return
+            }
+            log.info("re-armed with verified override (ttl \(Int(ttl))s)")
+            reply(IPCCoding.encode(result))
+            return
+        }
+
+        // Snapshot optional settings before the final sleep-state preflight.
+        // `pmset -g custom` is a bounded child process, but it must not create
+        // a preflight-to-mutation window while an override is already active.
+        let custom: String?
+        if options.lowPowerMode || options.tcpKeepAlive {
+            do {
+                custom = try PMSet.readCustom()
+            } catch {
+                custom = nil
+                log.error("could not snapshot optional pmset settings; optional mutations will be skipped: \(error)")
+            }
+        } else {
+            custom = nil
+        }
+
+        let preparedAt = Date()
         var record = OverrideSentinel(
-            armedAt: now,
+            armedAt: preparedAt,
             watchdogTTL: ttl,
-            watchdogDeadline: now.addingTimeInterval(ttl),
-            priorSleepDisabled: PMSet.readSleepDisabled() ?? false
+            watchdogDeadline: preparedAt.addingTimeInterval(ttl),
+            priorSleepDisabled: false
         )
 
-        let custom = (try? PMSet.readCustom()) ?? ""
-        if options.lowPowerMode {
+        if options.lowPowerMode, let custom {
             if let key = PMSet.lowPowerModeKey(fromCustom: custom) {
                 record.lowPowerModeKey = key
                 record.priorLowPowerMode = PMSetParser.intSetting(key, fromCustom: custom)
@@ -296,8 +333,32 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                 log.info("low power mode requested but unsupported on this system — skipping")
             }
         }
-        if options.tcpKeepAlive {
-            record.priorTCPKeepAlive = PMSetParser.intSetting("tcpkeepalive", fromCustom: custom)
+        if options.tcpKeepAlive, let custom {
+            let priors = PMSetParser.intSetting("tcpkeepalive", fromCustom: custom)
+            if priors.isEmpty {
+                log.info("tcpkeepalive requested but no restorable prior was found — skipping")
+            } else {
+                record.priorTCPKeepAlive = priors
+            }
+        }
+
+        // Fresh arm. Take ownership only from a readable, inactive state,
+        // after every potentially blocking snapshot operation.
+        switch SleepOverrideSafety.preflight(observed: PMSet.readSleepDisabled()) {
+        case .safeToArm:
+            break
+        case .externalOverrideActive:
+            reply(replyData(
+                ok: false,
+                error: "the sleep override is already active outside Lidless; restore normal sleep before arming"
+            ))
+            return
+        case .stateUnverified:
+            reply(replyData(
+                ok: false,
+                error: "could not verify the current sleep state; refusing to arm"
+            ))
+            return
         }
 
         do {
@@ -306,6 +367,36 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             reply(replyData(ok: false, error: "could not persist recovery sentinel: \(error.localizedDescription)"))
             return
         }
+
+        // The sentinel write can block without end, but the override is not
+        // active yet. Re-confirm immediately afterward so that time cannot
+        // become an avoidable ownership window. The remaining registry-read
+        // to pmset mutation race is cross-process and not atomic on macOS.
+        switch SleepOverrideSafety.preflight(observed: PMSet.readSleepDisabled()) {
+        case .safeToArm:
+            break
+        case .externalOverrideActive:
+            rejectPreparedArm(
+                record,
+                error: "the sleep override became active outside Lidless while preparing to arm",
+                reply: reply
+            )
+            return
+        case .stateUnverified:
+            rejectPreparedArm(
+                record,
+                error: "the sleep state became unreadable while preparing to arm",
+                reply: reply
+            )
+            return
+        }
+
+        // Install ownership before the enabling command. The command runner's
+        // tested hard bound keeps queued invalidation/timer work inside the
+        // minimum TTL; the disk sentinel remains the crash supervisor.
+        sentinel = record
+        armedConnectionID = connectionID
+        watchdogDeadline = .now() + ttl
 
         do {
             try PMSet.setSleepDisabled(true)
@@ -320,13 +411,34 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             return
         }
 
-        if let readback = PMSet.readSleepDisabled(), readback == false {
-            log.error("disablesleep readback is still 0 after set — reverting")
-            abortFreshArm(record, reply: reply, error: "system did not accept the sleep override")
+        let armReadback = PMSet.readSleepDisabled()
+        if !SleepOverrideSafety.isVerified(expected: true, observed: armReadback) {
+            log.error("disablesleep readback is not verifiably 1 after set — reverting")
+            abortFreshArm(record, reply: reply, error: "system did not verifiably accept the sleep override")
             return
         }
 
-        // Best-effort extras; never fail the arm over them.
+        // Rebase the in-memory watchdog at the exact proof point and reply
+        // before optional commands. The disk sentinel already contains all
+        // unconditional recovery data and is never rewritten while active.
+        // The app can begin its heartbeat while at most two bounded
+        // best-effort calls occupy the queue; invalidation is delayed by less
+        // than the minimum TTL.
+        record.watchdogDeadline = Date().addingTimeInterval(ttl)
+        sentinel = record
+        watchdogDeadline = .now() + ttl
+        let status = currentStatus()
+        let result = HelperReply(ok: true, status: status)
+        guard SleepOverrideSafety.isArmProven(result) else {
+            log.critical("fresh arm lost readable proof before reply — restoring")
+            abortFreshArm(record, reply: reply, error: "the sleep override could not be verified at completion")
+            return
+        }
+
+        log.info("armed: override ON and verified (ttl \(Int(ttl))s, lpm \(record.lowPowerModeKey ?? "off"), tcp \(record.priorTCPKeepAlive != nil ? "on" : "off"))")
+        reply(IPCCoding.encode(result))
+
+        // Best-effort extras; never delay the success reply or fail the arm.
         if let key = record.lowPowerModeKey {
             do { try PMSet.setEverywhere(key: key, value: 1) }
             catch { log.error("could not enable low power mode: \(error)") }
@@ -335,12 +447,28 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             do { try PMSet.setEverywhere(key: "tcpkeepalive", value: 1) }
             catch { log.error("could not enforce tcpkeepalive: \(error)") }
         }
+    }
 
-        sentinel = record
-        watchdogDeadline = .now() + ttl
-        armedConnectionID = connectionID
-        log.info("armed: override ON (ttl \(Int(ttl))s, lpm \(record.lowPowerModeKey ?? "off"), tcp \(record.priorTCPKeepAlive != nil ? "on" : "off"), priorSleepDisabled \(record.priorSleepDisabled))")
-        reply(replyData(ok: true))
+    /// A second preflight rejected an arm after its recovery sentinel was
+    /// written but before Lidless mutated the system. Normally this only
+    /// removes the unused sentinel. If cleanup itself fails, retain explicit
+    /// supervision and drive the machine to the fail-safe normal-sleep state
+    /// rather than leave a crash-relaunch marker with ambiguous ownership.
+    private func rejectPreparedArm(
+        _ record: OverrideSentinel,
+        error: String,
+        reply: @escaping @Sendable (Data) -> Void
+    ) {
+        do {
+            try removeSentinelFile()
+        } catch {
+            log.critical("prepared arm was rejected but sentinel cleanup failed: \(error) — forcing normal-sleep recovery")
+            sentinel = record
+            armedConnectionID = nil
+            watchdogDeadline = .now()
+            performRestore(record, reason: "rejected arm sentinel cleanup failed")
+        }
+        reply(replyData(ok: false, error: error))
     }
 
     /// Failed fresh arm with unknown side effects. Best-effort revert, then
@@ -348,9 +476,22 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     /// prior state; anything else parks in `restorePending` so the 30s retry
     /// and `KeepAlive.PathState` keep supervising until it's provably safe.
     private func abortFreshArm(_ record: OverrideSentinel, reply: @escaping @Sendable (Data) -> Void, error: String) {
-        try? PMSet.setSleepDisabled(record.priorSleepDisabled)
-        if PMSet.readSleepDisabled() == record.priorSleepDisabled {
-            removeSentinelFile()
+        sentinel = nil
+        armedConnectionID = nil
+        watchdogDeadline = .distantFuture
+        let restoreTarget = SleepOverrideSafety.restoreTarget(recordedPrior: record.priorSleepDisabled)
+        try? PMSet.setSleepDisabled(restoreTarget)
+        if SleepOverrideSafety.isVerified(
+            expected: restoreTarget,
+            observed: PMSet.readSleepDisabled()
+        ) {
+            do {
+                try removeSentinelFile()
+            } catch {
+                log.error("aborted arm restored sleep but sentinel cleanup failed — retrying")
+                restorePending = record
+                nextRestoreAttempt = .now() + 30
+            }
         } else {
             log.critical("aborted arm but the override state is unverified — keeping sentinel and retrying restore")
             restorePending = record
@@ -364,8 +505,9 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     /// the disk. On failure, state moves to `restorePending` and the tick
     /// retries forever (launchd keeps us alive: the sentinel still exists).
     private func performRestore(_ record: OverrideSentinel, reason: String) {
+        let restoreTarget = SleepOverrideSafety.restoreTarget(recordedPrior: record.priorSleepDisabled)
         do {
-            try PMSet.setSleepDisabled(record.priorSleepDisabled)
+            try PMSet.setSleepDisabled(restoreTarget)
         } catch {
             log.critical("RESTORE FAILED (\(reason)): \(error) — will retry")
             sentinel = nil
@@ -376,8 +518,12 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             return
         }
 
-        if let readback = PMSet.readSleepDisabled(), readback != record.priorSleepDisabled {
-            log.critical("RESTORE readback mismatch (\(reason)) — will retry")
+        let restoreReadback = PMSet.readSleepDisabled()
+        if !SleepOverrideSafety.isVerified(
+            expected: restoreTarget,
+            observed: restoreReadback
+        ) {
+            log.critical("RESTORE readback is unverified or mismatched (\(reason)) — will retry")
             sentinel = nil
             armedConnectionID = nil
             watchdogDeadline = .distantFuture
@@ -396,7 +542,17 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             catch { log.error("could not restore tcpkeepalive: \(error)") }
         }
 
-        removeSentinelFile()
+        do {
+            try removeSentinelFile()
+        } catch {
+            log.error("RESTORE verified normal sleep but sentinel cleanup failed (\(reason)) — will retry")
+            sentinel = nil
+            armedConnectionID = nil
+            watchdogDeadline = .distantFuture
+            restorePending = record
+            nextRestoreAttempt = .now() + 30
+            return
+        }
         sentinel = nil
         armedConnectionID = nil
         watchdogDeadline = .distantFuture
@@ -431,11 +587,21 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                 reply(replyData(ok: false, error: "no active session"))
                 return
             }
+            // The disk sentinel is immutable while active; recovery ignores
+            // its diagnostic deadline. Refresh only queue-owned memory so a
+            // slow filesystem can never erase a watchdog expiry.
             current.watchdogDeadline = Date().addingTimeInterval(current.watchdogTTL)
             sentinel = current
-            try? writeSentinel(current)
             watchdogDeadline = .now() + current.watchdogTTL
-            reply(replyData(ok: true))
+            let status = currentStatus()
+            let result = HelperReply(ok: true, status: status)
+            guard SleepOverrideSafety.isArmProven(result) else {
+                log.critical("heartbeat could not prove the live override — restoring")
+                performRestore(current, reason: "heartbeat proof failed")
+                reply(replyData(ok: false, error: "the live override could not be verified; normal sleep recovery started"))
+                return
+            }
+            reply(IPCCoding.encode(result))
         }
     }
 
@@ -447,11 +613,16 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                 return
             }
 
-            if let sentinel {
-                performRestore(sentinel, reason: "disarm: \(options.reason)")
+            if let record = sentinel ?? restorePending {
+                performRestore(record, reason: "disarm: \(options.reason)")
             }
-            let restored = restorePending == nil
-            reply(replyData(ok: restored, error: restored ? nil : "restore failed; helper is retrying"))
+            let status = currentStatus()
+            let restored = SleepOverrideSafety.isRestoreProven(status)
+            reply(IPCCoding.encode(HelperReply(
+                ok: restored,
+                error: restored ? nil : "normal sleep is not yet verified; helper is retrying",
+                status: status
+            )))
 
             if options.forceSleep, restored {
                 // Give the app a moment to post its notification/sound, and
@@ -469,24 +640,50 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     fileprivate func handleRepairOverride(reply: @escaping @Sendable (Data) -> Void) {
         queue.async { [self] in
             lastActivity = Date()
-            if let sentinel {
-                performRestore(sentinel, reason: "repair requested")
+
+            let record: OverrideSentinel
+            if let existing = sentinel ?? restorePending {
+                record = existing
             } else {
+                let now = Date()
+                record = OverrideSentinel(
+                    armedAt: now,
+                    watchdogTTL: HelperArmOptions.defaultWatchdogTTL,
+                    watchdogDeadline: now,
+                    priorSleepDisabled: false
+                )
                 do {
-                    try PMSet.setSleepDisabled(false)
-                    log.info("repaired externally-set override: disablesleep 0")
+                    try writeSentinel(record)
+                    sentinel = record
+                    watchdogDeadline = .now()
                 } catch {
-                    reply(replyData(ok: false, error: "\(error)"))
+                    reply(replyData(ok: false, error: "could not persist repair recovery sentinel: \(error.localizedDescription)"))
                     return
                 }
             }
-            reply(replyData(ok: restorePending == nil))
+
+            performRestore(record, reason: "repair requested")
+            let status = currentStatus()
+            let restored = SleepOverrideSafety.isRestoreProven(status)
+            reply(IPCCoding.encode(HelperReply(
+                ok: restored,
+                error: restored ? nil : "normal sleep is not yet verified; helper is retrying",
+                status: status
+            )))
         }
     }
 
     fileprivate func handleScheduleWake(_ epoch: Double, reply: @escaping @Sendable (Data) -> Void) {
         queue.async { [self] in
             lastActivity = Date()
+            // Wake scheduling is not safety-critical and may require two
+            // blocking pmset calls. Never let it sit ahead of watchdog or
+            // connection-invalidation work for an active/recovering override;
+            // the app retries after the session completes.
+            guard sentinel == nil, restorePending == nil else {
+                reply(replyData(ok: false, error: "wake scheduling is deferred while sleep-override supervision is active"))
+                return
+            }
             if epoch > 0 {
                 // Validate and register the replacement first; only then
                 // cancel the old wake — never trade a working wake for none.
@@ -527,11 +724,16 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     fileprivate func handleUninstall(reply: @escaping @Sendable (Data) -> Void) {
         queue.async { [self] in
             lastActivity = Date()
-            if let sentinel {
-                performRestore(sentinel, reason: "uninstall")
+            if let record = sentinel ?? restorePending {
+                performRestore(record, reason: "uninstall")
             }
-            guard restorePending == nil else {
-                reply(replyData(ok: false, error: "restore failed; not removing helper data while the override may be active"))
+            let restoredStatus = currentStatus()
+            guard SleepOverrideSafety.isRestoreProven(restoredStatus) else {
+                reply(IPCCoding.encode(HelperReply(
+                    ok: false,
+                    error: "normal sleep is not verified; not removing helper data while the override may be active",
+                    status: restoredStatus
+                )))
                 return
             }
             if let existing = scheduledWake {
@@ -543,15 +745,23 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             // removed; from here on, log to the unified log only.
             log.disableFileSink()
             try? FileManager.default.removeItem(atPath: HelperPaths.workDirectory)
-            reply(replyData(ok: true))
+            reply(IPCCoding.encode(HelperReply(ok: true, status: restoredStatus)))
         }
     }
 
     private func currentStatus() -> HelperStatus {
-        HelperStatus(
+        let observedSleepDisabled = PMSet.readSleepDisabled()
+        let recoveryPending = restorePending != nil
+        return HelperStatus(
             helperVersion: LidlessIDs.helperVersion,
             armed: sentinel != nil,
-            sleepDisabled: PMSet.readSleepDisabled() ?? (sentinel != nil),
+            // On an unreadable registry, report the conservative possibility:
+            // the override may still be on whenever a live or recovering
+            // session exists. The separate verification bit prevents callers
+            // from mistaking this fallback for measured truth.
+            sleepDisabled: observedSleepDisabled ?? (sentinel != nil || recoveryPending),
+            sleepStateVerified: observedSleepDisabled != nil,
+            restorePending: recoveryPending,
             armedSince: sentinel?.armedAt,
             watchdogDeadline: sentinel?.watchdogDeadline,
             scheduledWake: scheduledWake?.date

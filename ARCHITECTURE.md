@@ -35,7 +35,7 @@ Security system frameworks; it performs no system mutations. `CutoffEngine`
 evaluation), `ScheduleEngine` (recurring windows, midnight wrap, DST-safe),
 `DrainEstimator` (least-squares %/hr over the trailing discharge run),
 `PMSetParser` (every piece of pmset text parsing in one tested module), the
-XPC payload types, and the sentinel model. 159 deterministic tests; the
+XPC payload types, and the sentinel model. 175 deterministic tests; the
 policies that decide when your battery stops draining are never buried in UI
 code.
 
@@ -62,9 +62,13 @@ Mechanisms, layered so no single failure strands the override:
 
 1. **Sentinel-first ordering.** `/var/db/lidless/override-active` is written
    (0600, root) *before* `disablesleep 1` runs and removed only *after* a
-   verified restore. It records the prior values of `disablesleep`, the
-   LPM key (`lowpowermode`/`powermode` — differs across macOS releases), and
-   `tcpkeepalive`, so restore is non-destructive and needs no other state.
+   verified restore. It records the LPM key (`lowpowermode`/`powermode` —
+   differs across macOS releases), `tcpkeepalive` priors, and a legacy
+   `disablesleep` field, so recovery needs no app state. Protocol v5 refuses
+   to arm over a measured external override and always restores ordinary
+   sleep (`disablesleep 0`). The disk record is immutable while active;
+   heartbeat and re-arm deadlines live only in queue-owned memory because
+   filesystem latency is not bounded.
 2. **Connection supervision.** The helper tracks the arming connection's
    identity; XPC invalidation (app quit or crash) restores immediately.
 3. **Watchdog.** The app heartbeats every 10 s; the helper restores if no
@@ -84,6 +88,19 @@ Mechanisms, layered so no single failure strands the override:
    30 s (launchd keeps the process alive because the sentinel exists).
    Arming is refused while a restore is pending.
 7. **SIGTERM** (system shutdown, unregistration) restores before exit.
+8. **Bounded state-queue work while armed.** Each `pmset` child gets 3 s,
+   followed by at most 1 s to observe forced termination. No more than two
+   such calls may precede queued supervision at the 15 s minimum TTL, and
+   wake scheduling is deferred while armed or recovering. This bounds the
+   helper's child-process waits; it is not a formal real-time bound on every
+   filesystem, process-launch, or IOKit call.
+
+The helper rechecks the registry after the potentially unbounded initial
+sentinel write and immediately before installing in-memory ownership and
+running `pmset`. macOS exposes no atomic check-and-set ownership primitive for
+this global Boolean, so a final cross-process registry-read-to-mutation race
+remains an explicit external validation/design gate rather than a closed
+offline claim.
 
 The app side mirrors this: quitting while armed asks ("Disarm & Quit"), the
 session journal (`current-session.json`) folds crashed sessions into history
@@ -121,12 +138,15 @@ the *read-back* override value.
    current drain rate, the floor with its projected wall-clock time, the
    first time-based cutoff, and the full cutoff summary. Low-battery arms
    are visually orange; refusals disable the button and say why.
-4. **Actuation.** `arm(options)` → helper captures priors → writes sentinel →
-   `disablesleep 1` → verifies via registry read-back (reverting on
-   mismatch) → best-effort LPM/tcpkeepalive. Only then does the app create
-   the session record, start the 10 s heartbeat and 5-minute battery
-   sampling, post the arm notification, and spring the UI into the armed
-   state. Any failure lands back in `disarmed` with the error surfaced.
+4. **Actuation.** `arm(options)` → helper captures optional priors → proves
+   the override inactive → writes the sentinel → proves it inactive again →
+   installs the connection owner and monotonic watchdog → runs
+   `disablesleep 1` → verifies via registry read-back (restoring on mismatch)
+   → replies with proof → performs best-effort LPM/tcpkeepalive. Only after
+   the proven reply does the app create the session record, start the 10 s
+   heartbeat and 5-minute battery sampling, post the arm notification, and
+   spring the UI into the armed state. Any failure lands back in `disarmed`
+   with the error surfaced.
 5. **While armed**, a 15 s tick evaluates the engine against live inputs.
    Thermal violations debounce (2 consecutive readings, ≥ 30 s apart);
    plugging in suspends the floor; config edits apply live. Pre-cutoff
@@ -148,7 +168,7 @@ mode (`--render-screenshots`), so the docs can never drift from the real UI.
 ## Project layout
 
 ```
-Packages/LidlessCore/    pure logic + 151 tests (swift test)
+Packages/LidlessCore/    pure logic + 175 tests (swift test)
 App/Sources/             AppState, monitors, HelperClient, services, SwiftUI
 Helper/                  daemon (PMSet, HelperDaemon, launchd plist)
 Widget/                  WidgetKit mirror of the published snapshot

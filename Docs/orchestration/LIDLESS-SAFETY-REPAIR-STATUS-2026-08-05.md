@@ -10,6 +10,51 @@ It does not authorize installation, launch, live helper actions, sleep-setting
 changes, signed-runtime claims, network publication, or changes to the main
 checkout.
 
+## Recovery gate mismatch — 2026-08-05T12:28:24+0200
+
+This invocation stopped before package review, tests, builds, staging, or any
+product-source edit because the required restart state no longer matches the
+supplied manifest. The only edit made after detecting the mismatch is this
+required `BLOCKED` ledger update.
+
+| Check | Required | Observed | Verdict |
+|---|---|---|---|
+| Worktree path | `/Users/junaid/Xcode-Projects/Lidless-worktrees/codex-safety-repair-2026-08-04` | Exact match from `pwd -P` and `git rev-parse --show-toplevel` | PASS |
+| Linked-worktree/common directory | Registered linked worktree under `/Users/junaid/Xcode-Projects/Lidless/.git` | Exact match; admin directory is `/Users/junaid/Xcode-Projects/Lidless/.git/worktrees/codex-safety-repair-2026-08-04` | PASS |
+| Branch | `codex/lidless-safety-repair-2026-08-04` | Exact match | PASS |
+| HEAD | `7f17aaca11bc6228bed48b9265d63b9e576cdea7` | `22ed6189f444a7f96719153ca1abd146d9713510` | **FAIL** |
+| Dirty package inventory | 22 modified tracked + 5 untracked manifest paths, excluding only an additional untracked ledger | 21 modified tracked + 3 untracked; the ledger is tracked in the current HEAD rather than present as the permitted `??` bookkeeping path | **FAIL** |
+| Tracked binary diff SHA-256 | `585692490de6c54d8a5c37e969ede7f2b185fa198ca0a3b7843695caaec462b0` | `eddd2acc77f548d076981c2a1e5ed68ada2bb0097125153cdea9994c0d4deaa0` from `git diff --binary HEAD` | **FAIL** |
+| Manifest records | All 27 exact | 23 exact; four paths differ as detailed below | **FAIL** |
+| Main checkout | Recorded preservation baseline | Branch/HEAD, empty tracked diff, untracked path-list hash, and all three artifact modes/sizes/hashes match exactly | PASS |
+
+The unexpected HEAD is a direct child of the required starting HEAD. Its commit
+metadata is:
+
+- commit: `22ed6189f444a7f96719153ca1abd146d9713510`
+- parent: `7f17aaca11bc6228bed48b9265d63b9e576cdea7`
+- subject: `security: validate helper identity before XPC trust`
+- committed paths: `ARCHITECTURE.md`, this ledger,
+  `Helper/HelperDaemon.swift`,
+  `Packages/LidlessCore/Sources/LidlessCore/XPCPeerPolicy.swift`, and
+  `Packages/LidlessCore/Tests/LidlessCoreTests/XPCPeerPolicyTests.swift`
+
+All 27 manifest paths exist and retain their expected mode. The four entries
+with non-matching status and/or bytes are:
+
+| Path | Manifest evidence | Observed evidence |
+|---|---|---|
+| `ARCHITECTURE.md` | status ` M`; 8,971 bytes; SHA-256 `a790d7bbf4b026c0941716dc55722c50f7b371bdae1e67f9fdcb92888a42c76a` | clean/tracked; 9,150 bytes; SHA-256 `24c65826d981f93515fe84e0cf9bcd65c8f38e0ddff62008ceae4ff9ccd26749` |
+| `Helper/HelperDaemon.swift` | status ` M`; 31,774 bytes; SHA-256 `14e2bc6c50163561022c22a04444f1e5643b02fd4b1aba71c4a5a386a4faf9e0` | status ` M`; 31,474 bytes; SHA-256 `e4bbdca622b1605321dbfa704a0ae9d61894c7fba2ddc240b452dc7e32987477` |
+| `Packages/LidlessCore/Sources/LidlessCore/XPCPeerPolicy.swift` | status `??`; 1,108 bytes; SHA-256 `9699b15dce28a3806cb90fbc5f3aeae9a4b9724dc3925dcd697a05c7249f96b5` | clean/tracked; 4,890 bytes; SHA-256 `f4348deb79a18f5efdeba633203f2aacb8873658ccc85e8fffa244dadc6e260a` |
+| `Packages/LidlessCore/Tests/LidlessCoreTests/XPCPeerPolicyTests.swift` | status `??`; 1,081 bytes; SHA-256 `5c30eaf3374bcd0ecdda2d7ded63f422c86043dfaf4f23b11fa47e4a465c729e` | clean/tracked; 4,569 bytes; SHA-256 `9478bc7cd57510f2f045352f6dd2e74b479daf58908e5a718f092cf40e054f4d` |
+
+For diagnosis only, the complete tracked diff against the required starting
+HEAD hashes to
+`07376b7e219534f44f4a2d826352020b41b92e9614921c43178653bfd8e2c031`,
+which also does not match the manifest's tracked binary diff hash. No attempt
+was made to reset, normalize, amend, or otherwise overwrite this state.
+
 ## Resolved restart-inventory clarification
 
 The resumed worker conservatively stopped before package review because this
@@ -66,9 +111,9 @@ changed path remains a hard stop. Work may resume from `State: IN_PROGRESS`.
 
 | ID | Safety claim or surface | Code trace | Regression evidence | Build/static/artifact evidence | Status |
 |---|---|---|---|---|---|
-| S-01 | Fresh arm requires readable proof of normal sleep before mutation | `HelperDaemon.handleArm` checks the registry, then can block in `readCustom` before mutation; the check and mutation are not atomic | Tri-state policy tests pass, but no integration regression closes the time-of-check/time-of-use window | Manual helper compilation only | PARTIAL — REPAIR REQUIRED |
+| S-01 | Fresh arm requires readable proof of normal sleep before mutation | Optional snapshots precede the first preflight; a second preflight follows the unbounded sentinel write and immediately precedes in-memory ownership plus enable. macOS still provides no atomic registry-read/`pmset` ownership transaction | Tri-state policy tests plus a production-source ordering regression pass | Debug/Release helper compile only; the final cross-process race and live registry behavior remain unproved | PARTIAL — OWNERSHIP/LIVE GATES OPEN |
 | S-02 | Arm and restore require exact readback; unknown never succeeds | Exact checks exist in `SleepOverrideSafety`, arm readback, restore readback, and app completion gates | Focused policy tests pass | Manual helper compilation only; no live registry proof | PARTIAL — LIVE/FAULT GATES OPEN |
-| S-03 | Sentinel/recovery state survives and retries unverified restoration | Fresh-arm sentinel precedes mutation, but blocking optional mutations delay in-memory watchdog/connection supervision; re-arm and heartbeat suppress sentinel-write errors | No daemon fault-injection regression | Manual helper compilation only | CONFIRMED DEFECT |
+| S-03 | Sentinel/recovery state survives and retries unverified restoration | The sentinel, connection owner, and monotonic watchdog precede enable; active-session sentinel rewrites are eliminated; exact restore proof gates deletion; deletion/readback failure retains retry state; wake scheduling is deferred while supervising | RED source-contract regression failed on all three active sentinel rewrites; GREEN passes immutability, ordering, timeout wiring, and wake-deferral checks | Debug/Release helper compile with strict concurrency and warnings-as-errors; no daemon fault injection or live recovery | CHECKPOINT VERIFIED OFFLINE — LIVE/FAULT GATES OPEN |
 | S-04 | App terminal actions wait for proven restoration | `beginRestore` and its monitor retain pending state until v5 proof | Core proof-policy tests pass | Stale-helper path remains contradictory | PARTIAL — STALE PATH DEFECT |
 | S-05 | Manual disarm, cutoff, quit, restart, wake, and orphan recovery share pending-restore semantics | Several paths use `beginRestore`; wake/orphan polling suppresses status errors and does not establish a terminal result | No complete transition-table regression | Not runtime tested | CONFIRMED DEFECT |
 | S-06 | Heartbeats require a proven armed status | Successful replies use `isArmProven`, but transport errors are ignored indefinitely in the loop | Policy proof test only; no repeated-error regression | Not runtime tested | CONFIRMED DEFECT |
@@ -76,9 +121,9 @@ changed path remains a hard stop. Work may resume from `State: IN_PROGRESS`.
 | S-08 | Unknown registry state stays unknown in app and widget | IPC/widget types carry verification state, but app presentation and some uninstall/wake branches do not preserve unknown uniformly | Core encoding/proof tests pass | UI/runtime not exercised | CONFIRMED DEFECT |
 | S-09 | XPC peer trust fails closed without signed same-team identity | Startup provider validates Apple anchor + helper identifier before reading signing info, validates again with the candidate team, caches the peer requirement, and rejects all peers on failure | RED: missing ordered seam failed compilation; GREEN: 8 XPC tests prove check → extract → candidate-bound check plus failure ordering | Debug/Release helper compile with Swift 6 strict concurrency and warnings-as-errors; signed runtime remains prohibited/unverified | CHECKPOINT VERIFIED OFFLINE |
 | S-10 | Protocol/build/signing/release configuration reflects v5 and does not present ad-hoc trust as proof | Source/project identifiers align, but release verification accepts ad-hoc nested code and does not assert same-team identities/entitlements; documentation overclaims remain | No release-policy regression | Plists/pbxproj lint; full graph could not resolve under nested sandbox | CONFIRMED DEFECT |
-| V-01 | Complete core suite | N/A | Full dirty source tree: 169 tests in 7 suites passed; isolated staged checkpoint: 159 tests in 6 suites passed | Complete outputs preserved | PASS |
-| V-02 | Unsigned Debug and Release full-graph builds | N/A | N/A | Both Xcode configurations were attempted with signing disabled but package resolution is blocked by the managed outer sandbox; isolated staged Debug/Release core and helper compilation passed separately | PARTIAL — ENVIRONMENT BLOCKED |
-| V-03 | Static analysis without live activation | N/A | N/A | Swift 6 strict-concurrency helper compilation with warnings-as-errors passed; Xcode analysis is blocked before graph resolution | PARTIAL |
+| V-01 | Complete core suite | N/A | Full dirty source tree: 177 tests in 9 suites passed; isolated `HEAD + staged` helper checkpoint: 175 tests in 9 suites passed | Complete outputs preserved | PASS |
+| V-02 | Unsigned Debug and Release full-graph builds | N/A | N/A | Current Xcode attempts used `CODE_SIGNING_ALLOWED=NO` but failed because `LidlessCore` was unresolved; separate Debug/Release core builds and helper compiles passed | PARTIAL — ENVIRONMENT/GRAPH BLOCKED |
+| V-03 | Static analysis without live activation | N/A | N/A | Swift 6 strict-concurrency helper compilation with warnings-as-errors passed; Xcode analysis failed on the same unresolved package product | PARTIAL |
 | V-04 | Built bundle, plist, configuration, and entitlement claims | N/A | N/A | All source plist/entitlement files and `project.pbxproj` lint; no complete built bundle exists to inspect | PARTIAL — BUILD BLOCKED |
 | V-05 | Main checkout remains unchanged | Baseline recorded above | N/A | Post-checkpoint branch/HEAD, empty tracked diff, NUL path-list hash, and all three artifact hashes exactly match the baseline | PASS |
 
@@ -156,3 +201,62 @@ closed-lid hardware behavior, notarization, and release readiness.
 - E-022 — 2026-08-05T12:21:00+0200 — Independent review of the XPC-only checkpoint found no security blocker and confirmed candidate-bound, fail-closed ordering, internal raw builders, startup caching, and reject-all behavior on provider failure. It caught that 169 tests described the full dirty package, while the isolated checkpoint has 159; `ARCHITECTURE.md` was corrected to the scoped count. The reviewer also confirmed that positive signed Security-framework behavior is simulated and must remain a live external gate.
 - E-023 — 2026-08-05T12:23:43+0200 — Reviewed and partially staged only F-001: the new XPC policy and 8 tests, helper import/startup/listener/old-provider hunks, the scoped architecture correction, and this ledger. `git diff --cached --check` passed. A fresh temporary `HEAD + staged binary diff` snapshot passed all 159 tests in 6 suites, a Release core build, and standalone Debug and optimized Release helper compiles with Swift 6 complete strict concurrency and warnings-as-errors. Every other preserved package change remains unstaged. No app/helper was launched and no live or signed-runtime claim is made.
 - E-024 — 2026-08-05T12:25:00+0200 — Post-checkpoint preservation comparison passed: the main checkout remained on `main` at starting HEAD, its tracked binary diff remained empty, its NUL-delimited untracked path-list hash remained `1ddc7b8fe0b0232cf68c470366a1eb1eeac1e5fd8e764e0f814eecf61e9e290a`, and the modes, sizes, and hashes of all three pre-existing `.playwright-mcp/` artifacts exactly matched the baseline. The isolated feature worktree index was clean; its remaining 21 tracked modifications and 3 untracked paths are the intentionally unstaged remainder of the preserved package.
+- E-025 — 2026-08-05T12:28:24+0200 — Read the canonical handoff, supplied manifest, progress log, decision log, architecture, and design-reset brief in full. The handoff SHA-256 was exactly `95bdacdde663c642c2f97d532c1ec2b931e94a7dfcda47b8031e011ab3944831`; the manifest SHA-256 was exactly `d84065171a261e24ae574b98164132472ff1e8bb635647403d814b9fcf58c36a`. A repository-wide hidden-file scan found no `AGENTS.md`, `CLAUDE.md`, or equivalent agent instruction file.
+- E-026 — 2026-08-05T12:28:24+0200 — The restart recovery gate failed before any edit. The isolated path, linked-worktree registration, common directory, and branch matched, but HEAD was `22ed6189f444a7f96719153ca1abd146d9713510` instead of the required `7f17aaca11bc6228bed48b9265d63b9e576cdea7`; dirty inventory was 21 modified tracked plus 3 untracked rather than 22 plus 5; and the required ledger was already tracked in the unexpected commit rather than appearing as the sole permitted additional untracked path.
+- E-027 — 2026-08-05T12:28:24+0200 — Independently checked existence, status, mode, byte count, and raw SHA-256 for all 27 manifest entries. Twenty-three entries matched every field. The four exact path-level mismatches are recorded in the blocking section above. `git diff --binary HEAD` hashed to `eddd2acc77f548d076981c2a1e5ed68ada2bb0097125153cdea9994c0d4deaa0`, not the required `585692490de6c54d8a5c37e969ede7f2b185fa198ca0a3b7843695caaec462b0`.
+- E-028 — 2026-08-05T12:28:24+0200 — Reverified the main checkout without editing it: `main` remained at `7f17aaca11bc6228bed48b9265d63b9e576cdea7`; its tracked binary diff hash remained the empty hash; its NUL-delimited untracked path-list hash remained `1ddc7b8fe0b0232cf68c470366a1eb1eeac1e5fd8e764e0f814eecf61e9e290a`; and the recorded modes, sizes, and SHA-256 values of all three `.playwright-mcp/` artifacts matched exactly. Per the hard-stop contract, no tests, builds, static analysis, staging, commit, product-source edit, app/helper launch, or live action followed; only this required `BLOCKED` ledger update was made.
+- E-029 — 2026-08-05T13:25:55+0200 — Read the canonical handoff, immutable state manifest, rolling remainder manifest and sidecar, progress log, decision log, architecture, and design-reset brief in full. The supplied canonical and immutable-manifest hashes matched exactly. The sidecar's recorded rolling-manifest SHA-256 `76f07d267dd2e314f7ad349ab956405085bc5f42796c440b8e783a0ac7359e1d` matched the manifest bytes. A repository-wide instruction-file scan again found no `AGENTS.md`, `CLAUDE.md`, or equivalent agent instruction file.
+- E-030 — 2026-08-05T13:25:55+0200 — Applied the checkpoint-aware rolling manifest as the sole recovery authority. The feature worktree canonical path, linked topology, branch, HEAD `22ed6189f444a7f96719153ca1abd146d9713510`, Git admin/common directories, clean index, 25-path dirty inventory, every path's status/type/mode/size/raw SHA-256, NUL-status digest `7d7e30f1a7c3b8eea307581d2d411e5f9e69d8f2376d0d8a7f40af4018b5e015`, and tracked binary-diff digest `75a0237740b72d9249529d4d9fa4884db0a3593484453451b21b28ea546afe8e` matched exactly.
+- E-031 — 2026-08-05T13:25:55+0200 — Independently reverified the rolling manifest's main-checkout record without editing it: canonical path, linked topology, `main` at `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, clean index, all three `.playwright-mcp` records, NUL-status digest `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`, and empty tracked binary-diff digest matched exactly.
+- E-032 — 2026-08-05T13:25:55+0200 — Corrected the top-level state from `BLOCKED` to `IN_PROGRESS` under the explicit rolling-manifest recovery rule. The earlier false-stop evidence remains intact; no historical evidence was removed or rewritten, and no product source was changed during recovery.
+
+## Rolling-manifest recovery correction — 2026-08-05T13:25:55+0200
+
+The `BLOCKED` entry at 12:28:24 applied the historical starting-state manifest
+after the legitimate first checkpoint. The authenticated rolling manifest is
+the required post-checkpoint authority and reproduces exactly. The false stop
+is therefore corrected to `State: IN_PROGRESS`; its evidence remains above.
+
+## Second-checkpoint ruling — helper supervision queue
+
+The coherent scope for this invocation is the helper's synchronous
+supervision/restore group, planned as `security: bound helper supervision
+work`. It repairs the avoidable queue-starvation portion of F-002 and the v5
+helper's sentinel/readback retry behavior without accepting the unreviewed app,
+widget, release, configuration, or design remainder.
+
+The helper now snapshots optional settings before its final preparation,
+limits each `pmset` wait to 3 seconds plus a 1-second forced-termination
+observation window, installs the sentinel/connection owner/monotonic watchdog
+before enable, proves the registry result, replies before at most two optional
+mutations, and defers wake scheduling while armed or recovering. The disk
+sentinel is immutable during an active session: re-arm, proven-arm completion,
+and heartbeat refresh queue-owned memory only. Restoration always targets
+ordinary sleep, requires exact readback before deletion, and retains retry
+state when readback or sentinel deletion is not proven complete.
+
+This checkpoint deliberately does **not** close or claim:
+
+- the final cross-process registry-read-to-`pmset` race, because macOS exposes
+  no atomic ownership primitive for the global Boolean;
+- a formal real-time bound for `Process.run`, filesystem calls, IOKit, or every
+  OS operation; 3+1 seconds bounds only the child wait/reap observation;
+- stale-v4 app/helper reconciliation (F-003), including a running v4 helper
+  restoring its legacy `priorSleepDisabled = true` value;
+- heartbeat transport escalation, wake/orphan app reconciliation, unknown UI
+  presentation, signed runtime behavior, or any hardware recovery path.
+
+The prepared-sentinel interval also remains conservative: a crash after the
+sentinel exists but before Lidless enables the override can cause recovery to
+prefer normal sleep over a concurrent external owner. That tradeoff and the
+remaining ownership race require separate live/design review.
+
+- E-033 — 2026-08-05T13:48:32+0200 — Reviewed the complete 25-path rolling remainder against checkpoint HEAD and traced helper, app reconciliation, release/configuration, test, and documentation claims. Independent read-only reviews confirmed that app stale-v4/heartbeat/unknown-state defects and release-policy defects remain separate root-cause groups; only the helper supervision queue is eligible for this invocation's checkpoint.
+- E-034 — 2026-08-05T13:48:32+0200 — Reproduced the dirty-package baseline at 169 tests in 7 suites. Added the timing policy regression first: the corrected RED run failed compilation because `HelperSupervisionTiming` did not exist; after adding the 3-second timeout, 1-second reap observation, and minimum-TTL arithmetic, focused GREEN passed 3 tests. A first GREEN command used a non-matching filter and ran no tests; it is preserved and not counted.
+- E-035 — 2026-08-05T13:48:32+0200 — Fresh adversarial review rejected the first repair because synchronous sentinel rewrites in re-arm, proven-arm completion, and heartbeat could still block the supervision queue and then erase an expired deadline. Added a production-source contract regression before the correction; expanded RED failed with six issues covering all three rewrites, missing post-write preflight ordering, and unchecked kill/reap wiring. After the focused correction, GREEN passed all 4 source-safety tests.
+- E-036 — 2026-08-05T13:48:32+0200 — Removed every active-session sentinel rewrite, added the second inactive-state preflight after the only unbounded preparation write, made sentinel deletion failure durable, required exact arm/restore proof, rejected wake scheduling while supervising, and made timeout diagnostics distinguish failed SIGKILL acceptance and unobserved child exit. The remaining registry-read-to-mutation race is explicitly not claimed closed.
+- E-037 — 2026-08-05T13:48:32+0200 — Full dirty-tree `swift test` passed 177 tests in 9 suites. Dedicated Debug and Release `LidlessCore` builds passed. Standalone Debug and optimized Release helper compiles passed with Swift 6 complete strict concurrency and warnings-as-errors. Initial helper compile invocations failed only because Clang attempted the sandbox-blocked user module cache; corrected invocations redirected the cache into this worktree and passed. All outputs are under ignored `build/verification-2026-08-05/`; no binary was launched.
+- E-038 — 2026-08-05T13:48:32+0200 — Current full-graph Debug, Release, and Debug-analysis Xcode attempts used `CODE_SIGNING_ALLOWED=NO` and did not launch Lidless or its helper. All failed because the local `LidlessCore` package product was unresolved; the parallel Debug build/analyze attempts also contended on one DerivedData database. Release and analysis nevertheless reached normal Xcode postprocessing and invoked `RegisterWithLaunchServices` for incomplete unsigned app output before reporting failure. This was not helper installation/registration or app execution, but it is an automatic side effect and no further Xcode attempt is made. These failures are not build or runtime proof.
+- E-039 — 2026-08-05T13:48:32+0200 — Corrected static artifact inspection passed `plutil -lint` for app/widget Info plists and entitlements, helper launchd plist, export options, and `project.pbxproj`. The helper plist exactly reports label/Mach service `com.lidless.helper`, `RunAtLoad = true`, sentinel `KeepAlive.PathState = true`, and associated app `com.lidless.app`; both incomplete Xcode output trees copied that plist byte-for-byte. One preliminary lint used the wrong export-options path and an invalid dotted `plutil` key path; its output is preserved but not counted.
+- E-040 — 2026-08-05T13:48:32+0200 — Independent fresh review found no remaining blocker for this narrowly named helper timing/queue-starvation checkpoint. It confirmed active sentinel immutability, second-preflight ordering, timeout diagnostics, reply-before-optionals, wake deferral, and deletion retry, while requiring the ownership race, prepared-sentinel tradeoff, non-real-time OS calls, and stale-v4 reconciliation to remain explicit gates.
+- E-041 — 2026-08-05T13:51:00+0200 — Partially staged exactly eleven files for the helper checkpoint, excluding the modified `SmokeTests.swift` and every app/widget/release/configuration/design remainder. `git diff --cached --check` passed. A fresh `/private/tmp` export of the exact Git index passed all 175 tests in 9 suites, dedicated Debug and Release core builds, and standalone Debug and optimized Release helper compiles with Swift 6 complete strict concurrency and warnings-as-errors. The snapshot products are compile-only, were not launched, and do not establish signed XPC, live `pmset`, sleep/wake, crash, or hardware behavior.
