@@ -88,7 +88,38 @@ final class AppState {
 
     private var tickTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
+    private var restoreMonitorTask: Task<Void, Never>?
     private var sleepTerminationTask: Task<Void, Never>?
+
+    /// Deferred session completion while the helper is still retrying or the
+    /// registry cannot yet prove that normal sleep was restored.
+    private struct PendingRestore {
+        /// Unforgeable identity fences late XPC results from an older restore.
+        var id: NonSleepRestoreGeneration? = nil
+        var options: HelperDisarmOptions
+        /// A cutoff may ask for sleep only after ordinary sleep has been
+        /// restored. This follow-up is dispatched at most once because a lost
+        /// XPC reply does not prove that `sleepnow` was not already scheduled.
+        var forceSleepFollowUp: HelperDisarmOptions? = nil
+        /// Manual and quit callers remain suspended until this generation is
+        /// actually complete; unattended cutoff/recovery callers do not.
+        var waitsForCompletion = false
+        var endReason: SessionEndReason?
+        var notificationTitle: String?
+        var notificationBody: String?
+        var notificationSound: Bool
+        var playChime: Bool
+        /// Optional explanation to retain after safety is restored (for
+        /// example, an arm attempt that failed but was recovered safely).
+        var completionError: String?
+    }
+
+    private var pendingRestore: PendingRestore?
+    private var restoreGate = NonSleepRestoreGate()
+    /// Set before AppKit is allowed to terminate so queued manual/scheduled
+    /// arm work cannot cross the quit decision.
+    private var terminationPending = false
+    private var terminationRestoreGeneration: NonSleepRestoreGeneration?
 
     /// Incremented to ask the menu-bar bridge to open the main window.
     private(set) var mainWindowRequestToken = 0
@@ -242,12 +273,15 @@ final class AppState {
 
         let terminatesActiveIntent = phase == .arming
             || phase == .armed
+            || phase == .disarming
             || armRequestsInFlight > 0
+            || pendingRestore != nil
             || sleepTerminationGeneration != nil
         if terminatesActiveIntent {
             if sleepTerminationGeneration == nil {
                 sleepTerminationGeneration = sleepGeneration
             }
+            cancelPendingRestoreForSleepTransition()
             phase = .disarming
             stopHeartbeat()
             lastError = "System sleep ended the keep-awake request. Restoring normal sleep."
@@ -306,6 +340,8 @@ final class AppState {
                    !overrideActive,
                    armRequestsInFlight == 0 {
                     let endedSession = currentSession != nil
+                    pendingRestore = nil
+                    stopRestoreMonitor()
                     if endedSession {
                         finalizeSession(endReason: .systemSlept)
                     } else {
@@ -472,7 +508,7 @@ final class AppState {
     // MARK: - Arm flow intents
 
     func beginArmFlow(preset: ArmPreset? = nil) {
-        guard phase == .disarmed else { return }
+        guard !terminationPending, phase == .disarmed else { return }
         lastError = nil
 
         guard sleepPresentation == .verifiedNormal else {
@@ -561,7 +597,10 @@ final class AppState {
     }
 
     func confirmArm() async {
-        guard let intent = pendingArm, phase == .disarmed else { return }
+        guard !terminationPending,
+              let intent = pendingArm,
+              phase == .disarmed
+        else { return }
         if case .refusedBelowFloor = intent.assessment { return }
         guard sleepPresentation == .verifiedNormal else {
             pendingArm = nil
@@ -675,9 +714,42 @@ final class AppState {
                   armSleepGeneration == sleepGeneration,
                   armProofEpoch == helperProofEpoch,
                   SleepOverrideSafety.isArmProven(reply) else {
-                throw NSError(domain: "Lidless", code: 1, userInfo: [
-                    NSLocalizedDescriptionKey: reply.error ?? "The helper could not prove the sleep override.",
-                ])
+                invalidateHelperSessionProof()
+                overrideStateVerified = false
+                if sleepTerminationGeneration != nil {
+                    scheduleSleepTerminationRestore()
+                    publishWidget()
+                    return
+                }
+                if pendingRestore != nil {
+                    startRestoreMonitor()
+                    publishWidget()
+                    return
+                }
+                let message = "Couldn't arm: \(reply.error ?? "The helper could not verify the sleep override.")"
+                pendingArm = nil
+                scheduleOccurrence = nil
+
+                if SleepOverrideSafety.isRestoreProven(
+                    reply.status,
+                    independentlyObserved: refreshedSleepOverride()
+                ) {
+                    phase = .disarmed
+                    lastError = message
+                    publishWidget()
+                } else {
+                    _ = beginRestore(PendingRestore(
+                        options: HelperDisarmOptions(forceSleep: false, reason: "recovering failed arm"),
+                        endReason: nil,
+                        notificationTitle: nil,
+                        notificationBody: nil,
+                        notificationSound: false,
+                        playChime: false,
+                        completionError: message
+                    ))
+                }
+                await helper.refreshInstallState()
+                return
             }
             helperSessionProven = true
 
@@ -738,13 +810,18 @@ final class AppState {
                 publishWidget()
                 return
             }
-            phase = .disarmed
             pendingArm = nil
             scheduleOccurrence = nil
-            invalidateHelperSessionProof()
-            overrideStateVerified = false
-            lastError = "Couldn't arm: \(error.localizedDescription)"
-            publishWidget()
+            let message = "Couldn't arm: \(error.localizedDescription)"
+            _ = beginRestore(PendingRestore(
+                options: HelperDisarmOptions(forceSleep: false, reason: "recovering interrupted arm"),
+                endReason: nil,
+                notificationTitle: nil,
+                notificationBody: nil,
+                notificationSound: false,
+                playChime: false,
+                completionError: message
+            ))
             await helper.refreshInstallState()
         }
     }
@@ -752,96 +829,469 @@ final class AppState {
     /// The always-available "Disarm & restore normal sleep".
     func disarm() async {
         pendingArm = nil
-        guard phase == .armed else { return }
-        phase = .disarming
-        invalidateHelperSessionProof()
-        overrideStateVerified = false
-        publishWidget()
-
-        do {
-            let reply = try await helper.disarm(HelperDisarmOptions(forceSleep: false, reason: "manual disarm"))
-            if !reply.ok { lastError = reply.error }
-        } catch {
-            lastError = "Disarm failed: \(error.localizedDescription) — the helper watchdog will restore sleep within \(Int(HelperArmOptions.defaultWatchdogTTL))s"
-        }
-
-        if sleepTerminationGeneration != nil {
-            scheduleSleepTerminationRestore()
-            publishWidget()
-            return
-        }
-
-        finalizeSession(endReason: .manual)
-        phase = .disarmed
-        systemMonitor?.refresh()
-        refreshSystemFlags()
-        if config.behavior.notifyOnStateChanges,
-           sleepPresentation == .verifiedNormal {
-            notifications.post(title: "Normal sleep restored", body: "Lidless is disarmed.")
-        }
-        publishWidget()
+        guard phase == .armed || phase == .arming else { return }
+        guard let restoreID = beginRestore(PendingRestore(
+            options: HelperDisarmOptions(forceSleep: false, reason: "manual disarm"),
+            waitsForCompletion: true,
+            endReason: currentSession == nil ? nil : .manual,
+            notificationTitle: config.behavior.notifyOnStateChanges ? "Normal sleep restored" : nil,
+            notificationBody: config.behavior.notifyOnStateChanges ? "Lidless is disarmed." : nil,
+            notificationSound: false,
+            playChime: false,
+            completionError: nil
+        )) else { return }
+        _ = await waitForRestore(restoreID: restoreID)
     }
 
-    func disarmForQuit() async {
-        guard phase == .armed else { return }
-        phase = .disarming
-        invalidateHelperSessionProof()
-        overrideStateVerified = false
-        publishWidget()
-        _ = try? await helper.disarm(HelperDisarmOptions(forceSleep: false, reason: "app quit"))
-        if sleepTerminationGeneration != nil {
-            scheduleSleepTerminationRestore()
-            publishWidget()
-            return
+    /// Fences queued intent immediately before AppKit is allowed to terminate.
+    /// A disarmed phase is not enough: the independent registry state must be
+    /// readable and normal.
+    func prepareForImmediateTermination() -> Bool {
+        let independentlyObserved = refreshedSleepOverride()
+        guard NonSleepRestoreGate.allowsImmediateTermination(
+            isDisarmed: phase == .disarmed,
+            hasActiveSession: currentSession != nil,
+            hasPendingRestore: pendingRestore != nil,
+            independentlyObserved: independentlyObserved,
+            presentation: sleepPresentation
+        )
+        else { return false }
+
+        terminationPending = true
+        terminationRestoreGeneration = nil
+        pendingArm = nil
+        scheduleOccurrence = nil
+        return true
+    }
+
+    /// Returns only after the same restore generation has completed. AppKit
+    /// keeps its terminate-later request open during recovery, so an `.appQuit`
+    /// history record cannot be written for a quit that was already cancelled.
+    func disarmForQuit() async -> Bool {
+        guard phase == .armed else { return false }
+        terminationPending = true
+        pendingArm = nil
+        scheduleOccurrence = nil
+        guard let restoreID = beginRestore(PendingRestore(
+            options: HelperDisarmOptions(forceSleep: false, reason: "app quit"),
+            waitsForCompletion: true,
+            endReason: .appQuit,
+            notificationTitle: nil,
+            notificationBody: nil,
+            notificationSound: false,
+            playChime: false,
+            completionError: nil
+        )) else {
+            terminationPending = false
+            return false
         }
-        finalizeSession(endReason: .appQuit)
-        phase = .disarmed
-        systemMonitor?.refresh()
-        refreshSystemFlags()
-        publishWidget()
+        terminationRestoreGeneration = restoreID
+        return await waitForRestore(restoreID: restoreID)
     }
 
     private func fireCutoff(reasons: [CutoffReason]) async {
         guard phase == .armed, let primary = reasons.first else { return }
-        phase = .disarming
-        invalidateHelperSessionProof()
-        overrideStateVerified = false
-        publishWidget()
 
         let sleepAfter = config.behavior.sleepOnCutoff && lidClosed
         let label = cutoffLabel(primary)
 
+        _ = beginRestore(PendingRestore(
+            // Restoration is always idempotent. `sleepnow` is a separate,
+            // one-shot follow-up after two-source normal-sleep proof.
+            options: HelperDisarmOptions(forceSleep: false, reason: label),
+            forceSleepFollowUp: sleepAfter
+                ? HelperDisarmOptions(forceSleep: true, reason: label)
+                : nil,
+            endReason: .cutoff(primary),
+            notificationTitle: config.behavior.notifyOnStateChanges
+                ? (sleepAfter ? "Sleep requested" : "Keep-awake ended")
+                : nil,
+            notificationBody: config.behavior.notifyOnStateChanges ? label : nil,
+            notificationSound: config.behavior.playCutoffSound,
+            playChime: config.behavior.playCutoffSound,
+            completionError: nil
+        ))
+    }
+
+    /// Starts a restore and completes the session only after an exact helper
+    /// reply and a fresh independent registry read both prove normal sleep.
+    /// Otherwise the session and crash journal stay live while one
+    /// generation-bound worker retries the idempotent restore.
+    @discardableResult
+    private func beginRestore(
+        _ requested: PendingRestore
+    ) -> NonSleepRestoreGeneration? {
+        if let restoreID = pendingRestore?.id { return restoreID }
+        guard !terminationPending || requested.endReason == .appQuit else {
+            return nil
+        }
+
+        var pending = requested
+        let restoreID = restoreGate.begin(
+            forceSleepRequested: pending.forceSleepFollowUp != nil,
+            requiresFinalProof: pending.endReason == .appQuit
+        )
+        pending.id = restoreID
+        pendingRestore = pending
+        phase = .disarming
+        stopHeartbeat()
+        invalidateHelperSessionProof()
+        overrideStateVerified = false
+        publishWidget()
+        startRestoreMonitor()
+        return restoreID
+    }
+
+    private func waitForRestore(
+        restoreID: NonSleepRestoreGeneration
+    ) async -> Bool {
+        while true {
+            if restoreGate.consumeCompletion(restoreID) {
+                return true
+            }
+            guard !Task.isCancelled else {
+                abandonRestoreWait(restoreID: restoreID)
+                return false
+            }
+
+            if restoreGate.isAwaitingFinalProof(restoreID) {
+                if let completed = await verifyQuitAtTerminationBoundary(
+                    restoreID: restoreID
+                ) {
+                    return completed
+                }
+                continue
+            }
+
+            guard restoreGate.owns(restoreID),
+                  pendingRestore?.id == restoreID
+            else {
+                abandonRestoreWait(restoreID: restoreID)
+                return false
+            }
+            do {
+                try await Task.sleep(for: .milliseconds(100))
+            } catch {
+                if restoreGate.consumeCompletion(restoreID) {
+                    return true
+                }
+                abandonRestoreWait(restoreID: restoreID)
+                return false
+            }
+        }
+    }
+
+    /// Quit receives a second helper reply and a fresh independent registry
+    /// read immediately before `.appQuit` is finalized. Until this returns
+    /// true, AppKit's terminate-later request remains open and the crash
+    /// journal remains live.
+    private func verifyQuitAtTerminationBoundary(
+        restoreID: NonSleepRestoreGeneration
+    ) async -> Bool? {
+        guard terminationPending,
+              terminationRestoreGeneration == restoreID,
+              let pending = pendingRestore,
+              pending.id == restoreID,
+              pending.endReason == .appQuit,
+              restoreGate.isAwaitingFinalProof(restoreID)
+        else { return false }
+
         do {
-            let reply = try await helper.disarm(HelperDisarmOptions(forceSleep: sleepAfter, reason: label))
-            if !reply.ok { lastError = reply.error }
+            let reply = try await helper.disarm(pending.options)
+            guard !Task.isCancelled else {
+                abandonRestoreWait(restoreID: restoreID)
+                return false
+            }
+            guard terminationPending,
+                  terminationRestoreGeneration == restoreID,
+                  pendingRestore?.id == restoreID
+            else { return false }
+            guard sleepTerminationGeneration == nil else {
+                cancelPendingRestoreForSleepTransition()
+                scheduleSleepTerminationRestore()
+                return false
+            }
+
+            let independentlyObserved = refreshedSleepOverride()
+            switch restoreGate.evaluateFinalProof(
+                generation: restoreID,
+                helperReply: reply,
+                independentlyObserved: independentlyObserved,
+                armRequestsInFlight: armRequestsInFlight
+            ) {
+            case .complete:
+                completePendingRestore(expectedID: restoreID)
+                return nil
+            case .retry:
+                lastError = reply.error
+                    ?? (armRequestsInFlight == 0
+                        ? "Normal sleep changed before quit could be committed. Lidless will verify it again."
+                        : "Waiting for an in-flight arm request before quit can be committed.")
+                startRestoreMonitor(delayFirstAttempt: true)
+                publishWidget()
+                return nil
+            case .ignore:
+                return false
+            case .dispatchForceSleep, .awaitFinalProof:
+                return false
+            }
         } catch {
-            lastError = "Cutoff restore failed: \(error.localizedDescription) — helper watchdog is the backstop"
-        }
-
-        if sleepTerminationGeneration != nil {
-            scheduleSleepTerminationRestore()
+            guard !Task.isCancelled else {
+                abandonRestoreWait(restoreID: restoreID)
+                return false
+            }
+            guard restoreGate.rejectFinalProof(restoreID) == .retry else {
+                return false
+            }
+            lastError = "The final normal-sleep check failed (\(error.localizedDescription)). Lidless will keep restoring before quit."
+            startRestoreMonitor(delayFirstAttempt: true)
             publishWidget()
-            return
+            return nil
+        }
+    }
+
+    private func completePendingRestore(
+        expectedID restoreID: NonSleepRestoreGeneration
+    ) {
+        guard sleepTerminationGeneration == nil,
+              let pending = pendingRestore,
+              pending.id == restoreID,
+              restoreGate.isCompleted(restoreID)
+        else { return }
+
+        pendingRestore = nil
+        stopRestoreMonitor()
+
+        if let endReason = pending.endReason {
+            finalizeSession(endReason: endReason)
+        } else {
+            stopHeartbeat()
         }
 
-        finalizeSession(endReason: .cutoff(primary))
         phase = .disarmed
-        systemMonitor?.refresh()
+        lastError = pending.completionError
         refreshSystemFlags()
 
-        if config.behavior.notifyOnStateChanges,
+        if let title = pending.notificationTitle,
+           let body = pending.notificationBody,
            sleepPresentation == .verifiedNormal {
             notifications.post(
-                title: sleepAfter ? "Going to sleep" : "Keep-awake ended",
-                body: label,
-                sound: config.behavior.playCutoffSound
+                title: title,
+                body: body,
+                sound: pending.notificationSound
             )
         }
-        if config.behavior.playCutoffSound,
+        if pending.playChime,
            sleepPresentation == .verifiedNormal {
             notifications.playCutoffChime()
         }
+        if !pending.waitsForCompletion {
+            restoreGate.consumeCompletion(restoreID)
+        }
         publishWidget()
+    }
+
+    private func startRestoreMonitor(delayFirstAttempt: Bool = false) {
+        guard restoreMonitorTask == nil,
+              let restoreID = pendingRestore?.id
+        else { return }
+
+        restoreMonitorTask = Task { [weak self] in
+            await self?.runRestoreMonitor(
+                restoreID: restoreID,
+                delayFirstAttempt: delayFirstAttempt
+            )
+        }
+    }
+
+    private func runRestoreMonitor(
+        restoreID: NonSleepRestoreGeneration,
+        delayFirstAttempt: Bool
+    ) async {
+        defer {
+            // A cancelled worker may resume after a newer restore begins. It
+            // must never clear that newer worker's task slot.
+            if pendingRestore?.id == restoreID {
+                restoreMonitorTask = nil
+            }
+        }
+
+        var shouldDelay = delayFirstAttempt
+        while !Task.isCancelled {
+            guard phase == .disarming,
+                  let pending = pendingRestore,
+                  pending.id == restoreID
+            else { return }
+
+            if shouldDelay {
+                do {
+                    try await Task.sleep(for: .seconds(5))
+                } catch {
+                    return
+                }
+                guard pendingRestore?.id == restoreID else { return }
+            }
+            shouldDelay = true
+
+            do {
+                let reply = try await helper.disarm(pending.options)
+                guard pendingRestore?.id == restoreID else { return }
+                guard sleepTerminationGeneration == nil else {
+                    cancelPendingRestoreForSleepTransition()
+                    scheduleSleepTerminationRestore()
+                    return
+                }
+
+                let independentlyObserved = refreshedSleepOverride()
+                switch restoreGate.evaluateBaseProof(
+                    generation: restoreID,
+                    helperReply: reply,
+                    independentlyObserved: independentlyObserved,
+                    armRequestsInFlight: armRequestsInFlight
+                ) {
+                case .complete:
+                    completePendingRestore(expectedID: restoreID)
+                    return
+                case .dispatchForceSleep:
+                    if await dispatchForceSleepFollowUp(restoreID: restoreID) {
+                        return
+                    }
+                case .awaitFinalProof:
+                    lastError = nil
+                    publishWidget()
+                    return
+                case .retry:
+                    lastError = reply.error
+                        ?? (armRequestsInFlight == 0
+                            ? "Normal sleep is not verified yet. Lidless will keep checking."
+                            : "Waiting for an in-flight arm request before normal sleep can be verified.")
+                case .ignore:
+                    return
+                }
+            } catch {
+                guard pendingRestore?.id == restoreID else { return }
+                lastError = "Normal sleep is not verified yet (\(error.localizedDescription)). Lidless will keep checking."
+            }
+            publishWidget()
+        }
+    }
+
+    /// Returns true only when this worker is finished. The pure gate commits
+    /// the one-shot authorization before this method suspends in XPC.
+    private func dispatchForceSleepFollowUp(
+        restoreID: NonSleepRestoreGeneration
+    ) async -> Bool {
+        guard let pending = pendingRestore,
+              pending.id == restoreID,
+              let followUp = pending.forceSleepFollowUp
+        else { return true }
+
+        do {
+            let reply = try await helper.disarm(followUp)
+            guard pendingRestore?.id == restoreID else { return true }
+            guard sleepTerminationGeneration == nil else {
+                cancelPendingRestoreForSleepTransition()
+                scheduleSleepTerminationRestore()
+                return true
+            }
+            let followUpObservation = refreshedSleepOverride()
+            switch restoreGate.evaluateFollowUpProof(
+                generation: restoreID,
+                helperReply: reply,
+                independentlyObserved: followUpObservation,
+                armRequestsInFlight: armRequestsInFlight
+            ) {
+            case .complete:
+                completePendingRestore(expectedID: restoreID)
+                return pendingRestore?.id != restoreID
+            case .retry:
+                markForceSleepFollowUpUnverified(
+                    restoreID: restoreID,
+                    detail: reply.error ?? "the helper did not return complete restore proof"
+                )
+            case .ignore:
+                return true
+            case .awaitFinalProof:
+                return true
+            case .dispatchForceSleep:
+                return false
+            }
+        } catch {
+            guard pendingRestore?.id == restoreID else { return true }
+            markForceSleepFollowUpUnverified(
+                restoreID: restoreID,
+                detail: error.localizedDescription
+            )
+        }
+        return false
+    }
+
+    private func markForceSleepFollowUpUnverified(
+        restoreID: NonSleepRestoreGeneration,
+        detail: String
+    ) {
+        guard var pending = pendingRestore,
+              pending.id == restoreID
+        else { return }
+        let message = "The follow-up sleep request was ambiguous (\(detail)). Lidless did not repeat it."
+        pending.notificationTitle = "Keep-awake ended"
+        pending.playChime = false
+        pending.completionError = message
+        pendingRestore = pending
+        lastError = message
+    }
+
+    private func abandonRestoreWait(
+        restoreID: NonSleepRestoreGeneration
+    ) {
+        guard terminationRestoreGeneration == restoreID else {
+            if var pending = pendingRestore,
+               pending.id == restoreID {
+                pending.waitsForCompletion = false
+                pendingRestore = pending
+            } else {
+                restoreGate.consumeCompletion(restoreID)
+            }
+            return
+        }
+        terminationPending = false
+        terminationRestoreGeneration = nil
+
+        guard var recovery = pendingRestore,
+              recovery.id == restoreID,
+              recovery.endReason == .appQuit
+        else { return }
+
+        restoreGate.cancel(restoreID)
+        pendingRestore = nil
+        stopRestoreMonitor()
+        recovery.id = nil
+        recovery.waitsForCompletion = false
+        recovery.endReason = currentSession == nil ? nil : .manual
+        _ = beginRestore(recovery)
+    }
+
+    private func refreshedSleepOverride() -> Bool? {
+        systemMonitor?.refresh()
+        refreshSystemFlags()
+        return overrideStateVerified ? overrideActive : nil
+    }
+
+    private func cancelPendingRestoreForSleepTransition() {
+        if let restoreID = pendingRestore?.id {
+            restoreGate.cancel(restoreID)
+            if terminationRestoreGeneration == restoreID {
+                terminationPending = false
+                terminationRestoreGeneration = nil
+            }
+        }
+        pendingRestore = nil
+        stopRestoreMonitor()
+    }
+
+    private func stopRestoreMonitor() {
+        restoreMonitorTask?.cancel()
+        restoreMonitorTask = nil
     }
 
     private func finalizeSession(endReason: SessionEndReason) {
@@ -932,6 +1382,9 @@ final class AppState {
     func uninstall() async -> String? {
         if phase == .armed {
             await disarm()
+        }
+        guard phase == .disarmed, pendingRestore == nil else {
+            return "Normal sleep has not been verified yet. Lidless is keeping the helper installed while recovery continues."
         }
         do {
             try await helper.uninstall()
@@ -1314,7 +1767,8 @@ final class AppState {
             suppressedOccurrence = nil
         }
 
-        guard phase == .disarmed,
+        guard !terminationPending,
+              phase == .disarmed,
               pendingArm == nil,
               helperState.isUsable,
               sleepPresentation == .verifiedNormal

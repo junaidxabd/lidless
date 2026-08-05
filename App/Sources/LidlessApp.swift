@@ -103,19 +103,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.appearance = NSAppearance(named: .darkAqua)
     }
 
-    /// Termination is fail-closed: the recovery checkpoint may later restore
-    /// and quit in one operation, but this presentation checkpoint permits
-    /// termination only from a verified-normal state.
+    /// Termination is fail-closed. Immediate quit is allowed only from a fresh,
+    /// verified-normal state after queued arm intent has been fenced. An armed
+    /// quit remains pending until the same restore generation proves safe.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let state = Self.stateProvider?() else {
+            return .terminateCancel
+        }
+
+        if state.prepareForImmediateTermination() {
             return .terminateNow
         }
-        guard state.sleepPresentation == .verifiedNormal else {
+
+        // Never quit through an in-flight arm: its XPC outcome is not known
+        // yet. Keep the app alive until that operation either proves the arm
+        // or enters the visible restore path.
+        if state.phase == .arming {
+            state.lastError = "Lidless is still verifying the sleep override. Try quitting again in a moment."
+            state.requestMainWindow()
+            return .terminateCancel
+        }
+
+        if state.phase == .disarming {
+            state.lastError = "Lidless is still restoring normal sleep. Keep the app open until restoration is verified."
+            state.requestMainWindow()
+            return .terminateCancel
+        }
+
+        guard state.phase == .armed else {
             state.lastError = "Lidless will quit only after normal sleep is verified. Restore normal sleep, then try again."
             state.requestMainWindow()
             return .terminateCancel
         }
-        return .terminateNow
+
+        let alert = NSAlert()
+        if state.sleepPresentation == .verifiedArmed {
+            alert.messageText = "Lidless is keeping your Mac awake"
+            alert.informativeText = "Normal macOS sleep behavior will be restored before Lidless quits."
+        } else {
+            alert.messageText = "System sleep state must be verified before quitting"
+            alert.informativeText = "Lidless will restore normal sleep and quit only after the helper proves restoration."
+        }
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Disarm & Quit")
+        alert.addButton(withTitle: "Cancel")
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            Task { @MainActor in
+                let restored = await state.disarmForQuit()
+                if !restored {
+                    state.requestMainWindow()
+                }
+                // Keep AppKit's terminate-later request open for the entire
+                // recovery. A false reply is sent only when that exact restore
+                // was superseded or cancelled, never merely because it needed
+                // another verification attempt.
+                NSApp.reply(toApplicationShouldTerminate: restored)
+            }
+            return .terminateLater
+        }
+        return .terminateCancel
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

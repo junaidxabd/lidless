@@ -449,7 +449,10 @@ struct SleepStatePresentationTests {
             through: "private func finalizeSession"
         )
         #expect(String(restorePaths).components(
-            separatedBy: "sleepTerminationGeneration != nil"
-        ).count >= 3)
+            separatedBy: "sleepTerminationGeneration == nil"
+        ).count >= 5)
+        #expect(String(restorePaths).components(
+            separatedBy: "cancelPendingRestoreForSleepTransition()"
+        ).count >= 4)
     }
 }

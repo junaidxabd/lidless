@@ -56,6 +56,18 @@ public enum SleepOverrideSafety {
         reply.ok && isRestoreProven(reply.status)
     }
 
+    /// App-level completion requires two independent observations of the
+    /// global sleep state: the helper's fresh readback and a separately
+    /// refreshed registry read in the unprivileged app. A disagreement or an
+    /// unreadable app-side value keeps recovery pending.
+    public static func isRestoreProven(
+        _ reply: HelperReply,
+        independentlyObserved: Bool?
+    ) -> Bool {
+        isRestoreProven(reply)
+            && isVerified(expected: false, observed: independentlyObserved)
+    }
+
     /// Status polling proves restoration only when the helper owns no live
     /// session, the registry read succeeded and reports normal sleep, and no
     /// retry remains pending. Missing fields from an older helper are unknown.
@@ -64,5 +76,16 @@ public enum SleepOverrideSafety {
             && status.sleepStateVerified == true
             && status.sleepDisabled == false
             && status.restorePending == false
+    }
+
+    /// Status polling follows the same two-source completion rule as an
+    /// operation reply. This overload is intentionally app-facing; the helper
+    /// itself has only its own registry readback and uses the overload above.
+    public static func isRestoreProven(
+        _ status: HelperStatus,
+        independentlyObserved: Bool?
+    ) -> Bool {
+        isRestoreProven(status)
+            && isVerified(expected: false, observed: independentlyObserved)
     }
 }

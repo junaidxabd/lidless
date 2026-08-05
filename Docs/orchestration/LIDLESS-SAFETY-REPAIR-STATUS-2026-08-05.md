@@ -376,3 +376,60 @@ This checkpoint deliberately does **not** close or claim:
 - E-081 — 2026-08-05T16:53:16+0200 — Every one of the 18 staged code/test paths was compared byte-for-byte with the independently tested exact export and matched its Git index blob. The pre-ledger exact index tree is `7b34173543d6a25d035b04b78cdf62d6df904c7b`; its staged binary-diff SHA-256 is `ee8ec18e22561155d5075c79fa28c6c1888a140ba1d1785408222379517583d5`. Every staged diff was reviewed and `git diff --cached --check` passed.
 - E-082 — 2026-08-05T16:53:16+0200 — Final pre-commit main-checkout preservation passed exactly: canonical path, `main` at `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, clean index, empty tracked diff, all three `.playwright-mcp` modes/sizes/SHA-256 values, and NUL-status digest `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18` match the rolling authority. The main checkout was not edited.
 - E-083 — 2026-08-05T16:53:16+0200 — The checkpoint is prepared under subject `safety: fail closed on unknown sleep state`. The broader app-recovery/design remainder stays unstaged, so `State: IN_PROGRESS` is intentionally retained. Xcode graph build/analyze was not retried after the already-established nested-sandbox and automatic LaunchServices side-effect risk; direct identity-free compilation is the only build evidence claimed here.
+
+## Fifth recovery audit — non-sleep recovery remainder
+
+- E-084 — 2026-08-05T16:57:45+0200 — Read the canonical handoff, immutable starting-state manifest, rolling remainder manifest and adjacent sidecar, progress log, decision log, architecture, design-reset brief, and this ledger in full. The canonical handoff and immutable manifest matched their supplied SHA-256 values. The sidecar-recorded rolling-manifest SHA-256 `fa40bd4fc4e848a945ce009f30c7b473ea64d3bb87f10dbb44e1e5f6db398e77` matched the manifest bytes. A repository-wide hidden-file scan found no `AGENTS.md`, `CLAUDE.md`, `CODEX.md`, `GEMINI.md`, `.cursorrules`, `copilot-instructions.md`, or matching instruction file.
+- E-085 — 2026-08-05T16:57:45+0200 — Applied only the authenticated rolling manifest for recovery. The feature worktree canonical path, linked-worktree registration, branch, HEAD `a1427fef2ed34d37d889f16567c826cfa3b674a1`, Git admin/common directories, clean index, complete nine-path dirty inventory, every recorded status/type/mode/size/raw SHA-256, NUL-status digest `e4dc4eced99157bb454e8bddad1fb5a0c1c877d2b29a2d64376260a1755bb5a9`, and tracked binary-diff digest `cd9e961c131ef371e808dff6ca11e5bfc98c0fbd86167be8219fb4f562b905e9` matched exactly. Starting HEAD `7f17aaca11bc6228bed48b9265d63b9e576cdea7` remains an ancestor through the four named checkpoints. Recovery passed before this append and `State: IN_PROGRESS` remains correct.
+- E-086 — 2026-08-05T16:57:45+0200 — Independently reverified the rolling manifest's main-checkout record without editing it: canonical path and linked topology, `main` at `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, clean index, complete three-path `.playwright-mcp` inventory, every recorded status/type/mode/size/raw SHA-256, NUL-status digest `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`, and empty tracked binary-diff digest matched exactly.
+
+## Fifth-checkpoint ruling — coordinated verified disarm
+
+The coherent scope for this invocation is the non-sleep restoration coordinator,
+planned as `safety: coordinate verified disarm restoration`. Manual disarm,
+failed-arm compensation, cutoff, and application termination now converge on a
+UUID-identified recovery generation. A generation cannot complete until all
+tracked arm calls have settled, the helper strictly proves restoration, and a
+separate fresh registry read independently proves the override OFF. Sleep
+takeover invalidates a non-sleep generation before accepting late replies.
+
+Force-sleep authorization is committed once before suspension and is never
+replayed after an ambiguous reply. Ordinary quit uses a separate final proof:
+the first successful recovery pass advances the pending quit to a final-proof
+phase, then a second helper disarm result and fresh independent OFF read are
+required immediately before the single deferred termination reply. Cancellation
+relinquishes the old generation and, when restoration can still be required,
+starts a new non-quit recovery generation. Queueing and scheduled arming are
+fenced while termination is pending.
+
+This checkpoint deliberately does **not** close or claim:
+
+- bounded XPC delivery, reply, or heartbeat timeouts, including a peer that
+  accepts a request and never replies;
+- repair-override, helper re-arm, orphan/reconciliation, and full uninstall
+  quiescence paths that remain unstaged in `AppState.swift` and
+  `HelperClient.swift`;
+- `SessionStore` journal/history durability, stale-v4 or future-version recovery,
+  or live helper restart/crash behavior;
+- signed bundle identity, XPC trust, `SMAppService`, live arm/restore,
+  force-sleep execution, quit behavior, sleep/wake, closed-lid hardware,
+  notarization, release, or production readiness.
+
+### Fifth-checkpoint finding and verification matrix
+
+| ID | Invariant | Exact checkpoint evidence | Remaining boundary | Ruling |
+| --- | --- | --- | --- | --- |
+| S-12 | Every selected non-sleep restoration path shares one generation-safe completion gate | UUID generations, latched completion, cancellation transfer, arm-in-flight accounting, strict helper proof, and independent fresh registry-OFF proof are covered by 9 behavioral tests and the exact 204-test suite | XPC transport remains unbounded and no daemon fault injection or live registry proof was performed | CHECKPOINT VERIFIED OFFLINE — TRANSPORT/LIVE GATES OPEN |
+| S-13 | Force sleep is authorized at most once and quit answers only after a distinct final proof | Pure gate tests cover one-shot force dispatch, ambiguous replies, final-proof transition, rejection, cancellation, and exactly-once completion; strict App compilation passes | No process was launched; real force-sleep and `NSApplication` termination were not exercised | CHECKPOINT VERIFIED OFFLINE — RUNTIME GATES OPEN |
+| S-14 | Remaining recovery surfaces must not inherit this checkpoint's ruling | Partial staging leaves repair, re-arm, reconciliation/orphan, broader uninstall, helper-client, monitor, persistence-test, and design bytes outside the checkpoint | Those paths require separate root-cause review and a new authenticated rolling remainder | OPEN — SEPARATE CHECKPOINT REQUIRED |
+
+- E-087 — 2026-08-05T17:51:40+0200 — Reviewed the complete nine-path rolling remainder and the complete diff against checkpoint HEAD. The preserved package was not accepted wholesale: repair-override, re-arm, orphan/reconciliation, broader uninstall, helper-client, monitor, persistence-test, and design work remain separate. The exact selected six-path code/test scope is the coordinated non-sleep restoration group above.
+- E-088 — 2026-08-05T17:51:40+0200 — Rejected an initial source-shape-only regression as insufficient and added a pure behavioral coordinator first. The accepted RED `swift-test-nonsleep-gate-red.log` failed compilation because `NonSleepRestoreGate` and its generation/actions did not exist. After implementation, focused `swift-test-nonsleep-gate-green6.log` passed 9 tests covering stale generations, retry, zero-arm completion, independent evidence, one-shot force dispatch, quit final proof, rejection, cancellation, and the immediate-termination predicate.
+- E-089 — 2026-08-05T17:51:40+0200 — Implemented UUID generation identity rather than an incrementing integer, one completion latch per generation, cancellation transfer, delayed retry after a rejected final proof, and strict two-source completion only after every in-flight arm settles. Manual disarm accepts both armed and arming states; failed-arm recovery uses the same coordinator unless strict restoration is already independently proven; sleep takeover cancels the non-sleep generation before late replies can act.
+- E-090 — 2026-08-05T17:51:40+0200 — Termination now fails closed when the app-state provider is missing or the phase is arming, disarming, or unknown. The app sends exactly one deferred reply after awaiting the coordinator. Force-sleep dispatch is committed before suspension and ambiguous replies cannot replay it; ordinary quit requires the second final proof immediately before the terminal reply. The minimal staged uninstall guard prevents the selected coordinator path from uninstalling before disarmed state and a cleared pending action, while broader uninstall quiescence remains open.
+- E-091 — 2026-08-05T17:51:40+0200 — Final dirty-tree verification passed 206 tests in 12 suites in `swift-test-nonsleep-restore-full-dirty-green.log`. The exact Git-index export passed 204 tests in 12 suites in `swift-test-nonsleep-exact-index.log`; the count difference is the deliberately unstaged `SmokeTests.swift` remainder. A stale source-contract assertion caused one earlier complete-suite failure and was corrected to assert the central coordinator fence without weakening the invariant; that failed output remains preserved.
+- E-092 — 2026-08-05T17:51:40+0200 — The exact index passed Debug and Release `LidlessCore` builds and macOS 15 Swift 6 complete strict-concurrency App typechecking with warnings-as-errors. App, helper, and widget sources compiled and linked in Debug and optimized Release with `CODE_SIGNING_ALLOWED=NO`. All six products are thin arm64 Mach-O executables with only automatic linker ad-hoc signatures, no TeamIdentifier, no bound Info.plist, and no sealed resources. None was launched; these are identity-free compile/link results, not signed or runtime proof.
+- E-093 — 2026-08-05T17:51:40+0200 — Exact-index `plutil -lint` and decoded inspection passed for app/widget Info plists and entitlements, helper launchd plist, and export options; relevant bundle identifiers, entitlement paths, deployment target, extension point, helper label/Mach service, and associated-app bindings were also checked in `project.yml` and `project.pbxproj`. `git diff --check` and `git diff --cached --check` passed. Xcode graph build/analyze was not retried after the already documented nested-sandbox failure and automatic LaunchServices side-effect risk.
+- E-094 — 2026-08-05T17:51:40+0200 — Three independent adversarial reviews passed the scoped bytes after checking generation ABA resistance, cancellation/latching, sleep takeover, failed-arm and manual-disarm convergence, zero-arm completion, one-shot force dispatch, two-phase quit proof, and the immediate-termination fence. They retained bounded transport, session-store durability, repair/re-arm/reconciliation, broader uninstall, and live behavior as explicit open gates.
+- E-095 — 2026-08-05T17:51:40+0200 — Final pre-commit main-checkout preservation passed exactly: canonical path and linked topology, `main` at `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, clean index, empty tracked diff, all three `.playwright-mcp` modes/sizes/SHA-256 values, and NUL-status digest `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18` match the rolling authority. The main checkout was not edited.
+- E-096 — 2026-08-05T17:51:40+0200 — The checkpoint is prepared under subject `safety: coordinate verified disarm restoration`. Because separately scoped recovery and design bytes remain unstaged, `State: IN_PROGRESS` is intentionally retained. The supervisor must bind the exact post-commit remainder into a fresh rolling manifest before another invocation.
