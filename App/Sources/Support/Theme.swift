@@ -97,6 +97,7 @@ enum Mood: Equatable {
 extension AppState {
     var mood: Mood {
         if overrideLeaked { return .alert }
+        if overrideStateUnknown { return .alert }
         if case .lowBatteryWarning = pendingArm?.assessment { return .alert }
         if case .refusedBelowFloor = pendingArm?.assessment { return .alert }
         if pendingArm != nil { return .focus }

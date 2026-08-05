@@ -55,20 +55,36 @@ struct OverviewContent: View {
         HStack(spacing: Theme.s5) {
             ZStack {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(state.isArmed ? AnyShapeStyle(Theme.armedGradient) : AnyShapeStyle(.white.opacity(0.06)))
+                    .fill(
+                        state.sleepPresentation == .verifiedArmed
+                            ? AnyShapeStyle(Theme.armedGradient)
+                            : AnyShapeStyle(.white.opacity(0.06))
+                    )
                     .frame(width: 64, height: 64)
                     .overlay(
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(.white.opacity(state.isArmed ? 0.5 : 0.12), lineWidth: 1)
+                            .strokeBorder(
+                                .white.opacity(state.sleepPresentation == .verifiedArmed ? 0.5 : 0.12),
+                                lineWidth: 1
+                            )
                     )
-                    .shadow(color: state.isArmed ? Theme.armed.opacity(0.4) : .clear, radius: 10)
-                Image(systemName: state.isArmed ? "bolt.fill" : "moon.zzz.fill")
+                    .shadow(
+                        color: state.sleepPresentation == .verifiedArmed ? Theme.armed.opacity(0.4) : .clear,
+                        radius: 10
+                    )
+                Image(systemName: overviewSymbol)
                     .font(.system(size: 26, weight: .medium))
-                    .foregroundStyle(state.isArmed ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(
+                        state.sleepPresentation == .verifiedArmed
+                            ? AnyShapeStyle(.white)
+                            : (state.overrideLeaked || state.overrideStateUnknown)
+                                ? AnyShapeStyle(Theme.ember)
+                                : AnyShapeStyle(.secondary)
+                    )
             }
 
             VStack(alignment: .leading, spacing: Theme.s1) {
-                if state.isArmed {
+                if state.sleepPresentation == .verifiedArmed {
                     GlowText(
                         text: state.statusHeadline,
                         font: .largeTitle.weight(.semibold),
@@ -79,14 +95,19 @@ struct OverviewContent: View {
                 } else {
                     Text(state.statusHeadline)
                         .font(.largeTitle.weight(.semibold))
-                        .foregroundStyle(state.overrideLeaked ? AnyShapeStyle(Theme.ember) : AnyShapeStyle(.primary))
+                        .foregroundStyle(
+                            state.overrideLeaked || state.overrideStateUnknown
+                                ? AnyShapeStyle(Theme.ember)
+                                : AnyShapeStyle(.primary)
+                        )
                 }
                 if let detail = state.statusDetail {
                     Text(detail)
                         .font(.title3)
                         .foregroundStyle(.secondary)
                 }
-                if state.isArmed, let elapsed = state.armedElapsed {
+                if state.sleepPresentation == .verifiedArmed,
+                   let elapsed = state.armedElapsed {
                     Text("Keeping watch for \(Format.duration(elapsed))")
                         .font(.callout)
                         .foregroundStyle(.tertiary)
@@ -96,7 +117,7 @@ struct OverviewContent: View {
             Spacer()
 
             // Feature 10: the way out is always one click, always visible.
-            if state.isArmed {
+            if state.phase == .armed {
                 Button {
                     Task { await state.disarm() }
                 } label: {
@@ -105,6 +126,14 @@ struct OverviewContent: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
+            } else if state.phase == .disarming {
+                Button(action: {}) {
+                    Label("Restoring Sleep…", systemImage: "arrow.triangle.2.circlepath")
+                        .padding(.horizontal, Theme.s1)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(true)
             } else {
                 Button {
                     state.beginArmFlow()
@@ -116,13 +145,27 @@ struct OverviewContent: View {
                 .buttonStyle(.borderedProminent)
                 .tint(Theme.armedDeep)
                 .controlSize(.large)
-                .disabled(!state.helperState.isUsable)
+                .disabled(
+                    !state.helperState.isUsable
+                        || state.sleepPresentation != .verifiedNormal
+                )
             }
         }
         .padding(Theme.s5)
         .frame(maxWidth: .infinity, alignment: .leading)
         .card()
         .animation(Theme.springGentle, value: state.phase)
+    }
+
+    private var overviewSymbol: String {
+        switch state.sleepPresentation {
+        case .verifiedNormal: "moon.zzz.fill"
+        case .verifyingArm: "hourglass"
+        case .verifiedArmed: "bolt.fill"
+        case .restoring: "arrow.triangle.2.circlepath"
+        case .outsideOverride: "exclamationmark.triangle.fill"
+        case .unknown: "questionmark.circle.fill"
+        }
     }
 
     // MARK: - Recap

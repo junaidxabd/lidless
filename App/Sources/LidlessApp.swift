@@ -81,9 +81,14 @@ private struct MenuBarLabel: View {
     }
 
     private var accessibilityText: String {
-        if state.isArmed { return "Lidless: staying awake" }
-        if state.overrideLeaked { return "Lidless: sleep override active outside Lidless" }
-        return "Lidless: sleeping normally"
+        switch state.sleepPresentation {
+        case .verifiedNormal: "Lidless: sleeping normally"
+        case .verifyingArm: "Lidless: verifying the sleep override"
+        case .verifiedArmed: "Lidless: staying awake"
+        case .restoring: "Lidless: restoring normal sleep"
+        case .outsideOverride: "Lidless: sleep override active outside Lidless"
+        case .unknown: "Lidless: system sleep state unknown"
+        }
     }
 }
 
@@ -98,29 +103,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.appearance = NSAppearance(named: .darkAqua)
     }
 
-    /// Feature 10: quitting while armed must ask, and can never strand the
-    /// override. (Even a SIGKILL can't: the helper restores on connection
-    /// invalidation, and the watchdog + sentinel back that up.)
+    /// Termination is fail-closed: the recovery checkpoint may later restore
+    /// and quit in one operation, but this presentation checkpoint permits
+    /// termination only from a verified-normal state.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let state = Self.stateProvider?(), state.isArmed else {
+        guard let state = Self.stateProvider?() else {
             return .terminateNow
         }
-
-        let alert = NSAlert()
-        alert.messageText = "Lidless is keeping your Mac awake"
-        alert.informativeText = "Quitting restores normal sleep first. With the lid closed, your Mac will go to sleep shortly after."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Disarm & Quit")
-        alert.addButton(withTitle: "Cancel")
-
-        if alert.runModal() == .alertFirstButtonReturn {
-            Task { @MainActor in
-                await state.disarmForQuit()
-                NSApp.reply(toApplicationShouldTerminate: true)
-            }
-            return .terminateLater
+        guard state.sleepPresentation == .verifiedNormal else {
+            state.lastError = "Lidless will quit only after normal sleep is verified. Restore normal sleep, then try again."
+            state.requestMainWindow()
+            return .terminateCancel
         }
-        return .terminateCancel
+        return .terminateNow
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

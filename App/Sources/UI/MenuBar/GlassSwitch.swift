@@ -1,3 +1,4 @@
+import LidlessCore
 import SwiftUI
 
 /// The arming control — the panel's one true liquid-glass object. A wide
@@ -8,6 +9,9 @@ import SwiftUI
 struct GlassSwitch: View {
     var armed: Bool
     var busy: Bool
+    var presentation: SleepPresentationState
+    var restoresOnAction: Bool
+    var actionAvailable: Bool
     var mood: Mood
     var action: () -> Void
 
@@ -20,6 +24,10 @@ struct GlassSwitch: View {
     private let inset: CGFloat = 5
 
     private var travel: CGFloat { trackWidth - puckDiameter - inset * 2 }
+
+    private var needsAttention: Bool {
+        presentation == .outsideOverride || presentation == .unknown
+    }
 
     private var puckPosition: CGFloat {
         if let dragX { return dragX }
@@ -36,18 +44,31 @@ struct GlassSwitch: View {
         .glow(armed ? mood.accent : .clear, radius: 26, opacity: 0.35)
         .contentShape(Capsule())
         .onTapGesture {
-            guard !busy else { return }
+            guard !busy, actionAvailable else { return }
             action()
         }
         .gesture(dragGesture)
+        .disabled(!actionAvailable || busy)
         .animation(Theme.springGentle, value: armed)
         .animation(Theme.springQuick, value: busy)
+        .animation(Theme.springQuick, value: presentation)
         .accessibilityElement()
-        .accessibilityLabel("Keep awake while lid closed")
-        .accessibilityValue(armed ? "On" : "Off")
-        .accessibilityHint(armed ? "Restores normal sleep behavior" : "Shows arming options")
+        .accessibilityLabel(
+            restoresOnAction ? "Restore normal sleep" : "Keep awake while lid closed"
+        )
+        .accessibilityValue(accessibilityValue)
+        .accessibilityHint(
+            restoresOnAction
+                ? "Restores normal sleep behavior"
+                : needsAttention
+                ? "Lidless must verify normal sleep before arming"
+                : "Shows arming options"
+        )
         .accessibilityAddTraits(.isButton)
-        .accessibilityAction { action() }
+        .accessibilityAction {
+            guard !busy, actionAvailable else { return }
+            action()
+        }
     }
 
     // MARK: Track
@@ -125,10 +146,14 @@ struct GlassSwitch: View {
                     .controlSize(.small)
                     .tint(Color(white: 0.3))
             } else {
-                Image(systemName: armed ? "bolt.fill" : "moon.zzz.fill")
+                Image(systemName: puckSymbol)
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(
-                        armed ? AnyShapeStyle(Theme.armedGradient) : AnyShapeStyle(Color(white: 0.45))
+                        needsAttention
+                            ? AnyShapeStyle(Theme.ember)
+                            : armed
+                                ? AnyShapeStyle(Theme.armedGradient)
+                                : AnyShapeStyle(Color(white: 0.45))
                     )
                     .contentTransition(.symbolEffect(.replace))
             }
@@ -143,11 +168,15 @@ struct GlassSwitch: View {
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 2)
             .onChanged { value in
-                guard !busy else { return }
+                guard !busy, actionAvailable else { return }
                 let base: CGFloat = armed ? travel : 0
                 dragX = min(max(base + value.translation.width, 0), travel)
             }
             .onEnded { _ in
+                guard !busy, actionAvailable else {
+                    dragX = nil
+                    return
+                }
                 guard let position = dragX else { return }
                 let crossed = (position > travel / 2) != armed
                 withAnimation(Theme.springGentle) {
@@ -157,5 +186,24 @@ struct GlassSwitch: View {
                     action()
                 }
             }
+    }
+
+    private var puckSymbol: String {
+        switch presentation {
+        case .outsideOverride: "exclamationmark.triangle.fill"
+        case .unknown: "questionmark"
+        default: armed ? "bolt.fill" : "moon.zzz.fill"
+        }
+    }
+
+    private var accessibilityValue: String {
+        switch presentation {
+        case .verifiedNormal: "Off"
+        case .verifyingArm: "Verifying system sleep state"
+        case .verifiedArmed: "On"
+        case .restoring: "Restoring normal sleep"
+        case .outsideOverride: "System sleep is disabled outside Lidless"
+        case .unknown: "System sleep state unknown"
+        }
     }
 }

@@ -37,6 +37,12 @@ final class AppState {
     private(set) var hasLid = true
     /// Actual system-wide `disablesleep` state (verified, not believed).
     private(set) var overrideActive = false
+    private(set) var overrideStateVerified = false
+    private var lastOverrideRevision: UInt64?
+    /// A readable registry value proves only machine state. A verified armed
+    /// claim additionally requires a current helper reply proving ownership.
+    private var helperSessionProven = false
+    private var helperProofEpoch: UInt64 = 0
     private(set) var drainPerHour: Double?
     private(set) var rollingSamples: [BatterySample] = []
 
@@ -73,9 +79,16 @@ final class AppState {
     /// Most recent sleep/wake transition signal, used to distinguish "helper
     /// lost the session because the system slept" from "helper crashed".
     private var lastSleepSignal = Date.distantPast
+    /// A sleep/wake signal permanently fences every arm request dispatched by
+    /// an older generation. The app remains restoring until all such requests
+    /// settle and a later helper reply plus registry read prove normal sleep.
+    private var sleepGeneration: UInt64 = 0
+    private var sleepTerminationGeneration: UInt64?
+    private var armRequestsInFlight = 0
 
     private var tickTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
+    private var sleepTerminationTask: Task<Void, Never>?
 
     /// Incremented to ask the menu-bar bridge to open the main window.
     private(set) var mainWindowRequestToken = 0
@@ -154,11 +167,10 @@ final class AppState {
             self?.helperInterrupted()
         }
         systemMonitor?.onWake = { [weak self] in
-            self?.lastSleepSignal = Date()
             self?.resyncAfterWake()
         }
         systemMonitor?.onWillSleep = { [weak self] in
-            self?.lastSleepSignal = Date()
+            self?.recordSleepTransition()
         }
         systemMonitor?.onChange = { [weak self] in
             self?.systemStateDidChange()
@@ -185,24 +197,178 @@ final class AppState {
 
     var isArmed: Bool { phase == .armed || phase == .disarming }
 
+    var sleepPresentation: SleepPresentationState {
+        let presentationPhase: SleepPresentationPhase = switch phase {
+        case .disarmed: .disarmed
+        case .arming: .arming
+        case .armed: .armed
+        case .disarming: .restoring
+        }
+        let observedOverride = overrideStateVerified ? overrideActive : nil
+        let eligibleHelperSessionProven = helperSessionProven && helperState.isUsable
+        return SleepPresentationPolicy.resolve(
+            phase: presentationPhase,
+            observedOverride: observedOverride,
+            helperSessionProven: eligibleHelperSessionProven
+        )
+    }
+
+    private func invalidateHelperSessionProof() {
+        helperSessionProven = false
+        helperProofEpoch &+= 1
+    }
+
+    private func recordSleepTransition() {
+        lastSleepSignal = Date()
+        sleepGeneration &+= 1
+        invalidateHelperSessionProof()
+        overrideStateVerified = false
+
+        let cancelledPendingIntent = pendingArm != nil
+        // Suppress the active schedule occurrence even when its queued
+        // confirm task has not yet changed the phase from disarmed.
+        if let occurrence = scheduleOccurrence {
+            suppressedOccurrence = occurrence
+        } else if config.scheduleAutomationEnabled,
+                  let active = ScheduleEngine.activeOccurrence(
+                      windows: config.schedules,
+                      at: lastSleepSignal,
+                      calendar: .current
+                  ) {
+            suppressedOccurrence = active
+        }
+        pendingArm = nil
+        scheduleOccurrence = nil
+
+        let terminatesActiveIntent = phase == .arming
+            || phase == .armed
+            || armRequestsInFlight > 0
+            || sleepTerminationGeneration != nil
+        if terminatesActiveIntent {
+            if sleepTerminationGeneration == nil {
+                sleepTerminationGeneration = sleepGeneration
+            }
+            phase = .disarming
+            stopHeartbeat()
+            lastError = "System sleep ended the keep-awake request. Restoring normal sleep."
+        } else if cancelledPendingIntent {
+            lastError = "The keep-awake request was cancelled because the system slept."
+        }
+        publishWidget()
+        if terminatesActiveIntent {
+            scheduleSleepTerminationRestore()
+        }
+    }
+
+    /// Brackets every helper arm suspension so terminal recovery knows when a
+    /// late request has settled. The restore worker still runs immediately;
+    /// this count only prevents completion before the final compensating
+    /// restore can run.
+    private func trackedArm(_ options: HelperArmOptions) async throws -> HelperReply {
+        armRequestsInFlight += 1
+        defer {
+            armRequestsInFlight -= 1
+            scheduleSleepTerminationRestore()
+        }
+        return try await helper.arm(options)
+    }
+
+    private func scheduleSleepTerminationRestore() {
+        guard sleepTerminationGeneration != nil,
+              sleepTerminationTask == nil
+        else { return }
+
+        sleepTerminationTask = Task { [weak self] in
+            await self?.restoreAfterSleepTransition()
+        }
+    }
+
+    /// Idempotent recovery starts even while an arm reply is outstanding and
+    /// repeats after it settles. A helper reply alone is insufficient: the
+    /// independently refreshed registry must also prove the override is off.
+    private func restoreAfterSleepTransition() async {
+        defer { sleepTerminationTask = nil }
+
+        while !Task.isCancelled {
+            guard let terminalGeneration = sleepTerminationGeneration else { return }
+
+            do {
+                let reply = try await helper.disarm(HelperDisarmOptions(
+                    forceSleep: false,
+                    reason: "system sleep terminal fence"
+                ))
+                guard terminalGeneration == sleepTerminationGeneration else { continue }
+
+                systemMonitor?.refresh()
+                refreshSystemFlags()
+                if SleepOverrideSafety.isRestoreProven(reply),
+                   overrideStateVerified,
+                   !overrideActive,
+                   armRequestsInFlight == 0 {
+                    let endedSession = currentSession != nil
+                    if endedSession {
+                        finalizeSession(endReason: .systemSlept)
+                    } else {
+                        stopHeartbeat()
+                    }
+                    sleepTerminationGeneration = nil
+                    phase = .disarmed
+                    lastError = nil
+                    systemMonitor?.refresh()
+                    refreshSystemFlags()
+                    if endedSession,
+                       config.behavior.notifyOnStateChanges,
+                       sleepPresentation == .verifiedNormal {
+                        notifications.post(
+                            title: "Keep-awake ended",
+                            body: "Your Mac was put to sleep, so Lidless restored normal behavior."
+                        )
+                    }
+                    publishWidget()
+                    return
+                }
+
+                lastError = reply.error
+                    ?? (armRequestsInFlight == 0
+                        ? "Normal sleep is not verified yet. Lidless will keep checking."
+                        : "Waiting for an in-flight arm request before normal sleep can be verified.")
+            } catch {
+                guard terminalGeneration == sleepTerminationGeneration else { continue }
+                lastError = "Normal sleep is not verified yet (\(error.localizedDescription)). Lidless will keep checking."
+            }
+
+            systemMonitor?.refresh()
+            refreshSystemFlags()
+            publishWidget()
+            do {
+                try await Task.sleep(for: .seconds(5))
+            } catch {
+                return
+            }
+        }
+    }
+
     var effectiveConfig: CutoffConfig { config.cutoffs.applying(sessionOverrides) }
 
     /// The override is on but no Lidless session explains it — either another
     /// tool set it, or a restore failed. Never let this be invisible.
-    var overrideLeaked: Bool { overrideActive && phase == .disarmed }
+    var overrideLeaked: Bool { sleepPresentation == .outsideOverride }
+    var overrideStateUnknown: Bool { sleepPresentation == .unknown }
 
     var statusHeadline: String {
-        switch phase {
-        case .disarmed: overrideLeaked ? "Sleep is disabled" : "Sleeping normally"
-        case .arming: "Arming…"
-        case .armed: "Staying awake"
-        case .disarming: "Restoring sleep…"
+        switch sleepPresentation {
+        case .verifiedNormal: "Sleeping normally"
+        case .verifyingArm: "Verifying sleep override…"
+        case .verifiedArmed: "Staying awake"
+        case .restoring: "Restoring sleep…"
+        case .outsideOverride: "Sleep is disabled"
+        case .unknown: "Sleep state unknown"
         }
     }
 
     var statusDetail: String? {
-        switch phase {
-        case .armed:
+        switch sleepPresentation {
+        case .verifiedArmed:
             if let projected = projectedCutoff {
                 return "\(projected.label) · \(Format.countdown(to: projected.date, from: now))"
             }
@@ -212,12 +378,13 @@ final class AppState {
                 return summary
             }
             return "No automatic cutoff — disarm manually"
-        case .arming, .disarming:
+        case .verifyingArm, .restoring:
             return nil
-        case .disarmed:
-            if overrideLeaked {
-                return "Sleep override is active outside Lidless"
-            }
+        case .outsideOverride:
+            return "Sleep override is active outside Lidless"
+        case .unknown:
+            return "Lidless couldn't verify the system sleep state"
+        case .verifiedNormal:
             if !helperState.isUsable, helperState != .unknown {
                 return "Helper setup needed"
             }
@@ -263,14 +430,18 @@ final class AppState {
     }
 
     var menuBarSystemImage: String {
-        if isArmed { return "eye.fill" }
-        if overrideLeaked { return "eye.trianglebadge.exclamationmark" }
-        return "eye.slash"
+        switch sleepPresentation {
+        case .verifiedNormal: "eye.slash"
+        case .verifyingArm: "eye"
+        case .verifiedArmed: "eye.fill"
+        case .restoring, .outsideOverride, .unknown:
+            "eye.trianglebadge.exclamationmark"
+        }
     }
 
     var menuBarText: String? {
         guard config.behavior.countdownInMenuBar,
-              isArmed,
+              sleepPresentation == .verifiedArmed,
               let projected = projectedCutoff,
               projected.date.timeIntervalSince(now) < 24 * 3600
         else { return nil }
@@ -303,6 +474,11 @@ final class AppState {
     func beginArmFlow(preset: ArmPreset? = nil) {
         guard phase == .disarmed else { return }
         lastError = nil
+
+        guard sleepPresentation == .verifiedNormal else {
+            lastError = "Lidless must verify that normal sleep is enabled before arming."
+            return
+        }
 
         guard helperState.isUsable else {
             requestMainWindow()
@@ -385,24 +561,125 @@ final class AppState {
     }
 
     func confirmArm() async {
-        guard let pending = pendingArm, phase == .disarmed else { return }
-        if case .refusedBelowFloor = pending.assessment { return }
+        guard let intent = pendingArm, phase == .disarmed else { return }
+        if case .refusedBelowFloor = intent.assessment { return }
+        guard sleepPresentation == .verifiedNormal else {
+            pendingArm = nil
+            scheduleOccurrence = nil
+            lastError = "Lidless must verify that normal sleep is enabled before arming."
+            return
+        }
 
         phase = .arming
+        invalidateHelperSessionProof()
+        overrideStateVerified = false
+        // Replace any persisted verified-OFF widget claim before the first
+        // suspension point that can lead to the helper applying the override.
+        guard publishWidget() else {
+            phase = .disarmed
+            pendingArm = nil
+            scheduleOccurrence = nil
+            lastError = "Couldn't arm because the widget safety state couldn't be persisted."
+            return
+        }
         await notifications.requestAuthorizationIfNeeded()
+
+        // The confirmation may have remained open while the helper was
+        // upgraded or replaced. Probe the live service at the mutation
+        // boundary; a cached ready state is not authorization to arm.
+        let eligibilityEpoch = helperProofEpoch
+        await helper.refreshInstallState()
+        guard phase == .arming, eligibilityEpoch == helperProofEpoch else {
+            if phase == .arming {
+                phase = .disarmed
+                pendingArm = nil
+                scheduleOccurrence = nil
+                lastError = "Couldn't arm because the helper changed during verification."
+                publishWidget()
+            }
+            return
+        }
+        guard helperState.isUsable else {
+            phase = .disarmed
+            pendingArm = nil
+            scheduleOccurrence = nil
+            lastError = "Couldn't arm because the current helper is not eligible."
+            publishWidget()
+            return
+        }
+
+        // Re-read the registry after every suspension. The helper repeats this
+        // preflight immediately before mutation, but the app must not knowingly
+        // send an arm request over newly active or unreadable external state.
+        systemMonitor?.refresh()
+        refreshSystemFlags()
+        let observedBeforeArm = overrideStateVerified ? overrideActive : nil
+        guard SleepOverrideSafety.preflight(observed: observedBeforeArm) == .safeToArm else {
+            phase = .disarmed
+            pendingArm = nil
+            scheduleOccurrence = nil
+            lastError = "Couldn't arm because normal sleep is no longer verified."
+            publishWidget()
+            return
+        }
+
+        // Cancellation, expiry, and battery events can all run while the
+        // authorization/helper probes are suspended. Honor only the same live
+        // intent and the same assessment the user actually confirmed.
+        guard let pending = pendingArm,
+              pending.createdAt == intent.createdAt,
+              pending.source == intent.source,
+              pending.overrides == intent.overrides else {
+            phase = .disarmed
+            pendingArm = nil
+            scheduleOccurrence = nil
+            lastError = "Arming was cancelled or expired before verification completed."
+            publishWidget()
+            return
+        }
+        let freshAssessment = CutoffEngine.assessArm(
+            config: config.cutoffs.applying(pending.overrides),
+            battery: battery
+        )
+        if case .refusedBelowFloor = freshAssessment {
+            phase = .disarmed
+            pendingArm = nil
+            scheduleOccurrence = nil
+            lastError = "Couldn't arm because the battery reached the safety floor."
+            publishWidget()
+            return
+        }
+        guard freshAssessment == intent.assessment else {
+            phase = .disarmed
+            pendingArm = nil
+            scheduleOccurrence = nil
+            lastError = "Battery conditions changed. Review the updated warning before arming."
+            publishWidget()
+            return
+        }
 
         let options = HelperArmOptions(
             lowPowerMode: config.behavior.lowPowerModeWhileArmed,
             tcpKeepAlive: config.behavior.tcpKeepAliveWhileArmed
         )
+        // The mutation dispatch is the commit point: remove the pending card
+        // before the XPC suspension so Cancel or a battery refresh cannot
+        // mutate a request that is already being applied by the helper.
+        pendingArm = nil
+        let armProofEpoch = eligibilityEpoch
+        let armSleepGeneration = sleepGeneration
 
         do {
-            let reply = try await helper.arm(options)
-            guard reply.ok else {
+            let reply = try await trackedArm(options)
+            guard phase == .arming,
+                  armSleepGeneration == sleepGeneration,
+                  armProofEpoch == helperProofEpoch,
+                  SleepOverrideSafety.isArmProven(reply) else {
                 throw NSError(domain: "Lidless", code: 1, userInfo: [
-                    NSLocalizedDescriptionKey: reply.error ?? "The helper refused to arm.",
+                    NSLocalizedDescriptionKey: reply.error ?? "The helper could not prove the sleep override.",
                 ])
             }
+            helperSessionProven = true
 
             let startedAt = Date()
             let cfg = config.cutoffs.applying(pending.overrides)
@@ -441,10 +718,12 @@ final class AppState {
 
             sessionStore.checkpoint(session)
             startHeartbeat()
+            systemMonitor?.refresh()
             refreshSystemFlags()
             evaluateCutoffs()
 
-            if config.behavior.notifyOnStateChanges {
+            if config.behavior.notifyOnStateChanges,
+               sleepPresentation == .verifiedArmed {
                 notifications.post(
                     title: "Keeping your Mac awake",
                     body: session.cutoffSummary
@@ -452,9 +731,20 @@ final class AppState {
             }
             publishWidget()
         } catch {
+            if sleepTerminationGeneration != nil {
+                invalidateHelperSessionProof()
+                overrideStateVerified = false
+                scheduleSleepTerminationRestore()
+                publishWidget()
+                return
+            }
             phase = .disarmed
             pendingArm = nil
+            scheduleOccurrence = nil
+            invalidateHelperSessionProof()
+            overrideStateVerified = false
             lastError = "Couldn't arm: \(error.localizedDescription)"
+            publishWidget()
             await helper.refreshInstallState()
         }
     }
@@ -464,6 +754,9 @@ final class AppState {
         pendingArm = nil
         guard phase == .armed else { return }
         phase = .disarming
+        invalidateHelperSessionProof()
+        overrideStateVerified = false
+        publishWidget()
 
         do {
             let reply = try await helper.disarm(HelperDisarmOptions(forceSleep: false, reason: "manual disarm"))
@@ -472,27 +765,48 @@ final class AppState {
             lastError = "Disarm failed: \(error.localizedDescription) — the helper watchdog will restore sleep within \(Int(HelperArmOptions.defaultWatchdogTTL))s"
         }
 
+        if sleepTerminationGeneration != nil {
+            scheduleSleepTerminationRestore()
+            publishWidget()
+            return
+        }
+
         finalizeSession(endReason: .manual)
-        if config.behavior.notifyOnStateChanges {
+        phase = .disarmed
+        systemMonitor?.refresh()
+        refreshSystemFlags()
+        if config.behavior.notifyOnStateChanges,
+           sleepPresentation == .verifiedNormal {
             notifications.post(title: "Normal sleep restored", body: "Lidless is disarmed.")
         }
-        phase = .disarmed
-        refreshSystemFlags()
         publishWidget()
     }
 
     func disarmForQuit() async {
         guard phase == .armed else { return }
         phase = .disarming
+        invalidateHelperSessionProof()
+        overrideStateVerified = false
+        publishWidget()
         _ = try? await helper.disarm(HelperDisarmOptions(forceSleep: false, reason: "app quit"))
+        if sleepTerminationGeneration != nil {
+            scheduleSleepTerminationRestore()
+            publishWidget()
+            return
+        }
         finalizeSession(endReason: .appQuit)
         phase = .disarmed
+        systemMonitor?.refresh()
+        refreshSystemFlags()
         publishWidget()
     }
 
     private func fireCutoff(reasons: [CutoffReason]) async {
         guard phase == .armed, let primary = reasons.first else { return }
         phase = .disarming
+        invalidateHelperSessionProof()
+        overrideStateVerified = false
+        publishWidget()
 
         let sleepAfter = config.behavior.sleepOnCutoff && lidClosed
         let label = cutoffLabel(primary)
@@ -504,21 +818,29 @@ final class AppState {
             lastError = "Cutoff restore failed: \(error.localizedDescription) — helper watchdog is the backstop"
         }
 
-        finalizeSession(endReason: .cutoff(primary))
+        if sleepTerminationGeneration != nil {
+            scheduleSleepTerminationRestore()
+            publishWidget()
+            return
+        }
 
-        if config.behavior.notifyOnStateChanges {
+        finalizeSession(endReason: .cutoff(primary))
+        phase = .disarmed
+        systemMonitor?.refresh()
+        refreshSystemFlags()
+
+        if config.behavior.notifyOnStateChanges,
+           sleepPresentation == .verifiedNormal {
             notifications.post(
                 title: sleepAfter ? "Going to sleep" : "Keep-awake ended",
                 body: label,
                 sound: config.behavior.playCutoffSound
             )
         }
-        if config.behavior.playCutoffSound {
+        if config.behavior.playCutoffSound,
+           sleepPresentation == .verifiedNormal {
             notifications.playCutoffChime()
         }
-
-        phase = .disarmed
-        refreshSystemFlags()
         publishWidget()
     }
 
@@ -578,6 +900,7 @@ final class AppState {
         } catch {
             lastError = "Repair failed: \(error.localizedDescription)"
         }
+        systemMonitor?.refresh()
         refreshSystemFlags()
         publishWidget()
     }
@@ -593,6 +916,10 @@ final class AppState {
 
     func refreshHelperState() async {
         await helper.refreshInstallState()
+        if phase == .armed, !helperState.isUsable {
+            invalidateHelperSessionProof()
+            publishWidget()
+        }
     }
 
     func openApprovalSettings() {
@@ -615,7 +942,7 @@ final class AppState {
         ConfigStore.deleteAllData()
         notifications.post(
             title: "Lidless uninstalled",
-            body: "Normal sleep restored. Drag Lidless.app to the Trash to finish."
+            body: "Helper and Lidless data removed. Drag Lidless.app to the Trash to finish."
         )
         return nil
     }
@@ -669,7 +996,14 @@ final class AppState {
     }
 
     private func helperInterrupted() {
+        invalidateHelperSessionProof()
+        overrideStateVerified = false
+        let transitionPersisted = publishWidget()
         guard phase == .armed else { return }
+        guard transitionPersisted else {
+            lastError = "The helper connection changed, but the widget safety state couldn't be persisted. Re-arm was stopped."
+            return
+        }
         // Helper crashed or was upgraded; its relaunch restored normal sleep
         // (fail-safe). Re-arm to continue the session with a logged blip.
         Task { await rearmAfterHelperRestart() }
@@ -678,20 +1012,12 @@ final class AppState {
     private func rearmAfterHelperRestart() async {
         guard phase == .armed else { return }
 
-        // If the system just slept or woke, the helper releasing the session
-        // means FORCED SLEEP, not a crash — honor it. Re-arming here would
-        // re-enable the override against the user's explicit intent (or arm
-        // a helper whose supervising app is about to be frozen).
-        if Date().timeIntervalSince(lastSleepSignal) < 60 {
-            finalizeSession(endReason: .systemSlept)
-            phase = .disarmed
-            if config.behavior.notifyOnStateChanges {
-                notifications.post(
-                    title: "Keep-awake ended",
-                    body: "Your Mac was put to sleep, so Lidless restored normal behavior."
-                )
-            }
-            publishWidget()
+        // A new helper connection needs new proof. Do not carry the previous
+        // process's verified presentation through the re-arm attempt.
+        invalidateHelperSessionProof()
+        overrideStateVerified = false
+        guard publishWidget() else {
+            lastError = "The widget safety state couldn't be persisted, so Lidless did not re-arm."
             return
         }
 
@@ -699,42 +1025,67 @@ final class AppState {
             lowPowerMode: config.behavior.lowPowerModeWhileArmed,
             tcpKeepAlive: config.behavior.tcpKeepAliveWhileArmed
         )
+
+        let eligibilityEpoch = helperProofEpoch
+        await helper.refreshInstallState()
+        guard phase == .armed else { return }
+        guard eligibilityEpoch == helperProofEpoch else {
+            lastError = "The helper changed again during re-arm verification."
+            publishWidget()
+            return
+        }
+        guard helperState.isUsable else {
+            lastError = "The replacement helper is not eligible to re-arm."
+            publishWidget()
+            return
+        }
+
+        let armProofEpoch = eligibilityEpoch
+        let armSleepGeneration = sleepGeneration
         do {
-            let reply = try await helper.arm(options)
-            guard reply.ok else { throw NSError(domain: "Lidless", code: 2) }
+            let reply = try await trackedArm(options)
+            guard phase == .armed,
+                  currentSession != nil,
+                  armSleepGeneration == sleepGeneration,
+                  armProofEpoch == helperProofEpoch,
+                  SleepOverrideSafety.isArmProven(reply) else {
+                invalidateHelperSessionProof()
+                overrideStateVerified = false
+                if sleepTerminationGeneration != nil {
+                    scheduleSleepTerminationRestore()
+                    publishWidget()
+                    return
+                }
+                lastError = reply.error ?? "The helper could not verify the renewed override."
+                publishWidget()
+                return
+            }
+            helperSessionProven = true
+            systemMonitor?.refresh()
+            refreshSystemFlags()
+            publishWidget()
             lastError = nil
         } catch {
-            finalizeSession(endReason: .helperRestored)
-            phase = .disarmed
-            notifications.post(
-                title: "Keep-awake ended",
-                body: "The helper restarted and normal sleep was restored.",
-                sound: config.behavior.playCutoffSound
-            )
+            invalidateHelperSessionProof()
+            overrideStateVerified = false
+            if sleepTerminationGeneration != nil {
+                scheduleSleepTerminationRestore()
+                publishWidget()
+                return
+            }
+            lastError = "The helper re-arm outcome is unknown (\(error.localizedDescription))."
             publishWidget()
         }
     }
 
     private func resyncAfterWake() {
+        recordSleepTransition()
+        systemMonitor?.refresh()
         refreshSystemFlags()
-        Task {
-            guard phase == .armed else { return }
-            if let status = try? await helper.status(), !status.armed {
-                // The system slept while we were armed (forced sleep); the
-                // helper released the override on the way down. Re-check
-                // after the await — the heartbeat path may have won the race.
-                guard phase == .armed, currentSession != nil else { return }
-                finalizeSession(endReason: .systemSlept)
-                phase = .disarmed
-                if config.behavior.notifyOnStateChanges {
-                    notifications.post(
-                        title: "Keep-awake ended",
-                        body: "Your Mac was put to sleep, so Lidless restored normal behavior."
-                    )
-                }
-                publishWidget()
-            }
-        }
+        // Wake may only advance terminal recovery. A session that crossed a
+        // sleep boundary can never regain helper proof from a status poll.
+        scheduleSleepTerminationRestore()
+        publishWidget()
     }
 
     /// Launch reconciliation: a live helper session with no app session means
@@ -745,14 +1096,20 @@ final class AppState {
         guard phase == .disarmed else { return }
         guard helperState.isUsable else { return }
         if let status = try? await helper.status(), status.armed {
+            overrideStateVerified = false
+            publishWidget()
             _ = try? await helper.disarm(HelperDisarmOptions(
                 forceSleep: false,
                 reason: "orphaned session found at app launch"
             ))
-            notifications.post(
-                title: "Normal sleep restored",
-                body: "Lidless found a keep-awake session from a previous run and ended it."
-            )
+            systemMonitor?.refresh()
+            refreshSystemFlags()
+            if sleepPresentation == .verifiedNormal {
+                notifications.post(
+                    title: "Normal sleep restored",
+                    body: "Lidless found a keep-awake session from a previous run and ended it."
+                )
+            }
         }
         refreshSystemFlags()
         maintainScheduledWake()
@@ -813,12 +1170,25 @@ final class AppState {
             lidClosed = simulation.lidClosed
             hasLid = true
             if let simulated = helper as? SimulatedHelper {
-                overrideActive = simulated.sleepDisabled
+                let observedOverride: Bool? = simulated.sleepDisabled
+                overrideActive = observedOverride ?? false
+                overrideStateVerified = true
+                if phase == .armed, observedOverride != true {
+                    invalidateHelperSessionProof()
+                }
             }
         } else if let systemMonitor {
             lidClosed = systemMonitor.lidClosed
             hasLid = systemMonitor.hasLid
-            overrideActive = systemMonitor.overrideActive
+            if lastOverrideRevision != systemMonitor.overrideRevision {
+                lastOverrideRevision = systemMonitor.overrideRevision
+                let observedOverride = systemMonitor.overrideActive
+                overrideStateVerified = observedOverride != nil
+                overrideActive = observedOverride ?? false
+                if phase == .armed, observedOverride != true {
+                    invalidateHelperSessionProof()
+                }
+            }
         }
     }
 
@@ -901,7 +1271,9 @@ final class AppState {
     }
 
     private func emitPreCutoffWarnings() {
-        guard phase == .armed else { return }
+        guard phase == .armed,
+              sleepPresentation == .verifiedArmed
+        else { return }
 
         if let projected = projectedCutoff {
             let remaining = projected.date.timeIntervalSince(now)
@@ -942,7 +1314,11 @@ final class AppState {
             suppressedOccurrence = nil
         }
 
-        guard phase == .disarmed, pendingArm == nil, helperState.isUsable else {
+        guard phase == .disarmed,
+              pendingArm == nil,
+              helperState.isUsable,
+              sleepPresentation == .verifiedNormal
+        else {
             return
         }
 
@@ -994,13 +1370,27 @@ final class AppState {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(HelperArmOptions.heartbeatInterval))
                 guard let self, self.phase == .armed else { continue }
+                let proofEpoch = self.helperProofEpoch
                 do {
                     let reply = try await self.helper.heartbeat()
-                    if !reply.ok {
-                        // Helper restarted and lost the session state.
+                    if proofEpoch != self.helperProofEpoch
+                        || !SleepOverrideSafety.isArmProven(reply) {
+                        // The helper lost the session or could not prove the
+                        // live override; reconcile instead of trusting `ok`.
+                        self.invalidateHelperSessionProof()
+                        self.overrideStateVerified = false
+                        self.publishWidget()
                         await self.rearmAfterHelperRestart()
+                    } else {
+                        self.helperSessionProven = true
+                        self.systemMonitor?.refresh()
+                        self.refreshSystemFlags()
+                        self.publishWidget()
                     }
                 } catch {
+                    self.invalidateHelperSessionProof()
+                    self.overrideStateVerified = false
+                    self.publishWidget()
                     // Interruption handler drives the re-arm; next beat retries.
                 }
             }
@@ -1058,18 +1448,28 @@ final class AppState {
 
     // MARK: - Widget
 
-    private func publishWidget() {
+    @discardableResult
+    private func publishWidget() -> Bool {
         let projected = projectedCutoff
         let widgetStatusLine: String
-        if isArmed {
+        switch sleepPresentation {
+        case .restoring:
+            widgetStatusLine = "Restoring normal sleep…"
+        case .verifyingArm:
+            widgetStatusLine = "Verifying sleep override…"
+        case .verifiedArmed:
             widgetStatusLine = projected?.label ?? "Until disarmed"
-        } else if overrideActive {
+        case .outsideOverride:
             widgetStatusLine = "Sleep override active — not Lidless"
-        } else {
+        case .unknown:
+            widgetStatusLine = "Sleep state unknown"
+        case .verifiedNormal:
             widgetStatusLine = "Sleeping normally"
         }
         let snapshot = WidgetSnapshot(
-            armed: isArmed,
+            // Keep the legacy bit internally consistent with the v2 proof.
+            // WidgetStore removes the v1 file before publishing this schema.
+            armed: sleepPresentation == .verifiedArmed,
             statusLine: widgetStatusLine,
             batteryPercent: battery.percent,
             isCharging: battery.isCharging,
@@ -1077,10 +1477,12 @@ final class AppState {
             projectedCutoff: projected?.date,
             projectedCutoffLabel: projected?.label,
             overrideActive: overrideActive,
+            overrideStateVerified: overrideStateVerified,
+            sleepPresentation: sleepPresentation,
             recentSamples: Array(rollingSamples.suffix(WidgetStore.maxSamples)),
             updatedAt: Date()
         )
-        widgetPublisher.publish(snapshot)
+        return widgetPublisher.publish(snapshot)
     }
 
     // MARK: - Window & URL plumbing

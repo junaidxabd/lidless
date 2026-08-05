@@ -36,10 +36,17 @@ public enum SleepOverrideSafety {
     /// owns a live session and a readable registry shows the override on.
     public static func isArmProven(_ reply: HelperReply) -> Bool {
         reply.ok
-            && reply.status.armed
-            && reply.status.sleepStateVerified == true
-            && reply.status.sleepDisabled
-            && reply.status.restorePending == false
+            && isArmProven(reply.status)
+    }
+
+    /// Status-only probes can renew presentation proof, but only for the
+    /// current safety protocol and an exact readable armed state.
+    public static func isArmProven(_ status: HelperStatus) -> Bool {
+        status.helperVersion >= LidlessIDs.helperVersion
+            && status.armed
+            && status.sleepStateVerified == true
+            && status.sleepDisabled
+            && status.restorePending == false
     }
 
     /// The app may end a session and announce normal sleep only when the

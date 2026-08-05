@@ -57,6 +57,16 @@ struct SleepOverrideSafetyTests {
             HelperReply(
                 ok: true,
                 status: HelperStatus(
+                    helperVersion: LidlessIDs.helperVersion - 1,
+                    armed: true,
+                    sleepDisabled: true,
+                    sleepStateVerified: true,
+                    restorePending: false
+                )
+            ),
+            HelperReply(
+                ok: true,
+                status: HelperStatus(
                     helperVersion: LidlessIDs.helperVersion,
                     armed: false,
                     sleepDisabled: true,

@@ -161,6 +161,8 @@ final class SimulatedHelper: HelperControlling {
             helperVersion: LidlessIDs.helperVersion,
             armed: armed,
             sleepDisabled: sleepDisabled,
+            sleepStateVerified: true,
+            restorePending: false,
             armedSince: armedSince,
             watchdogDeadline: watchdogDeadline
         )

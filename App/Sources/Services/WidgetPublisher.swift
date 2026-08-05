@@ -13,16 +13,22 @@ final class WidgetPublisher {
     private var lastPublished: WidgetSnapshot?
     private var lastPublishTime = Date.distantPast
 
-    func publish(_ snapshot: WidgetSnapshot) {
+    @discardableResult
+    func publish(_ snapshot: WidgetSnapshot) -> Bool {
         let stateFlip = lastPublished.map {
-            $0.armed != snapshot.armed || $0.overrideActive != snapshot.overrideActive
+            $0.armed != snapshot.armed
+                || $0.overrideActive != snapshot.overrideActive
+                || $0.overrideStateVerified != snapshot.overrideStateVerified
+                || $0.sleepPresentation != snapshot.sleepPresentation
+                || $0.statusLine != snapshot.statusLine
         } ?? true
         let elapsed = Date().timeIntervalSince(lastPublishTime)
-        guard stateFlip || elapsed >= Self.throttleInterval else { return }
+        guard stateFlip || elapsed >= Self.throttleInterval else { return true }
 
-        guard WidgetStore.save(snapshot) else { return }
+        guard WidgetStore.save(snapshot) else { return false }
         lastPublished = snapshot
         lastPublishTime = Date()
         WidgetCenter.shared.reloadTimelines(ofKind: Self.widgetKind)
+        return true
     }
 }

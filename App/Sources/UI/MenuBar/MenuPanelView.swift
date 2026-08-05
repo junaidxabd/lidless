@@ -25,8 +25,12 @@ struct MenuPanelView: View {
                     .padding(.bottom, Theme.s5)
 
                 GlassSwitch(
-                    armed: state.isArmed,
+                    armed: state.sleepPresentation == .verifiedArmed,
                     busy: state.phase == .arming || state.phase == .disarming,
+                    presentation: state.sleepPresentation,
+                    restoresOnAction: state.phase == .armed,
+                    actionAvailable: state.phase == .armed
+                        || state.sleepPresentation == .verifiedNormal,
                     mood: state.mood
                 ) {
                     if state.isArmed {
@@ -43,7 +47,7 @@ struct MenuPanelView: View {
                     if let pending = state.pendingArm {
                         ArmConfirmCard(pending: pending)
                             .transition(.scale(scale: 0.94).combined(with: .opacity))
-                    } else if !state.isArmed {
+                    } else if state.sleepPresentation == .verifiedNormal {
                         presetRow
                             .transition(.opacity)
                     }
@@ -87,7 +91,7 @@ struct MenuPanelView: View {
                     .foregroundStyle(Theme.violet)
             }
             Spacer()
-            StatusPill(phase: state.phase)
+            StatusPill(presentation: state.sleepPresentation)
         }
     }
 
@@ -153,7 +157,7 @@ struct MenuPanelView: View {
     /// doing; armed, the time remaining is the largest thing on screen.
     private var hero: some View {
         VStack(spacing: Theme.s1) {
-            if state.isArmed {
+            if state.sleepPresentation == .verifiedArmed {
                 GlowText(
                     text: state.statusHeadline,
                     font: .title3.weight(.semibold),
@@ -164,10 +168,15 @@ struct MenuPanelView: View {
             } else {
                 Text(state.statusHeadline)
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(state.overrideLeaked ? AnyShapeStyle(Theme.ember) : AnyShapeStyle(.white.opacity(0.92)))
+                    .foregroundStyle(
+                        state.overrideLeaked || state.overrideStateUnknown
+                            ? AnyShapeStyle(Theme.ember)
+                            : AnyShapeStyle(.white.opacity(0.92))
+                    )
             }
 
-            if state.isArmed, let projected = state.projectedCutoff {
+            if state.sleepPresentation == .verifiedArmed,
+               let projected = state.projectedCutoff {
                 VStack(spacing: 0) {
                     GlowText(
                         text: Format.duration(projected.date.timeIntervalSince(state.now)),
@@ -188,7 +197,7 @@ struct MenuPanelView: View {
                     .multilineTextAlignment(.center)
             }
 
-            if state.isArmed, state.lidClosed {
+            if state.sleepPresentation == .verifiedArmed, state.lidClosed {
                 Label("Lid closed — keeping watch", systemImage: "laptopcomputer")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.35))
@@ -227,13 +236,13 @@ struct MenuPanelView: View {
                 caption: state.battery.isCharging
                     ? "Charging"
                     : (state.battery.state == .ac ? "On power" : "Battery"),
-                lit: state.isArmed
+                lit: state.sleepPresentation == .verifiedArmed
             ),
             .init(
                 icon: "chart.line.downtrend.xyaxis",
                 value: Format.drain(state.drainPerHour),
                 caption: "Drain",
-                lit: state.isArmed
+                lit: state.sleepPresentation == .verifiedArmed
             ),
             .init(
                 icon: "thermometer.medium",

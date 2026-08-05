@@ -17,6 +17,15 @@ enum HelperInstallState: Equatable {
 
     var isUsable: Bool {
         switch self {
+        case .ready, .simulated: true
+        default: false
+        }
+    }
+
+    /// A stale helper must never arm under newer safety policy, but it is
+    /// still reachable so the app can inspect it and restore an old session.
+    var isReachable: Bool {
+        switch self {
         case .ready, .stale, .simulated: true
         default: false
         }

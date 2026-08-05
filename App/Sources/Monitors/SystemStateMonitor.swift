@@ -13,8 +13,12 @@ final class SystemStateMonitor {
     private(set) var lidClosed = false
     /// nil = machine has no clamshell (desktop).
     private(set) var hasLid = true
-    /// Actual `disablesleep` state, read back from the root domain.
-    private(set) var overrideActive = false
+    /// Actual `disablesleep` state, read back from the root domain. `nil`
+    /// means the registry could not be read and must never imply normal sleep.
+    private(set) var overrideActive: Bool?
+    /// Advances on every registry read, including unchanged and failed reads,
+    /// so AppState can distinguish fresh evidence from cached monitor bytes.
+    private(set) var overrideRevision: UInt64 = 0
 
     var onWake: (@MainActor () -> Void)?
     var onWillSleep: (@MainActor () -> Void)?
@@ -52,7 +56,8 @@ final class SystemStateMonitor {
 
     func refresh() {
         let clamshell = PowerRegistry.clamshellClosed()
-        let override = PowerRegistry.sleepDisabled() ?? false
+        let override = PowerRegistry.sleepDisabled()
+        overrideRevision &+= 1
         let changed = clamshell != (hasLid ? lidClosed : nil) || override != overrideActive
 
         hasLid = clamshell != nil

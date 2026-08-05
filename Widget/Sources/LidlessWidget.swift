@@ -49,18 +49,20 @@ struct SnapshotEntry: TimelineEntry {
     let date: Date
     let snapshot: WidgetSnapshot?
 
-    /// The app republishes at least every ~60s while armed; a snapshot much
-    /// older than that means the app died. The widget must never keep
-    /// claiming AWAKE on stale data (the helper's safety net has long since
-    /// restored normal sleep by then).
+    /// The app republishes at least every ~60s while running; a snapshot much
+    /// older than that is no longer evidence of either normal sleep or an
+    /// active session.
     var isStale: Bool {
         guard let snapshot else { return false }
-        return date.timeIntervalSince(snapshot.updatedAt) > 20 * 60
+        return !snapshot.isFresh(at: date)
+    }
+
+    var presentation: SleepPresentationState {
+        snapshot?.effectiveSleepPresentation(at: date) ?? .unknown
     }
 
     var showsArmed: Bool {
-        guard let snapshot else { return false }
-        return snapshot.armed && !isStale
+        presentation == .verifiedArmed
     }
 }
 
@@ -84,16 +86,23 @@ struct SnapshotProvider: TimelineProvider {
         if let cutoff = snapshot?.projectedCutoff, cutoff > now {
             refresh = min(refresh, cutoff.addingTimeInterval(30))
         }
-        // If the app dies, no reload ever comes — pre-schedule the flip to
-        // the stale presentation so WidgetKit swaps entries client-side at
-        // exactly the staleness boundary, without waking this provider.
-        if let snapshot, snapshot.armed {
-            let staleAt = snapshot.updatedAt.addingTimeInterval(20 * 60 + 1)
-            if staleAt > now {
+        // If the app dies, no reload ever comes. Every state claim, including
+        // OFF, expires; pre-schedule the fail-closed entry client-side.
+        if let snapshot {
+            switch snapshot.evidenceFreshness(at: now) {
+            case .fresh:
+                let freshnessBoundary = snapshot.updatedAt.addingTimeInterval(WidgetSnapshot.freshnessLifetime)
+                let staleAt = freshnessBoundary.addingTimeInterval(1)
                 entries.append(SnapshotEntry(date: staleAt, snapshot: snapshot))
                 refresh = min(refresh, staleAt.addingTimeInterval(60))
-            } else {
+            case .expired:
                 refresh = min(refresh, now.addingTimeInterval(5 * 60))
+            case .rejectedFuture:
+                // Re-evaluating the same future-dated bytes later could make
+                // rejected evidence look fresh without a publication. A save
+                // calls reloadTimelines, so only new bytes may revive it.
+                completion(Timeline(entries: entries, policy: .never))
+                return
             }
         }
         completion(Timeline(entries: entries, policy: .after(refresh)))
@@ -110,6 +119,8 @@ extension WidgetSnapshot {
         projectedCutoff: Date().addingTimeInterval(6.4 * 3600),
         projectedCutoffLabel: "Until 7:00 AM",
         overrideActive: true,
+        overrideStateVerified: true,
+        sleepPresentation: .verifiedArmed,
         recentSamples: (0..<12).map { index in
             BatterySample(
                 time: Date().addingTimeInterval(TimeInterval(index - 12) * 900),
@@ -230,38 +241,67 @@ private struct MediumView: View {
 }
 
 private func statusLine(entry: SnapshotEntry) -> String {
-    guard let snapshot = entry.snapshot else { return "" }
-    if snapshot.armed, entry.isStale {
-        return "Lidless isn't running — state unknown"
+    guard entry.snapshot != nil else { return "" }
+    switch entry.presentation {
+    case .verifiedNormal:
+        return "Sleeping normally"
+    case .verifyingArm:
+        return "Verifying sleep override…"
+    case .verifiedArmed:
+        return "Keep-awake active"
+    case .restoring:
+        return "Restoring normal sleep…"
+    case .outsideOverride:
+        return "Sleep override active — not Lidless"
+    case .unknown:
+        return entry.isStale
+            ? "Lidless isn't running — state unknown"
+            : "Sleep state unknown"
     }
-    // The app's line already distinguishes "Sleeping normally" from a leaked
-    // override; mirror it rather than re-deriving.
-    return snapshot.statusLine
 }
 
 private struct StatusHeader: View {
     let entry: SnapshotEntry
 
     var body: some View {
-        let snapshot = entry.snapshot!
         let armed = entry.showsArmed
+        let presentation = entry.presentation
         HStack(spacing: 4) {
-            Image(systemName: armed ? "bolt.fill" : "moon.zzz.fill")
+            Image(systemName: symbol(for: presentation))
                 .font(.caption.weight(.semibold))
-            Text(armed ? "AWAKE" : (snapshot.armed && entry.isStale ? "STALE" : "OFF"))
+            Text(label(for: presentation))
                 .font(.caption2.weight(.bold))
                 .kerning(0.8)
-            if snapshot.overrideActive, !armed {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-            }
         }
         .foregroundStyle(
             armed
                 ? AnyShapeStyle(Color(red: 0.45, green: 0.85, blue: 1.0))
-                : AnyShapeStyle(.secondary)
+                : (presentation == .outsideOverride || presentation == .unknown)
+                    ? AnyShapeStyle(.orange)
+                    : AnyShapeStyle(.secondary)
         )
+    }
+
+    private func symbol(for presentation: SleepPresentationState) -> String {
+        switch presentation {
+        case .verifiedNormal: "moon.zzz.fill"
+        case .verifyingArm: "hourglass"
+        case .verifiedArmed: "bolt.fill"
+        case .restoring: "arrow.triangle.2.circlepath"
+        case .outsideOverride: "exclamationmark.triangle.fill"
+        case .unknown: "questionmark.circle.fill"
+        }
+    }
+
+    private func label(for presentation: SleepPresentationState) -> String {
+        switch presentation {
+        case .verifiedNormal: "OFF"
+        case .verifyingArm: "CHECKING"
+        case .verifiedArmed: "AWAKE"
+        case .restoring: "RESTORING"
+        case .outsideOverride: "WARNING"
+        case .unknown: "CHECK"
+        }
     }
 }
 

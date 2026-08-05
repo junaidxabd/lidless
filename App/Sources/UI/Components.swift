@@ -4,7 +4,7 @@ import LidlessCore
 // MARK: - Status pill
 
 struct StatusPill: View {
-    let phase: AppState.Phase
+    let presentation: SleepPresentationState
 
     var body: some View {
         Text(label)
@@ -14,24 +14,46 @@ struct StatusPill: View {
             .padding(.vertical, Theme.s1)
             .background(background, in: Capsule())
             .overlay(Capsule().strokeBorder(.white.opacity(active ? 0.35 : 0.10), lineWidth: 1))
-            .foregroundStyle(active ? AnyShapeStyle(.white) : AnyShapeStyle(.white.opacity(0.55)))
-            .glow(active ? Theme.cyan : .clear, radius: 8, opacity: 0.6)
-            .animation(Theme.springQuick, value: phase)
+            .foregroundStyle(foreground)
+            .glow(glowColor, radius: 8, opacity: 0.6)
+            .animation(Theme.springQuick, value: presentation)
     }
 
-    private var active: Bool { phase == .armed || phase == .arming }
+    private var active: Bool {
+        presentation == .verifiedArmed || presentation == .verifyingArm
+    }
+
+    private var warning: Bool {
+        presentation == .outsideOverride || presentation == .unknown
+    }
 
     private var label: String {
-        switch phase {
-        case .disarmed: "OFF"
-        case .arming: "ARMING"
-        case .armed: "AWAKE"
-        case .disarming: "RESTORING"
+        switch presentation {
+        case .verifiedNormal: "OFF"
+        case .verifyingArm: "CHECKING"
+        case .verifiedArmed: "AWAKE"
+        case .restoring: "RESTORING"
+        case .outsideOverride: "WARNING"
+        case .unknown: "CHECK"
         }
     }
 
     private var background: AnyShapeStyle {
-        active ? AnyShapeStyle(Theme.armedGradient) : AnyShapeStyle(.white.opacity(0.06))
+        if active { return AnyShapeStyle(Theme.armedGradient) }
+        if warning { return AnyShapeStyle(Theme.ember.opacity(0.16)) }
+        return AnyShapeStyle(.white.opacity(0.06))
+    }
+
+    private var foreground: AnyShapeStyle {
+        if active { return AnyShapeStyle(.white) }
+        if warning { return AnyShapeStyle(Theme.ember) }
+        return AnyShapeStyle(.white.opacity(0.55))
+    }
+
+    private var glowColor: Color {
+        if active { return Theme.cyan }
+        if warning { return Theme.ember }
+        return .clear
     }
 }
 

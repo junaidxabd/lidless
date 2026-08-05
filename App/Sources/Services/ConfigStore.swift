@@ -86,7 +86,7 @@ final class ConfigStore {
     /// Uninstall support: removes every file the app ever wrote.
     static func deleteAllData() {
         try? FileManager.default.removeItem(at: AppPaths.supportDirectory())
-        if let widgetData = WidgetStore.snapshotURL() {
+        for widgetData in WidgetStore.allSnapshotURLs() {
             try? FileManager.default.removeItem(at: widgetData)
         }
     }
