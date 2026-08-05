@@ -135,24 +135,26 @@ final class HelperClient: HelperControlling {
         // active. Gate on launchd's own status, not our cached installState —
         // a wedged helper reads as .notResponding but was fully able to arm.
         if service.status == .enabled {
+            let reply: HelperReply
             do {
-                let reply = try await callForReply { proxy, done in proxy.uninstall(done) }
-                guard reply.ok else {
-                    throw NSError(domain: "Lidless", code: 3, userInfo: [
-                        NSLocalizedDescriptionKey: "The helper could not restore normal sleep (\(reply.error ?? "unknown error")). It stays installed so its watchdog can keep retrying — try again in a minute, or run: \(LidlessIDs.manualFallbackCommand)",
-                    ])
-                }
-            } catch let error as NSError where error.domain == "Lidless" {
-                throw error
+                reply = try await callForReply { proxy, done in proxy.uninstall(done) }
             } catch {
-                // Helper unreachable, but it was enabled and could have
-                // armed. Proceed only if the override verifiably reads OFF —
-                // an unreadable registry is not evidence of safety.
-                guard PowerRegistry.sleepDisabled() == false else {
-                    throw NSError(domain: "Lidless", code: 4, userInfo: [
-                        NSLocalizedDescriptionKey: "The helper is unreachable and the sleep override can't be verified off. Not removing it. Run \(LidlessIDs.manualFallbackCommand), then try again.",
-                    ])
-                }
+                throw NSError(domain: "Lidless", code: 3, userInfo: [
+                    NSLocalizedDescriptionKey: "The enabled helper did not return complete restoration proof (\(error.localizedDescription)). It remains installed so supervision can continue. Run \(LidlessIDs.manualFallbackCommand), then try again.",
+                ])
+            }
+
+            // Deregistration removes launchd's recovery supervision. Require
+            // both the current helper's exact restoration proof and a fresh,
+            // independent registry read from the app after the XPC reply.
+            let independentlyObserved = PowerRegistry.sleepDisabled()
+            guard SleepOverrideSafety.isRestoreProven(
+                reply,
+                independentlyObserved: independentlyObserved
+            ) else {
+                throw NSError(domain: "Lidless", code: 4, userInfo: [
+                    NSLocalizedDescriptionKey: "Normal sleep was not independently verified after helper cleanup (\(reply.error ?? "incomplete proof")). The helper remains installed. Run \(LidlessIDs.manualFallbackCommand), then try again.",
+                ])
             }
         } else {
             // Never-approved / never-registered helpers can't have armed;
