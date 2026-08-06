@@ -6,7 +6,8 @@ import Testing
 /// `pmset` output. A wrong parse here feeds the cutoff engine bad data, so
 /// every branch is pinned: Intel vs Apple Silicon `-g therm` shapes, warning
 /// level casing/separator variants, the sectioned `-g custom` format, and the
-/// nil-over-guess tolerance rules for absent or malformed fields.
+/// nil-over-guess rules for absent fields plus whole-sample rejection for
+/// recognized malformed or contradictory thermal fields.
 @Suite("PMSetParser")
 struct PMSetParserTests {
 
@@ -148,10 +149,11 @@ struct PMSetParserTests {
         #expect(PMSetParser.parseTherm(text, sampledAt: Self.sampleDate).warningLevel == 1)
     }
 
-    @Test("first warning level line wins when several are present")
-    func thermFirstWarningLevelLineWins() {
+    @Test("conflicting repeated warning levels invalidate the whole sample")
+    func thermConflictingWarningLevelsAreUnavailable() {
         let text = "Thermal Warning Level = 2\nThermal Warning Level = 9"
-        #expect(PMSetParser.parseTherm(text, sampledAt: Self.sampleDate).warningLevel == 2)
+        #expect(PMSetParser.parseTherm(text, sampledAt: Self.sampleDate)
+                == ThermalReading(sampledAt: Self.sampleDate))
     }
 
     @Test("CPU block without any note or warning line leaves warningLevel nil")
@@ -219,12 +221,14 @@ struct PMSetParserTests {
         #expect(reading.warningLevel == nil)
         #expect(reading.cpuSpeedLimit == nil)
 
-        // A failed numeric override leaves the note-derived 0 in place.
+        // A recognized failed numeric override invalidates the nominal note;
+        // retaining 0 here would turn malformed evidence into safe evidence.
         let withNote = """
             Note: No thermal warning level has been recorded
             Thermal Warning Level = 99999999999999999999999999
             """
-        #expect(PMSetParser.parseTherm(withNote, sampledAt: Self.sampleDate).warningLevel == 0)
+        #expect(PMSetParser.parseTherm(withNote, sampledAt: Self.sampleDate)
+                == ThermalReading(sampledAt: Self.sampleDate))
     }
 
     @Test("sampledAt is passed through unchanged")

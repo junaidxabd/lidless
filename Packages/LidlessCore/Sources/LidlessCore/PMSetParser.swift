@@ -20,6 +20,14 @@ public enum PMSetParser {
     /// Under load: `Thermal Warning Level = 1` replaces the first note.
     /// Apple Silicon typically emits only the notes.
     public static func parseTherm(_ text: String, sampledAt: Date) -> ThermalReading {
+        // An otherwise nominal note must not mask a recognized field whose
+        // numeric value is malformed, overflows Int, or conflicts with a
+        // repeated value. Collapse the whole sample to unavailable so the
+        // caller cannot enforce only the convenient subset of its evidence.
+        guard thermFieldsAreWellFormed(text) else {
+            return ThermalReading(sampledAt: sampledAt)
+        }
+
         var reading = ThermalReading(sampledAt: sampledAt)
 
         if firstMatch(in: text, pattern: #"(?i)no\s+thermal\s+warning\s+level"#) != nil {
@@ -83,6 +91,46 @@ public enum PMSetParser {
     }
 
     // MARK: - Helpers
+
+    private static func thermFieldsAreWellFormed(_ text: String) -> Bool {
+        recognizedValuesAreConsistent(
+            in: text,
+            labelPattern: #"(?i)^thermal\s+warning\s+level\b"#,
+            valuePattern: #"(?i)^thermal\s+warning\s+level\s*[=:]\s*(-?\d+)\s*$"#
+        ) && recognizedValuesAreConsistent(
+            in: text,
+            labelPattern: #"^CPU_Speed_Limit\b"#,
+            valuePattern: #"^CPU_Speed_Limit\s*=\s*(-?\d+)\s*$"#
+        ) && recognizedValuesAreConsistent(
+            in: text,
+            labelPattern: #"^CPU_Scheduler_Limit\b"#,
+            valuePattern: #"^CPU_Scheduler_Limit\s*=\s*(-?\d+)\s*$"#
+        ) && recognizedValuesAreConsistent(
+            in: text,
+            labelPattern: #"^CPU_Available_CPUs\b"#,
+            valuePattern: #"^CPU_Available_CPUs\s*=\s*(-?\d+)\s*$"#
+        )
+    }
+
+    private static func recognizedValuesAreConsistent(
+        in text: String,
+        labelPattern: String,
+        valuePattern: String
+    ) -> Bool {
+        var values: Set<Int> = []
+        for rawLine in text.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard firstMatch(in: line, pattern: labelPattern) != nil else {
+                continue
+            }
+            guard let value = firstIntMatch(in: line, pattern: valuePattern) else {
+                return false
+            }
+            values.insert(value)
+            guard values.count <= 1 else { return false }
+        }
+        return true
+    }
 
     private static func firstMatch(in text: String, pattern: String) -> String? {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }

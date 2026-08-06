@@ -71,9 +71,7 @@ final class AppState {
 
     private var scheduleOccurrence: ScheduleEngine.Occurrence?
     private var suppressedOccurrence: ScheduleEngine.Occurrence?
-    private var thermalStrikes = 0
-    private var lastThermalStrikeStamp: Date?
-    private var nextStrikeAllowedAt = Date.distantPast
+    private var thermalStrikeTracker = ThermalStrikeTracker()
     private var warnedKinds: Set<String> = []
     private var lastSessionSampleAt = Date.distantPast
     /// Reply-committed reconciliation state for the helper's RTC wake. It
@@ -235,6 +233,8 @@ final class AppState {
         thermalMonitor.start()
         systemMonitor?.start()
         battery = batteryMonitor.current
+        thermal = thermalMonitor.reading
+        processThermal = thermalMonitor.processLevel
         refreshSystemFlags()
 
         Task {
@@ -590,16 +590,20 @@ final class AppState {
             lastError = "The 20% preset doesn't apply because this Mac has no internal battery."
             return
         }
+        let assessmentAt = Date()
         let assessment = CutoffEngine.assessArm(
             config: config.cutoffs.applying(overrides),
-            battery: battery
+            battery: battery,
+            thermal: thermal,
+            processThermal: processThermal,
+            at: assessmentAt
         )
         let pending = PendingArm(
             overrides: overrides,
             source: source,
             assessment: assessment,
             projection: projection(for: overrides),
-            createdAt: Date()
+            createdAt: assessmentAt
         )
         pendingArm = pending
 
@@ -627,7 +631,10 @@ final class AppState {
             source: pending.source,
             assessment: CutoffEngine.assessArm(
                 config: config.cutoffs.applying(pending.overrides),
-                battery: battery
+                battery: battery,
+                thermal: thermal,
+                processThermal: processThermal,
+                at: Date()
             ),
             projection: projection(for: pending.overrides),
             createdAt: pending.createdAt
@@ -736,6 +743,25 @@ final class AppState {
             return
         }
 
+        // The configured thermal guard is a safety promise. Poll it at the
+        // mutation boundary instead of relying on a cached nominal sample.
+        let thermalBoundaryAt = Date()
+        await thermalMonitor.pollNow(notBefore: thermalBoundaryAt)
+        thermal = thermalMonitor.reading
+        processThermal = thermalMonitor.processLevel
+        guard phase == .arming,
+              eligibilityEpoch == helperProofEpoch,
+              helperState.isUsable else {
+            if phase == .arming {
+                phase = .disarmed
+                pendingArm = nil
+                scheduleOccurrence = nil
+                lastError = "Couldn't arm because safety state changed during thermal verification."
+                publishWidget()
+            }
+            return
+        }
+
         // Re-read the registry after every suspension. The helper repeats this
         // preflight immediately before mutation, but the app must not knowingly
         // send an arm request over newly active or unreadable external state.
@@ -773,7 +799,10 @@ final class AppState {
         }
         let freshAssessment = CutoffEngine.assessArm(
             config: config.cutoffs.applying(pending.overrides),
-            battery: battery
+            battery: battery,
+            thermal: thermal,
+            processThermal: processThermal,
+            at: Date()
         )
         guard batteryPresetIsAttainable(pending.source) else {
             phase = .disarmed
@@ -799,11 +828,27 @@ final class AppState {
             publishWidget()
             return
         }
+        if case .refusedThermalTelemetryUnavailable = freshAssessment {
+            phase = .disarmed
+            pendingArm = nil
+            scheduleOccurrence = nil
+            lastError = "Couldn't arm because the thermal safety state could not be verified."
+            publishWidget()
+            return
+        }
+        if case .refusedThermalPressure(let detail) = freshAssessment {
+            phase = .disarmed
+            pendingArm = nil
+            scheduleOccurrence = nil
+            lastError = "Couldn't arm because thermal protection is already triggered: \(detail)."
+            publishWidget()
+            return
+        }
         guard freshAssessment == intent.assessment else {
             phase = .disarmed
             pendingArm = nil
             scheduleOccurrence = nil
-            lastError = "Battery conditions changed. Review the updated warning before arming."
+            lastError = "Safety conditions changed. Review the updated warning before arming."
             publishWidget()
             return
         }
@@ -871,16 +916,19 @@ final class AppState {
                 return
             }
 
-            // The arm reply proves the helper mutation, not that the battery
+            // The arm reply proves the helper mutation, not that safety
             // evidence sampled before XPC dispatch stayed current throughout
-            // the suspension. Re-read before accepting a session; if the
-            // configured floor can no longer be enforced, enter the same
+            // the suspension. Re-read battery evidence and revalidate the
+            // thermal sample before accepting a session; otherwise enter the
             // verified-restoration coordinator used by every other cutoff.
             batteryMonitor.refresh()
             battery = batteryMonitor.current
             let postArmAssessment = CutoffEngine.assessArm(
                 config: config.cutoffs.applying(pending.overrides),
-                battery: battery
+                battery: battery,
+                thermal: thermal,
+                processThermal: processThermal,
+                at: Date()
             )
             let postArmAssessmentAccepted: Bool
             switch pending.source {
@@ -901,14 +949,14 @@ final class AppState {
                 _ = beginRestore(PendingRestore(
                     options: HelperDisarmOptions(
                         forceSleep: false,
-                        reason: "battery safety changed during arm"
+                        reason: "safety evidence changed during arm"
                     ),
                     endReason: nil,
                     notificationTitle: nil,
                     notificationBody: nil,
                     notificationSound: false,
                     playChime: false,
-                    completionError: "The keep-awake request was restored because its battery safety evidence changed while arming."
+                    completionError: "The keep-awake request was restored because its safety evidence changed while arming."
                 ))
                 return
             }
@@ -936,9 +984,7 @@ final class AppState {
             sessionOverrides = pending.overrides
             pendingArm = nil
             phase = .armed
-            thermalStrikes = 0
-            lastThermalStrikeStamp = nil
-            nextStrikeAllowedAt = .distantPast
+            thermalStrikeTracker.reset()
             warnedKinds = []
             lastSessionSampleAt = startedAt
             lastError = nil
@@ -1531,6 +1577,7 @@ final class AppState {
     func cutoffLabel(_ reason: CutoffReason) -> String {
         switch reason {
         case .thermal(let detail): "Thermal protection: \(detail)"
+        case .thermalTelemetryUnavailable: "Thermal safety state could not be verified"
         case .batteryTelemetryUnavailable: "Battery state could not be verified"
         case .batteryFloor(let percent, let floor): "Battery reached \(percent)% (floor \(floor)%)"
         case .offTime: "Reached the scheduled off-time"
@@ -1718,6 +1765,7 @@ final class AppState {
     private func thermalDidChange() {
         thermal = thermalMonitor.reading
         processThermal = thermalMonitor.processLevel
+        refreshPendingProjection()
         if phase == .armed {
             evaluateCutoffs()
         }
@@ -1875,10 +1923,10 @@ final class AppState {
         batteryMonitor.refresh()
         battery = batteryMonitor.current
         appendRollingSample(battery)
-        if isSimulation {
-            thermal = thermalMonitor.reading
-            processThermal = thermalMonitor.processLevel
-        }
+        // Copy on every tick as a fallback for a missed notification, and let
+        // the core freshness policy expire a stalled pmset sample.
+        thermal = thermalMonitor.reading
+        processThermal = thermalMonitor.processLevel
 
         recomputeDrain()
 
@@ -1941,44 +1989,14 @@ final class AppState {
         guard phase == .armed, let session = currentSession else { return }
         let reference = Date()
 
-        // Debounce on distinct *evidence*, not UI ticks: a strike advances
-        // only when a NEW pmset reading violates (sampledAt changed) — or,
-        // for process-thermal-only violations, which carry no timestamp, at
-        // most every 45s. The engine receives the count of strikes *before*
-        // the current evidence, so with the default strikesRequired = 2 a
-        // single anomalous poll can never force sleep; a second violating
-        // reading (~90s later) does.
-        let violatesNow = CutoffEngine.isThermalViolation(
+        // One tracker understands both sample-identified pmset evidence and
+        // time-paced ProcessInfo pressure. Neither source can starve the other.
+        let thermalStrikes = thermalStrikeTracker.observe(
             config: effectiveConfig,
             thermal: thermal,
-            processThermal: processThermal
+            processThermal: processThermal,
+            at: reference
         )
-        // Only a pmset reading that ITSELF violates counts as stamped
-        // evidence; a healthy reading arriving while ProcessInfo pressure is
-        // elevated must not double-count the same episode. Process-thermal-
-        // only violations pace on time (45s) since they carry no timestamp.
-        let pmsetViolates = CutoffEngine.isThermalViolation(
-            config: effectiveConfig,
-            thermal: thermal,
-            processThermal: .nominal
-        )
-        if violatesNow {
-            let isNewEvidence: Bool
-            if pmsetViolates, let stamp = thermal?.sampledAt {
-                isNewEvidence = stamp != lastThermalStrikeStamp
-                if isNewEvidence { lastThermalStrikeStamp = stamp }
-            } else {
-                isNewEvidence = reference >= nextStrikeAllowedAt
-            }
-            if isNewEvidence {
-                thermalStrikes += 1
-                nextStrikeAllowedAt = reference.addingTimeInterval(45)
-            }
-        } else {
-            thermalStrikes = 0
-            lastThermalStrikeStamp = nil
-            nextStrikeAllowedAt = .distantPast
-        }
 
         let evaluation = CutoffEngine.evaluate(
             config: effectiveConfig,
@@ -2071,16 +2089,21 @@ final class AppState {
            active != suppressedOccurrence {
             let assessment = CutoffEngine.assessArm(
                 config: config.cutoffs,
-                battery: battery
+                battery: battery,
+                thermal: thermal,
+                processThermal: processThermal,
+                at: reference
             )
             switch assessment {
             case .refusedBelowFloor:
                 // A real floor crossing stays suppressed until the next
                 // occurrence rather than repeatedly trying to arm.
                 suppressedOccurrence = active
-            case .refusedBatteryTelemetryUnavailable:
-                // Telemetry loss is retryable: leave the occurrence eligible
-                // so a later monitor refresh can establish safe evidence.
+            case .refusedBatteryTelemetryUnavailable,
+                 .refusedThermalTelemetryUnavailable,
+                 .refusedThermalPressure:
+                // Telemetry loss or thermal pressure is retryable: leave the
+                // occurrence eligible so later safe evidence can admit it.
                 return
             case .ok, .lowBatteryWarning:
                 scheduleOccurrence = active

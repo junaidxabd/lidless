@@ -115,7 +115,7 @@ final class SimulatedThermalMonitor: ThermalMonitoring {
 
     func start() {}
     func stop() {}
-    func pollNow() async {
+    func pollNow(notBefore: Date) async {
         onChange?()
     }
 }

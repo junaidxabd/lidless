@@ -10,6 +10,7 @@ struct BatteryTelemetrySafetyTests {
         var config = CutoffConfig()
         config.batteryFloorEnabled = true
         config.batteryFloorPercent = 10
+        config.thermalEnabled = false
         return config
     }
 
@@ -73,9 +74,22 @@ struct BatteryTelemetrySafetyTests {
         ]
     }
 
+    private func assess(
+        config: CutoffConfig,
+        battery: BatterySnapshot
+    ) -> ArmAssessment {
+        CutoffEngine.assessArm(
+            config: config,
+            battery: battery,
+            thermal: nil,
+            processThermal: .nominal,
+            at: now
+        )
+    }
+
     @Test func enabledFloorRefusesArmWithoutUsableBatteryEvidence() {
         for reading in unverifiedReadings {
-            let assessment = CutoffEngine.assessArm(
+            let assessment = assess(
                 config: floorEnabled,
                 battery: reading
             )
@@ -100,7 +114,7 @@ struct BatteryTelemetrySafetyTests {
 
     @Test func explicitFloorOptOutDoesNotInventATelemetryCutoff() {
         for reading in unverifiedReadings {
-            #expect(CutoffEngine.assessArm(
+            #expect(assess(
                 config: floorDisabled,
                 battery: reading
             ) == .ok)
@@ -119,7 +133,7 @@ struct BatteryTelemetrySafetyTests {
     @Test func provenBatteryAbsenceDoesNotCreateAFictitiousFloor() {
         let noBattery = BatterySnapshot.noBattery(at: now)
         #expect(noBattery.hasUsableSafetyEvidence)
-        #expect(CutoffEngine.assessArm(
+        #expect(assess(
             config: floorEnabled,
             battery: noBattery
         ) == .ok)
@@ -253,7 +267,7 @@ struct BatteryTelemetrySafetyTests {
             charging: true
         )
         #expect(!contradictory.hasUsableSafetyEvidence)
-        #expect(CutoffEngine.assessArm(
+        #expect(assess(
             config: floorEnabled,
             battery: contradictory
         ) == .refusedBatteryTelemetryUnavailable)
@@ -327,8 +341,10 @@ struct BatteryTelemetrySafetyTests {
         #expect(postArm.contains("suppressCurrentScheduleOccurrence()"))
         #expect(!postArm.contains("if case .refusedBelowFloor"))
         #expect(schedule.contains("case .refusedBelowFloor:"))
-        #expect(schedule.contains("case .refusedBatteryTelemetryUnavailable:"))
-        #expect(schedule.contains("Telemetry loss is retryable"))
+        #expect(schedule.contains("case .refusedBatteryTelemetryUnavailable,"))
+        #expect(schedule.contains(".refusedThermalTelemetryUnavailable,"))
+        #expect(schedule.contains(".refusedThermalPressure:"))
+        #expect(schedule.contains("Telemetry loss or thermal pressure is retryable"))
         #expect(panel.contains("!pending.assessment.allowsArm"))
         #expect(panel.contains("case .refusedBatteryTelemetryUnavailable"))
     }

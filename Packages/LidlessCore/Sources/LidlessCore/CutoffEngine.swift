@@ -4,6 +4,7 @@ import Foundation
 
 public enum CutoffReason: Codable, Sendable, Equatable, Hashable {
     case thermal(detail: String)
+    case thermalTelemetryUnavailable
     case batteryTelemetryUnavailable
     case batteryFloor(percent: Int, floor: Int)
     case offTime
@@ -14,11 +15,12 @@ public enum CutoffReason: Codable, Sendable, Equatable, Hashable {
     public var priority: Int {
         switch self {
         case .thermal: 0
-        case .batteryTelemetryUnavailable: 1
-        case .batteryFloor: 2
-        case .offTime: 3
-        case .durationElapsed: 4
-        case .scheduleEnded: 5
+        case .thermalTelemetryUnavailable: 1
+        case .batteryTelemetryUnavailable: 2
+        case .batteryFloor: 3
+        case .offTime: 4
+        case .durationElapsed: 5
+        case .scheduleEnded: 6
         }
     }
 }
@@ -50,12 +52,20 @@ public enum ArmAssessment: Sendable, Equatable {
     case refusedBelowFloor(percent: Int, floor: Int)
     /// The configured floor cannot be enforced without readable battery data.
     case refusedBatteryTelemetryUnavailable
+    /// The configured thermal guard cannot be enforced without a fresh,
+    /// structurally meaningful pmset sample.
+    case refusedThermalTelemetryUnavailable
+    /// Current thermal pressure already violates the configured guard.
+    case refusedThermalPressure(detail: String)
 
     public var allowsArm: Bool {
         switch self {
         case .ok, .lowBatteryWarning:
             return true
-        case .refusedBelowFloor, .refusedBatteryTelemetryUnavailable:
+        case .refusedBelowFloor,
+             .refusedBatteryTelemetryUnavailable,
+             .refusedThermalTelemetryUnavailable,
+             .refusedThermalPressure:
             return false
         }
     }
@@ -91,6 +101,10 @@ public enum CutoffEngine {
     ///
     /// Rules:
     /// - A successfully observed battery-less desktop → ok; no battery drains.
+    /// - Missing, malformed, stale, or future-dated thermal evidence with an
+    ///   enabled thermal guard → refused because its thresholds are unprovable.
+    /// - Fresh thermal evidence that already violates a configured threshold,
+    ///   or serious ProcessInfo pressure → refused instead of arming hot.
     /// - Missing, malformed, or source-unknown evidence with an enabled floor
     ///   → refused because the cutoff could not be enforced.
     /// - On AC → ok even at 3%: the floor only governs discharge, and if the
@@ -99,8 +113,28 @@ public enum CutoffEngine {
     /// - Discharging below the warning threshold → allowed with explicit warning.
     public static func assessArm(
         config: CutoffConfig,
-        battery: BatterySnapshot
+        battery: BatterySnapshot,
+        thermal: ThermalReading?,
+        processThermal: ProcessThermalLevel,
+        at now: Date
     ) -> ArmAssessment {
+        guard !config.thermalEnabled
+                || ThermalEvidenceSafety.isUsable(thermal, at: now) else {
+            return .refusedThermalTelemetryUnavailable
+        }
+        if isThermalViolation(
+            config: config,
+            thermal: thermal,
+            processThermal: processThermal,
+            at: now
+        ) {
+            return .refusedThermalPressure(detail: thermalDetail(
+                config: config,
+                thermal: thermal,
+                processThermal: processThermal,
+                at: now
+            ))
+        }
         guard battery.hasUsableSafetyEvidence else {
             return config.batteryFloorEnabled
                 ? .refusedBatteryTelemetryUnavailable
@@ -141,11 +175,14 @@ public enum CutoffEngine {
     public static func isThermalViolation(
         config: CutoffConfig,
         thermal: ThermalReading?,
-        processThermal: ProcessThermalLevel
+        processThermal: ProcessThermalLevel,
+        at now: Date
     ) -> Bool {
         guard config.thermalEnabled else { return false }
-        if let level = thermal?.warningLevel, level > 0 { return true }
-        if let speed = thermal?.cpuSpeedLimit, speed < config.thermalSpeedLimitFloor { return true }
+        let accepted = ThermalEvidenceSafety.accepted(thermal, at: now)
+        if let level = accepted?.warningLevel, level > 0 { return true }
+        if let speed = accepted?.cpuSpeedLimit,
+           speed < config.thermalSpeedLimitFloor { return true }
         if processThermal >= .serious { return true }
         return false
     }
@@ -169,9 +206,23 @@ public enum CutoffEngine {
         var fired: [CutoffReason] = []
 
         // Thermal — highest priority.
-        let violation = isThermalViolation(config: config, thermal: thermal, processThermal: processThermal)
+        let acceptedThermal = ThermalEvidenceSafety.accepted(thermal, at: now)
+        let violation = isThermalViolation(
+            config: config,
+            thermal: acceptedThermal,
+            processThermal: processThermal,
+            at: now
+        )
         if violation, thermalStrikes + 1 >= max(1, config.thermalStrikesRequired) {
-            fired.append(.thermal(detail: thermalDetail(config: config, thermal: thermal, processThermal: processThermal)))
+            fired.append(.thermal(detail: thermalDetail(
+                config: config,
+                thermal: acceptedThermal,
+                processThermal: processThermal,
+                at: now
+            )))
+        }
+        if config.thermalEnabled, acceptedThermal == nil {
+            fired.append(.thermalTelemetryUnavailable)
         }
 
         // A configured floor is a safety promise. If its evidence disappears,
@@ -211,12 +262,15 @@ public enum CutoffEngine {
     public static func thermalDetail(
         config: CutoffConfig,
         thermal: ThermalReading?,
-        processThermal: ProcessThermalLevel
+        processThermal: ProcessThermalLevel,
+        at now: Date
     ) -> String {
-        if let level = thermal?.warningLevel, level > 0 {
+        let accepted = ThermalEvidenceSafety.accepted(thermal, at: now)
+        if let level = accepted?.warningLevel, level > 0 {
             return "Thermal warning level \(level)"
         }
-        if let speed = thermal?.cpuSpeedLimit, speed < config.thermalSpeedLimitFloor {
+        if let speed = accepted?.cpuSpeedLimit,
+           speed < config.thermalSpeedLimitFloor {
             return "CPU limited to \(speed)%"
         }
         switch processThermal {

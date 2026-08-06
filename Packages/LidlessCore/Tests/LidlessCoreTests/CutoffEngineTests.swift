@@ -56,8 +56,57 @@ struct CutoffEngineTests {
     private func discharging(_ percent: Int) -> BatterySnapshot { battery(percent, state: .battery) }
     private func onAC(_ percent: Int?) -> BatterySnapshot { battery(percent, state: .ac) }
 
-    private func reading(warningLevel: Int? = nil, cpuSpeedLimit: Int? = nil) -> ThermalReading {
-        ThermalReading(warningLevel: warningLevel, cpuSpeedLimit: cpuSpeedLimit, sampledAt: t0600)
+    private func reading(
+        warningLevel: Int? = nil,
+        cpuSpeedLimit: Int? = nil,
+        sampledAt: Date = t0600
+    ) -> ThermalReading {
+        ThermalReading(
+            warningLevel: warningLevel,
+            cpuSpeedLimit: cpuSpeedLimit,
+            sampledAt: sampledAt
+        )
+    }
+
+    private func assess(
+        config: CutoffConfig,
+        battery: BatterySnapshot,
+        thermal: ThermalReading? = ThermalReading(warningLevel: 0, sampledAt: t0600),
+        processThermal: ProcessThermalLevel = .nominal
+    ) -> ArmAssessment {
+        CutoffEngine.assessArm(
+            config: config,
+            battery: battery,
+            thermal: thermal,
+            processThermal: processThermal,
+            at: t0600
+        )
+    }
+
+    private func thermalViolation(
+        config: CutoffConfig,
+        thermal: ThermalReading?,
+        processThermal: ProcessThermalLevel
+    ) -> Bool {
+        CutoffEngine.isThermalViolation(
+            config: config,
+            thermal: thermal,
+            processThermal: processThermal,
+            at: t0600
+        )
+    }
+
+    private func thermalDetail(
+        config: CutoffConfig,
+        thermal: ThermalReading?,
+        processThermal: ProcessThermalLevel
+    ) -> String {
+        CutoffEngine.thermalDetail(
+            config: config,
+            thermal: thermal,
+            processThermal: processThermal,
+            at: t0600
+        )
     }
 
     private func evaluate(
@@ -65,7 +114,26 @@ struct CutoffEngineTests {
         armedAt: Date = t0600,
         now: Date,
         battery: BatterySnapshot,
-        thermal: ThermalReading? = nil,
+        processThermal: ProcessThermalLevel = .nominal,
+        thermalStrikes: Int = 0
+    ) -> CutoffEvaluation {
+        evaluate(
+            config: config,
+            armedAt: armedAt,
+            now: now,
+            battery: battery,
+            thermal: ThermalReading(warningLevel: 0, sampledAt: now),
+            processThermal: processThermal,
+            thermalStrikes: thermalStrikes
+        )
+    }
+
+    private func evaluate(
+        config: CutoffConfig,
+        armedAt: Date = t0600,
+        now: Date,
+        battery: BatterySnapshot,
+        thermal: ThermalReading?,
         processThermal: ProcessThermalLevel = .nominal,
         thermalStrikes: Int = 0
     ) -> CutoffEvaluation {
@@ -86,9 +154,9 @@ struct CutoffEngineTests {
     @Test func assessArm_onACAtThreePercent_ok() {
         // The floor only governs discharge; if unplugged later below the floor,
         // the cutoff fires then. Arming on AC is always allowed.
-        #expect(CutoffEngine.assessArm(config: config(), battery: onAC(3)) == .ok)
+        #expect(assess(config: config(), battery: onAC(3)) == .ok)
         // An actively charging 3% machine with coherent AC evidence is allowed.
-        #expect(CutoffEngine.assessArm(
+        #expect(assess(
             config: config(),
             battery: battery(3, state: .ac, charging: true)
         ) == .ok)
@@ -96,67 +164,67 @@ struct CutoffEngineTests {
 
     @Test func assessArm_provenNoBattery_ok() {
         // Enumeration plus independent topology proves no internal battery.
-        #expect(CutoffEngine.assessArm(
+        #expect(assess(
             config: config(),
             battery: battery(nil, state: .noBattery)
         ) == .ok)
     }
 
     @Test func assessArm_dischargingAtFloor_refused() {
-        #expect(CutoffEngine.assessArm(config: config(), battery: discharging(10))
+        #expect(assess(config: config(), battery: discharging(10))
                 == .refusedBelowFloor(percent: 10, floor: 10))
     }
 
     @Test func assessArm_dischargingAtFloorPlusOne_refused() {
-        #expect(CutoffEngine.assessArm(config: config(), battery: discharging(11))
+        #expect(assess(config: config(), battery: discharging(11))
                 == .refusedBelowFloor(percent: 11, floor: 10))
     }
 
     @Test func assessArm_dischargingAtFloorPlusTwo_refused() {
         // Margin boundary: refusal is percent <= floor + armRefusalMargin (2).
         #expect(CutoffConfig.armRefusalMargin == 2)
-        #expect(CutoffEngine.assessArm(config: config(), battery: discharging(12))
+        #expect(assess(config: config(), battery: discharging(12))
                 == .refusedBelowFloor(percent: 12, floor: 10))
     }
 
     @Test func assessArm_dischargingAtFloorPlusThree_warnsInsteadOfRefusing() {
         // First percent above the refusal margin: arming allowed, but 13 < 30
         // so the low-battery warning applies.
-        #expect(CutoffEngine.assessArm(config: config(), battery: discharging(13))
+        #expect(assess(config: config(), battery: discharging(13))
                 == .lowBatteryWarning(percent: 13))
     }
 
     @Test func assessArm_dischargingAt29_lowBatteryWarning() {
         #expect(CutoffConfig.armLowBatteryWarning == 30)
-        #expect(CutoffEngine.assessArm(config: config(), battery: discharging(29))
+        #expect(assess(config: config(), battery: discharging(29))
                 == .lowBatteryWarning(percent: 29))
     }
 
     @Test func assessArm_dischargingAt30_ok() {
         // Warning is strictly below 30: exactly 30 arms silently.
-        #expect(CutoffEngine.assessArm(config: config(), battery: discharging(30)) == .ok)
+        #expect(assess(config: config(), battery: discharging(30)) == .ok)
     }
 
     @Test func assessArm_floorDisabled_noRefusalButWarningStillApplies() {
         let c = config(batteryFloorEnabled: false)
         // At and below what would have been the refusal band: warned, not refused.
-        #expect(CutoffEngine.assessArm(config: c, battery: discharging(10)) == .lowBatteryWarning(percent: 10))
-        #expect(CutoffEngine.assessArm(config: c, battery: discharging(3)) == .lowBatteryWarning(percent: 3))
+        #expect(assess(config: c, battery: discharging(10)) == .lowBatteryWarning(percent: 10))
+        #expect(assess(config: c, battery: discharging(3)) == .lowBatteryWarning(percent: 3))
         // Healthy battery with floor disabled: plain ok.
-        #expect(CutoffEngine.assessArm(config: c, battery: discharging(30)) == .ok)
-        #expect(CutoffEngine.assessArm(config: c, battery: discharging(80)) == .ok)
+        #expect(assess(config: c, battery: discharging(30)) == .ok)
+        #expect(assess(config: c, battery: discharging(80)) == .ok)
     }
 
     @Test func assessArm_chargingAt25_ok() {
         // Charging suppresses both refusal and warning: not discharging.
-        #expect(CutoffEngine.assessArm(
+        #expect(assess(
             config: config(),
             battery: battery(25, state: .ac, charging: true)
         ) == .ok)
     }
 
     @Test func assessArm_unknownPowerState_refusedWhenFloorEnabled() {
-        #expect(CutoffEngine.assessArm(config: config(), battery: battery(5, state: .unknown))
+        #expect(assess(config: config(), battery: battery(5, state: .unknown))
                 == .refusedBatteryTelemetryUnavailable)
     }
 
@@ -228,36 +296,38 @@ struct CutoffEngineTests {
     // MARK: - isThermalViolation
 
     @Test func thermalViolation_warningLevelOne_true() {
-        #expect(CutoffEngine.isThermalViolation(config: config(), thermal: reading(warningLevel: 1), processThermal: .nominal))
+        #expect(thermalViolation(config: config(), thermal: reading(warningLevel: 1), processThermal: .nominal))
     }
 
     @Test func thermalViolation_warningLevelZero_false() {
-        #expect(!CutoffEngine.isThermalViolation(config: config(), thermal: reading(warningLevel: 0), processThermal: .nominal))
+        #expect(!thermalViolation(config: config(), thermal: reading(warningLevel: 0), processThermal: .nominal))
     }
 
     @Test func thermalViolation_nilReadingNominalProcess_false() {
-        #expect(!CutoffEngine.isThermalViolation(config: config(), thermal: nil, processThermal: .nominal))
+        // Absence is not fabricated as thermal pressure. `evaluate` reports
+        // the separate fail-closed `.thermalTelemetryUnavailable` reason.
+        #expect(!thermalViolation(config: config(), thermal: nil, processThermal: .nominal))
     }
 
     @Test func thermalViolation_cpuSpeedLimitFloorBoundary() {
         // Floor 60: 59 violates, exactly 60 does not.
-        #expect(CutoffEngine.isThermalViolation(config: config(), thermal: reading(cpuSpeedLimit: 59), processThermal: .nominal))
-        #expect(!CutoffEngine.isThermalViolation(config: config(), thermal: reading(cpuSpeedLimit: 60), processThermal: .nominal))
+        #expect(thermalViolation(config: config(), thermal: reading(cpuSpeedLimit: 59), processThermal: .nominal))
+        #expect(!thermalViolation(config: config(), thermal: reading(cpuSpeedLimit: 60), processThermal: .nominal))
         // A nominal warning level (0) must not mask a speed-limit violation.
-        #expect(CutoffEngine.isThermalViolation(config: config(), thermal: reading(warningLevel: 0, cpuSpeedLimit: 59), processThermal: .nominal))
+        #expect(thermalViolation(config: config(), thermal: reading(warningLevel: 0, cpuSpeedLimit: 59), processThermal: .nominal))
     }
 
     @Test func thermalViolation_processThermalLevels() {
-        #expect(CutoffEngine.isThermalViolation(config: config(), thermal: nil, processThermal: .serious))
-        #expect(CutoffEngine.isThermalViolation(config: config(), thermal: nil, processThermal: .critical))
-        #expect(!CutoffEngine.isThermalViolation(config: config(), thermal: nil, processThermal: .fair))
-        #expect(!CutoffEngine.isThermalViolation(config: config(), thermal: nil, processThermal: .nominal))
+        #expect(thermalViolation(config: config(), thermal: nil, processThermal: .serious))
+        #expect(thermalViolation(config: config(), thermal: nil, processThermal: .critical))
+        #expect(!thermalViolation(config: config(), thermal: nil, processThermal: .fair))
+        #expect(!thermalViolation(config: config(), thermal: nil, processThermal: .nominal))
     }
 
     @Test func thermalViolation_disabled_alwaysFalse() {
         // With thermal protection off, even the worst possible picture is not a violation.
         let c = config(thermalEnabled: false)
-        #expect(!CutoffEngine.isThermalViolation(config: c, thermal: reading(warningLevel: 3, cpuSpeedLimit: 10), processThermal: .critical))
+        #expect(!thermalViolation(config: c, thermal: reading(warningLevel: 3, cpuSpeedLimit: 10), processThermal: .critical))
     }
 
     // MARK: - evaluate: battery floor
@@ -393,14 +463,17 @@ struct CutoffEngineTests {
     @Test func evaluate_multipleSimultaneousReasons_sortedByPriority() {
         // Duration fires at 06:30, off-time at 07:00; at 08:00 both have passed,
         // battery is at 8% discharging, and this is the second thermal strike.
-        // Priority order must be thermal < telemetry < batteryFloor < offTime
-        // < durationElapsed,
+        // Priority order must be thermal < telemetry loss < batteryFloor
+        // < offTime < durationElapsed,
         // even though duration's *date* precedes the off-time's.
         let c = config(thermalStrikesRequired: 2, durationEnabled: true, durationSeconds: 1800, offTimeEnabled: true)
         let r = evaluate(config: c,
                          now: t0600.addingTimeInterval(7200),
                          battery: discharging(8),
-                         thermal: reading(warningLevel: 1),
+                         thermal: reading(
+                            warningLevel: 1,
+                            sampledAt: t0600.addingTimeInterval(7200)
+                         ),
                          thermalStrikes: 1)
         #expect(r.fired == [
             .thermal(detail: "Thermal warning level 1"),
@@ -414,7 +487,7 @@ struct CutoffEngineTests {
 
     @Test func evaluate_timeReasonsAlone_priorityOrderNotDateOrder() {
         // Duration (06:30) elapsed before off-time (07:00), but .offTime
-        // (priority 3) must precede .durationElapsed (priority 4) in `fired`.
+        // (priority 4) must precede .durationElapsed (priority 5) in `fired`.
         let c = config(durationEnabled: true, durationSeconds: 1800, offTimeEnabled: true)
         let r = evaluate(config: c, now: t0600.addingTimeInterval(7200), battery: onAC(80))
         #expect(r.fired == [.offTime, .durationElapsed])
@@ -449,17 +522,17 @@ struct CutoffEngineTests {
 
     @Test func thermalDetail_branchMessages() {
         let c = config()
-        #expect(CutoffEngine.thermalDetail(config: c, thermal: reading(warningLevel: 2), processThermal: .nominal)
+        #expect(thermalDetail(config: c, thermal: reading(warningLevel: 2), processThermal: .nominal)
                 == "Thermal warning level 2")
-        #expect(CutoffEngine.thermalDetail(config: c, thermal: reading(cpuSpeedLimit: 59), processThermal: .nominal)
+        #expect(thermalDetail(config: c, thermal: reading(cpuSpeedLimit: 59), processThermal: .nominal)
                 == "CPU limited to 59%")
-        #expect(CutoffEngine.thermalDetail(config: c, thermal: nil, processThermal: .critical)
+        #expect(thermalDetail(config: c, thermal: nil, processThermal: .critical)
                 == "System thermal state critical")
-        #expect(CutoffEngine.thermalDetail(config: c, thermal: nil, processThermal: .serious)
+        #expect(thermalDetail(config: c, thermal: nil, processThermal: .serious)
                 == "System thermal state serious")
-        #expect(CutoffEngine.thermalDetail(config: c, thermal: nil, processThermal: .nominal)
+        #expect(thermalDetail(config: c, thermal: nil, processThermal: .nominal)
                 == "Thermal pressure")
-        #expect(CutoffEngine.thermalDetail(config: c, thermal: nil, processThermal: .fair)
+        #expect(thermalDetail(config: c, thermal: nil, processThermal: .fair)
                 == "Thermal pressure")
     }
 
@@ -566,12 +639,13 @@ struct CutoffEngineTests {
     @Test func cutoffReason_priorityOrdering_safetyOutranksConvenience() {
         let ordered: [CutoffReason] = [
             .thermal(detail: "x"),
+            .thermalTelemetryUnavailable,
             .batteryTelemetryUnavailable,
             .batteryFloor(percent: 1, floor: 10),
             .offTime,
             .durationElapsed,
             .scheduleEnded,
         ]
-        #expect(ordered.map(\.priority) == [0, 1, 2, 3, 4, 5])
+        #expect(ordered.map(\.priority) == [0, 1, 2, 3, 4, 5, 6])
     }
 }

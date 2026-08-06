@@ -3564,3 +3564,240 @@ blockers; this checkpoint is not upgrade-complete and must remain
   `State: IN_PROGRESS` is retained because separate safety groups and live
   gates remain; after this single local commit the supervisor must bind the
   exact remainder into a fresh rolling manifest before another invocation.
+
+- E-442 — 2026-08-06T08:49:09+0200 — Authenticated and used the
+  checkpoint-aware rolling remainder manifest. Its adjacent sidecar names the
+  manifest and matches its SHA-256
+  `a03e263de660ac95e74e5f89eb0c06d29f3bbfb015c1368348367e5c4c533187`.
+  The feature checkout reproduced canonical path
+  `/Users/junaid/Xcode-Projects/Lidless-worktrees/codex-safety-repair-2026-08-04`,
+  linked-worktree/common-directory topology, branch
+  `codex/lidless-safety-repair-2026-08-04`, clean index, and HEAD
+  `f105ede34e9c20a025b2d2dfb826286cf4bcfe1d`. Its exact three-path remainder
+  reproduced every status, regular-file type, mode, byte count, and raw hash;
+  the NUL-status digest was
+  `3a4984484500650d6b8866b3dfd45bc02ad0ff2888084f86deda5506c36e03dc`
+  and the tracked binary-diff digest was
+  `5bfed6a6f1b1f3578736cce1d9ae66138f0f9e0614ffc8e93d0aa80c4d6e3b82`.
+  The main checkout independently reproduced canonical path
+  `/Users/junaid/Xcode-Projects/Lidless`, branch `main`, clean index, HEAD
+  `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, exactly its three recorded
+  untracked `.playwright-mcp` files and bytes, NUL-status digest
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked binary-diff digest
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+  This valid rolling audit supersedes any historical-manifest false stop while
+  preserving the earlier evidence. No mismatch was normalized; work resumes
+  at `State: IN_PROGRESS`.
+
+## Thermal-evidence fail-closed checkpoint matrix — 2026-08-06
+
+| ID | Safety invariant | Independently reproduced evidence and bounded result | Verdict |
+|---|---|---|---|
+| S30-01 | An enabled thermal guard must not admit or continue a session when its configured `pmset` thresholds cannot be proved | `ThermalEvidenceSafety` accepts only structurally meaningful samples dated from now through 180 seconds old. Missing, malformed, future-dated, or older evidence refuses admission and fires the new immediate restoration reason; disabling the guard does not invent a thermal failure. | FIXED OFFLINE / LIVE-TELEMETRY GATE |
+| S30-02 | The app must not knowingly arm while either accepted `pmset` evidence or independent `ProcessInfo` pressure is already hot | Core admission refuses warning, speed-limit, serious, and critical pressure. App admission polls after helper proof, copies both signals, rechecks eligibility, and reassesses without another suspension before dispatch; a nonaccepted post-helper result enters verified restoration before a session is created. | FIXED OFFLINE / XPC-RACE AND RUNTIME GATES |
+| S30-03 | A convenient nominal field must not mask a recognized malformed, overflowing, or contradictory thermal field | `PMSetParser` first validates every recognized warning/speed/scheduler/CPU-count line and collapses the whole sample to unavailable on malformed numeric syntax, overflow, or conflicting repeated values. Exact parser and validator regressions cover all four field families. | FIXED OFFLINE / REAL-OUTPUT CORPUS GATE |
+| S30-04 | A boundary poll must not relabel or accept a request that started before the arm boundary | `pollNow(notBefore:)` serializes commands, awaits older work, reuses it only when its conservative request-start timestamp satisfies the boundary, otherwise loops into a new request, and stamps parsed evidence at request start. It samples `ProcessInfo` at both request start and completion and publishes command failure as unavailable. | FIXED BY SOURCE/CORE TESTS / ASYNC RUNTIME GATE |
+| S30-05 | Two thermal sources must share a minimum strike pace without one starving the other | `ThermalStrikeTracker` uses one 45-second global gate, requires distinct violating `pmset` identities, independently advances sustained serious/critical `ProcessInfo` pressure, defers rather than consumes a distinct sample arriving inside the gate, and resets on recovery or guard disable. | FIXED OFFLINE / LIVE-TIMING GATE |
+| S30-06 | Presentation and persisted history must expose unavailable evidence without implying protection is active | Pending confirmation refuses unavailable/hot states with actionable copy and suppresses the misleading safety-summary checkmark; live status/history name unavailable thermal evidence, and the new cutoff reason round-trips through current-version `Codable`. No rendering or app launch was authorized. | CURRENT-VERSION PASS / VISUAL AND DOWNGRADE GATES OPEN |
+| V30-01 | Selected checkpoint bytes require exact-index focused/full tests, strict all-product checks, unsigned Debug/Release links, artifact/config inspection, staged review, and preservation checks | Discriminating working-tree RED/GREEN and a complete 320-test pass are recorded below. Exact-index results remain pending until the selected paths are staged and exported independently of the authenticated design remainder. | PENDING EXACT-INDEX VERIFICATION |
+
+The checkpoint is limited to thermal evidence availability, admission, polling,
+parsing, debounce, restoration routing, and truthful presentation. The
+separately audited scheduled-wake replacement/persistence transaction and
+session ownership/re-arm journal findings remain open for later checkpoints.
+The three authenticated design-remainder paths are not part of this checkpoint.
+
+### Thermal checkpoint append-only evidence log (continued)
+
+- E-443 — 2026-08-06T09:23:47+0200 — Before production edits, the literal
+  required `swift test --package-path Packages/LidlessCore` reached the
+  installed Xcode-beta toolchain but failed because it selected unwritable
+  `/Users/junaid/.cache/clang/ModuleCache`; the complete six-line diagnostic is
+  `verification-2026-08-06-thirtieth/swift-test-literal-baseline.log` (2,347
+  bytes, SHA-256
+  `5025cff502cd16888fea556b738efd6d6c035c9baf7a7a298bd6e414d17356c9`).
+  The same baseline run through the established stable Xcode 26.5 toolchain
+  with workspace-local SwiftPM/module caches passed all 308 tests in 30 suites;
+  `swift-test-stable-baseline.log` is 784 lines / 61,256 bytes, SHA-256
+  `7df6221302260ead0f11304fd5dae429c07c64457111fc80c7ad0f480c98a642`.
+- E-444 — 2026-08-06T09:23:47+0200 — Complete-diff tracing confirmed one
+  coherent thermal root-cause group: the preserved package treated absent,
+  empty, stale, or future `pmset` data as nominal; arm admission could proceed
+  on known-hot evidence; a periodic poll could be accepted across the arm
+  boundary; recognized malformed fields could be masked by a nominal note; and
+  the two thermal sources did not have one source-aware global strike gate.
+  Scheduled-wake replacement/persistence and session ownership/re-arm state
+  were independently classified as separate root-cause groups and intentionally
+  excluded from this invocation.
+- E-445 — 2026-08-06T09:23:47+0200 — The first focused regression against the
+  unsafe implementation ran six thermal tests and failed with 14 issues across
+  unavailable evidence, monitor failure publication, and App boundary wiring.
+  `thermal-telemetry-focused-red.log` is 7,265 lines / 289,098 bytes, SHA-256
+  `caa252e8dc3b185253e025f15ab2b528993610845be0e300b3d24fa47305eb40`.
+  A hardened 11-test follow-up reproduced five remaining issues for knowingly
+  hot admission, boundary coalescing, and strike progression;
+  `thermal-expanded-focused-red.log` is 293 lines / 14,252 bytes, SHA-256
+  `df41b70900152768b4d3413a1ca76c1cfb7e69923168019576b523ea4c6c6979`.
+- E-446 — 2026-08-06T09:23:47+0200 — A final adversarial 12-test RED reproduced
+  nine issues: three boundary-poll source assertions, one App boundary
+  assertion, and five malformed/contradictory parser outputs that were still
+  accepted. `thermal-boundary-parser-focused-red.log` is 2,772 lines / 112,606
+  bytes, SHA-256
+  `052d6437d24823b84687a51821c27cd951c3819e1fa615404192779cb5d5ae32`.
+  An intermediate complete run (`thermal-working-full-1.log`, 899 lines /
+  72,082 bytes, SHA-256
+  `0cdbc29bda11bab0c8c280d6ea6ca4e774738bcf870772d46a851e4578a2c59f`)
+  failed 19 assertions; independent triage traced all 19 to old tests whose
+  fixed thermal fixture was now stale at later evaluation times or whose
+  priority/source-string expectation omitted the new case. The fixtures were
+  made fresh at each evaluation without weakening production freshness.
+- E-447 — 2026-08-06T09:23:47+0200 — The bounded implementation adds a pure
+  freshness/structure validator and strike tracker, fail-closed admission and
+  evaluation cases, whole-sample recognized-field parser validation,
+  request-boundary-aware serialized polling, pre-dispatch and post-proof App
+  reassessment, restoration/history routing, and truthful functional UI copy.
+  README and architecture wording limits the claims to requested offline
+  behavior. The design-quality doctrine was applied only to the changed
+  functional states; the explicit no-launch/no-redesign scope leaves visual
+  rendering and interaction inspection open.
+- E-448 — 2026-08-06T09:23:47+0200 — The hardened working-tree GREEN passed all
+  12 thermal tests (`thermal-boundary-parser-focused-green.log`, 113 lines /
+  7,650 bytes, SHA-256
+  `4adb43c91f3816c3dcce41629febdc477e35bfbccba6253e9a48550444ec4822`)
+  and all 32 parser tests (`pmset-parser-focused-green.log`, 179 lines / 14,324
+  bytes, SHA-256
+  `71fe73723324ce7f514667a2dd982b6c526b70aa75da8e1d3c51649a66e881e1`).
+  Related compatibility runs passed 51 cutoff tests and 17 battery-safety tests
+  in `cutoff-focused-final2.log` (191 lines / 13,452 bytes, SHA-256
+  `6a38c50453f1a11f3e2df02f562cd2f4967a229d54151936106ac3b2ab54837d`)
+  and `battery-compatibility-focused-final2.log` (123 lines / 8,459 bytes,
+  SHA-256
+  `1e81dbd75b245f86e76dffb8895040f01adfff51a60348ada87430e55ecd9d88`).
+  The latest complete working tree passed all 320 tests in 31 suites;
+  `thermal-working-full-final.log` is 812 lines / 63,512 bytes, SHA-256
+  `e7290a9ba9cab7462fd08217b7181b6153436a8eab4bcbb72022681f98f1ee81`.
+- E-449 — 2026-08-06T09:23:47+0200 — Two command-harness mistakes are retained
+  as non-evidence: display-name filters selected zero tests, and the first
+  product typecheck reused zsh's read-only `modules` parameter. Corrected
+  type-name filters produced the accepted focused runs above; a corrected
+  working-tree typecheck then covered 25 App, four helper, and one widget source
+  files. Because parser and boundary work advanced afterward, only the upcoming
+  exact-index typecheck is authoritative for the checkpoint.
+- E-450 — 2026-08-06T09:23:47+0200 — Three independent read-only audits covered
+  the selected thermal policy/App/UI/docs, scheduled-wake boundary, and session
+  ownership boundary. The final adversarial thermal re-review found no remaining
+  Blocker/High issue after request-start stamping, older-poll rejection,
+  whole-sample parser invalidation, hot-arm refusal, post-proof reassessment,
+  global strike pacing, and deferred distinct-sample handling; `git diff
+  --check` also passed. Runtime concurrency, real `pmset` output, signed XPC,
+  restoration, sleep/wake, hardware, and visual behavior remain explicitly
+  unproved.
+
+### Thermal checkpoint exact-index completion
+
+| ID | Verification | Exact result | Verdict |
+|---|---|---|---|
+| V30-02 | Exact selected policy and compatibility suites plus complete package suite | Pre-final-ledger index tree `ea9ac365d57be93dc7a84a363f84a9c8f5413912` passed 12 thermal, 32 parser, 51 cutoff, 17 battery-safety, and all 320 package tests in 31 suites under stable Xcode 26.5. The literal required invocation separately reproduced only the default Xcode-beta unwritable-cache failure. | PASS FOR EXACT SELECTED CODE |
+| V30-03 | Exact Debug/Release compile and strict static checks | Core built in Debug and optimized Release with signing disabled. All 25 App, four helper, and one widget sources passed Swift 6 complete-concurrency typechecking with warnings-as-errors; all three products linked in Debug and optimized Release with ad-hoc linker signing disabled. | PASS FOR EXACT OFFLINE SOURCES / XCODE GRAPH OPEN |
+| V30-04 | Actual loose artifacts, linked thermal symbols, and source configuration | Six outputs are thin arm64 macOS 15 / SDK 26.5 executables with no `LC_CODE_SIGNATURE` and each reports not signed. The Debug App contains the validator, strike tracker, and boundary-poll symbols. Six exact source plist/entitlement files and the project file linted; decoded source values and project bindings were inspected. | PARTIAL — NOT BUNDLES; SIGNING/XPC/RUNTIME GATES OPEN |
+| V30-05 | Staged selection, independent review, and preservation | Sixteen intended 100644 paths are staged; cached checks passed and the non-ledger binary diff is fixed below. Independent review found no Blocker/High issue. The three authenticated design paths are excluded and byte-exact; the main checkout exactly reproduces its rolling-manifest state. | PASS BEFORE LOCAL CHECKPOINT |
+
+- E-451 — 2026-08-06T09:31:10+0200 — Exported the staged index, independently
+  of unstaged working bytes, as tree
+  `ea9ac365d57be93dc7a84a363f84a9c8f5413912`. The exact literal
+  `swift test --package-path …/Packages/LidlessCore` failed only at the default
+  Xcode-beta cache path (`exact-index-literal-swift-test.log`, six lines / 2,414
+  bytes, SHA-256
+  `42d614d2184cb9d3981aa515b5422b09815bd8a4d9a5133758ad62bf795136c5`).
+  The stable, workspace-cached exact run passed all 320 tests in 31 suites;
+  `exact-index-full-swift-test.log` is 812 lines / 63,496 bytes, SHA-256
+  `ea0eafbdcccf09e4595a540cb52f8bdfc12ddbbd471650d0dfae3eb741e4b27b`.
+- E-452 — 2026-08-06T09:31:10+0200 — Exact focused suites passed: thermal 12/1
+  (`exact-index-thermal-focused.log`, 113 lines / 7,634 bytes, SHA-256
+  `912f19a104bcdb31b2c163772147757f7e3fdb3b70d151891ac1d1d5be80b9be`),
+  parser 32/1 (`exact-index-pmset-parser-focused.log`, 179 lines / 14,317
+  bytes, SHA-256
+  `1733fe562096ba6da914a4f625827becae206d2eba3a6b6b58d2e4e79d5ab4cc`),
+  cutoff 51/1 (`exact-index-cutoff-focused.log`, 191 lines / 13,444 bytes,
+  SHA-256
+  `87f3506e5ca3122bb963ffd62579b0984f44a1c90c469282f5b163a9e10b3252`),
+  and battery compatibility 17/1
+  (`exact-index-battery-compatibility-focused.log`, 123 lines / 8,465 bytes,
+  SHA-256
+  `9389f28d0d83371b51569bf2f4b32b1c9d10c0232c070224caaa194d805b652d`).
+- E-453 — 2026-08-06T09:31:10+0200 — Exact Core Debug and optimized Release
+  builds passed with `CODE_SIGNING_ALLOWED=NO`; their logs are 40 lines / 2,368
+  bytes / SHA-256
+  `e90d6879506af406f5f2b7fc8845dbc163e9e9777310f096915d18cdb524334f`
+  and nine lines / 682 bytes / SHA-256
+  `e9cfb930c70916ff2e32984570e5e0a9dd345569a12d68a31d78ded1705f794a`.
+  Exact Swift 6 complete-concurrency typechecking with warnings-as-errors passed
+  25 App, four helper, and one widget source files
+  (`exact-index-all-products-typecheck.log`, four lines / 112 bytes, SHA-256
+  `671c1b6b19345fba7395b3602ea039ec152e947de2c5bc3ae1effc6f31d36f71`).
+  Direct Debug and optimized Release linking of all three products passed with
+  both signing controls disabled; the complete command logs are six lines /
+  27,996 bytes / SHA-256
+  `59dcd85e5ac442aa73f2614d46e4091f85d6fc696f2a656bdfd3c331da4c2b50`
+  and six lines / 28,460 bytes / SHA-256
+  `66b878e4ff781275b03eab8a9f794256368d79a0bcb767bb0709f9185be7a5a3`.
+- E-454 — 2026-08-06T09:31:10+0200 — Exact artifact inspection is preserved in
+  `exact-index-artifact-inspection.log` (244 lines / 22,913 bytes, SHA-256
+  `c4c99e8855acd445417b6f1b2e438a4f4785a373061a582cd437d45c3d8f55a9`).
+  All six loose outputs are arm64 Mach-O executables with minimum macOS 15.0
+  and SDK 26.5, have no `LC_CODE_SIGNATURE`, and return `codesign` exit 1 with
+  “code object is not signed at all.” Corrected symbol inspection proves the
+  Debug App linked `ThermalEvidenceSafety.accepted`,
+  `ThermalStrikeTracker.observe`, and `PMSetThermalMonitor.pollNow(notBefore:)`;
+  `exact-index-symbol-inspection-final.log` is 94 lines / 12,379 bytes, SHA-256
+  `489090c17f5d09d76a0b78c1c73043c82540684fe82e4f401e1b15a8728966d7`.
+  The preceding symbol command asked for a synthesized enum-case symbol that
+  is not emitted by name and is retained as non-evidence.
+- E-455 — 2026-08-06T09:31:10+0200 — Six exact source plist/entitlement files
+  and `project.pbxproj` passed `plutil -lint`; their decoded values and selected
+  project bindings are preserved in
+  `exact-index-configuration-inspection.log` (153 lines / 8,869 bytes, SHA-256
+  `292779edab4206b03bcf26229403d721b8cbf375840160530da48808eecf8ae9`).
+  Project-native `xcodebuild`/analyze was not retried because preserved evidence
+  shows that graph triggers automatic LaunchServices registration, expressly
+  prohibited here. Direct strict compiler analysis is the bounded substitute.
+  Loose outputs are not bundles and prove no embedded configuration,
+  entitlement, signing identity, XPC trust, ServiceManagement behavior,
+  launchd behavior, runtime behavior, notarization, or release readiness.
+- E-456 — 2026-08-06T09:31:10+0200 — Independent cached-diff review covered all
+  16 selected 100644 paths, found no Blocker/High issue, confirmed `git diff
+  --cached --check`, and confirmed no authenticated design path was staged.
+  Before this final ledger-only append, the reviewed full cached binary-diff
+  digest was
+  `656ea6357d88e171ef46e44bfe7d02ccd86c093b4160debe0c1d41bf98b7099b`;
+  the staged non-ledger binary-diff digest is
+  `4125a119307e70340aa7edef504eeee179fc446a72bf02254ffc7075307a60d9`.
+  The remaining lower-risk caveat is explicit: poll concurrency is structurally
+  pinned and compiled, not executed through an injected async runner.
+- E-457 — 2026-08-06T09:31:10+0200 — Pre-commit preservation reverified the
+  feature canonical/linked topology, common directory, branch, and unchanged
+  HEAD `f105ede34e9c20a025b2d2dfb826286cf4bcfe1d`. All three design-remainder
+  paths remain unstaged and reproduce their rolling status, mode, byte count,
+  raw hash, NUL-status digest
+  `3a4984484500650d6b8866b3dfd45bc02ad0ff2888084f86deda5506c36e03dc`,
+  and tracked binary-diff digest
+  `5bfed6a6f1b1f3578736cce1d9ae66138f0f9e0614ffc8e93d0aa80c4d6e3b82`.
+  The main checkout remains canonical path `/Users/junaid/Xcode-Projects/Lidless`,
+  branch `main`, HEAD `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, clean
+  index/tracked diff, and exactly its three recorded `.playwright-mcp` files and
+  bytes; its rolling digests remain
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`
+  and `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+  The complete preservation log is 33 lines / 2,170 bytes, SHA-256
+  `39ca4048c35d430cd3cfca63d24a1d42ec8f1f4af3f18b91f1d4875277cfcf9a`.
+- E-458 — 2026-08-06T09:31:10+0200 — This append-only ledger is the only staged
+  content changed after exact source export. `State: IN_PROGRESS` is retained:
+  this thermal group is coherent for one local checkpoint, while separately
+  scoped safety groups and every live/hardware gate above remain open. The
+  intended local subject is `safety: fail closed on unsafe thermal evidence`.
+  No product/helper was launched; no install, activation, registration,
+  approval, live XPC, `pmset`, sleep-setting mutation, sleep/wake, hardware,
+  plugin, connector, Figma, network, merge, push, or main-checkout mutation was
+  performed. After this single commit, the supervisor must authenticate a new
+  rolling remainder before any later invocation.

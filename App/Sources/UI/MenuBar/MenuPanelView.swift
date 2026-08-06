@@ -301,6 +301,16 @@ struct ArmConfirmCard: View {
         return false
     }
 
+    private var safetyEvidenceUnavailable: Bool {
+        switch pending.assessment {
+        case .refusedBatteryTelemetryUnavailable,
+             .refusedThermalTelemetryUnavailable:
+            true
+        default:
+            false
+        }
+    }
+
     private var showsBatteryFloor: Bool {
         pending.projection.floorEnabled
             && state.battery.state != .noBattery
@@ -356,7 +366,7 @@ struct ArmConfirmCard: View {
                     )
                 }
 
-                if pending.assessment != .refusedBatteryTelemetryUnavailable {
+                if !safetyEvidenceUnavailable {
                     row(symbol: "checkmark.shield", text: pending.projection.summary)
                 }
             }
@@ -390,6 +400,20 @@ struct ArmConfirmCard: View {
     @ViewBuilder
     private var assessmentHeader: some View {
         switch pending.assessment {
+        case .refusedThermalPressure(let detail):
+            Label(
+                "Thermal protection is already triggered (\(detail)). Let the Mac cool before keeping awake.",
+                systemImage: "thermometer.high"
+            )
+            .font(.callout.weight(.medium))
+            .foregroundStyle(Color(red: 1.0, green: 0.42, blue: 0.38))
+        case .refusedThermalTelemetryUnavailable:
+            Label(
+                "Thermal state unavailable — Lidless can't enforce the configured thermal guard. Check again before keeping awake.",
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.callout.weight(.medium))
+            .foregroundStyle(Color(red: 1.0, green: 0.42, blue: 0.38))
         case .refusedBatteryTelemetryUnavailable:
             Label(
                 "Battery state unavailable — Lidless can't enforce the configured safety floor. Check again before keeping awake.",

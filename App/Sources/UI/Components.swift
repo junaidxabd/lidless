@@ -324,6 +324,14 @@ enum Symbols {
 
 extension AppState {
     var thermalStatusText: String {
+        guard ThermalEvidenceSafety.isUsable(thermal, at: now) else {
+            return switch processThermal {
+            case .critical: "Critical · pmset unavailable"
+            case .serious: "Serious · pmset unavailable"
+            case .fair: "Fair · pmset unavailable"
+            case .nominal: "Unavailable"
+            }
+        }
         if let level = thermal?.warningLevel, level > 0 { return "Warning \(level)" }
         if let speed = thermal?.cpuSpeedLimit, speed < 100 { return "CPU \(speed)%" }
         switch processThermal {
@@ -338,7 +346,8 @@ extension AppState {
         CutoffEngine.isThermalViolation(
             config: effectiveConfig,
             thermal: thermal,
-            processThermal: processThermal
+            processThermal: processThermal,
+            at: now
         )
     }
 }
