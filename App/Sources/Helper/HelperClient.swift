@@ -60,6 +60,7 @@ enum HelperClientError: LocalizedError {
     case notInstalled
     case badProxy
     case malformedReply
+    case timedOut(TimeInterval)
     case rejected(String)
 
     var errorDescription: String? {
@@ -67,6 +68,8 @@ enum HelperClientError: LocalizedError {
         case .notInstalled: "The privileged helper is not installed."
         case .badProxy: "Could not create a connection to the helper."
         case .malformedReply: "The helper sent a malformed reply."
+        case .timedOut(let timeout):
+            "The helper request timed out after \(Int(timeout)) seconds; its remote outcome is unknown."
         case .rejected(let message): message
         }
     }
@@ -353,11 +356,17 @@ final class HelperClient: HelperControlling {
         if let connection { return connection }
         let fresh = NSXPCConnection(machServiceName: LidlessIDs.helperMachService, options: .privileged)
         fresh.remoteObjectInterface = NSXPCInterface(with: LidlessHelperXPC.self)
-        fresh.interruptionHandler = { [weak self] in
-            Task { @MainActor [weak self] in self?.onInterruption?() }
+        fresh.interruptionHandler = { [weak self, weak fresh] in
+            Task { @MainActor [weak self, weak fresh] in
+                guard let self, let fresh else { return }
+                self.handleConnectionLoss(fresh)
+            }
         }
-        fresh.invalidationHandler = { [weak self] in
-            Task { @MainActor [weak self] in self?.connection = nil }
+        fresh.invalidationHandler = { [weak self, weak fresh] in
+            Task { @MainActor [weak self, weak fresh] in
+                guard let self, let fresh else { return }
+                self.handleConnectionLoss(fresh)
+            }
         }
         fresh.resume()
         connection = fresh
@@ -369,23 +378,70 @@ final class HelperClient: HelperControlling {
         connection = nil
     }
 
-    /// One XPC round trip with exactly-once continuation semantics.
+    /// Retire every lost connection, then clear and report loss only for the
+    /// currently cached one. Both XPC loss handlers and timeout retirement
+    /// converge here because XPC does not guarantee callback ordering. The
+    /// identity guard makes their
+    /// race exactly once and prevents an old connection from clearing a newer
+    /// one or invalidating its helper proof.
+    private func handleConnectionLoss(_ lostConnection: NSXPCConnection) {
+        lostConnection.invalidate()
+        guard connection === lostConnection else { return }
+        connection = nil
+        onInterruption?()
+    }
+
+    /// Retire the exact connection used by a timed-out request. Always
+    /// invalidate that captured connection, but never clear a newer cached
+    /// connection that may have replaced it while this request was suspended.
+    /// Losing the current connection also invalidates the app's active helper
+    /// proof immediately; local invalidation does not reliably deliver the
+    /// interruption handler that normally performs that recovery.
+    private func retireConnection(_ requestConnection: NSXPCConnection) {
+        handleConnectionLoss(requestConnection)
+    }
+
+    /// One XPC round trip with a finite, exactly-once local completion.
+    /// Timing out retires the request's connection so helper-side connection
+    /// supervision can restore an owned override. It cannot retract a request
+    /// the helper already received, so callers still treat timeout as an
+    /// outcome-unknown failure and reconcile conservatively.
     private func call(
         _ body: @escaping @Sendable (LidlessHelperXPC, @escaping @Sendable (Data) -> Void) -> Void
     ) async throws -> Data {
-        let connection = ensureConnection()
-        let once = ResumeOnce()
-        return try await withCheckedThrowingContinuation { continuation in
-            let anyProxy = connection.remoteObjectProxyWithErrorHandler { error in
-                if once.claim() { continuation.resume(throwing: error) }
+        let requestConnection = ensureConnection()
+        let completion = HelperXPCRequestSafety.CompletionGate()
+        let timeout = HelperXPCRequestSafety.replyTimeout
+        do {
+            return try await withCheckedThrowingContinuation { continuation in
+                // Schedule the finite boundary before asking XPC for a proxy
+                // or dispatching the remote call. No synchronous setup branch
+                // may escape without a completion path.
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                    if completion.claim(.timeout) {
+                        continuation.resume(throwing: HelperClientError.timedOut(timeout))
+                    }
+                }
+                let anyProxy = requestConnection.remoteObjectProxyWithErrorHandler { error in
+                    if completion.claim(.transportFailure) {
+                        continuation.resume(throwing: error)
+                    }
+                }
+                guard let proxy = anyProxy as? LidlessHelperXPC else {
+                    if completion.claim(.transportFailure) {
+                        continuation.resume(throwing: HelperClientError.badProxy)
+                    }
+                    return
+                }
+                body(proxy) { data in
+                    if completion.claim(.reply) {
+                        continuation.resume(returning: data)
+                    }
+                }
             }
-            guard let proxy = anyProxy as? LidlessHelperXPC else {
-                if once.claim() { continuation.resume(throwing: HelperClientError.badProxy) }
-                return
-            }
-            body(proxy) { data in
-                if once.claim() { continuation.resume(returning: data) }
-            }
+        } catch HelperClientError.timedOut(let timeout) {
+            retireConnection(requestConnection)
+            throw HelperClientError.timedOut(timeout)
         }
     }
 
@@ -397,20 +453,5 @@ final class HelperClient: HelperControlling {
             throw HelperClientError.malformedReply
         }
         return reply
-    }
-}
-
-/// XPC promises a single response per call, but the error handler and reply
-/// paths race in edge cases; this makes resuming idempotent.
-private final class ResumeOnce: @unchecked Sendable {
-    private let lock = NSLock()
-    private var used = false
-
-    func claim() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        if used { return false }
-        used = true
-        return true
     }
 }

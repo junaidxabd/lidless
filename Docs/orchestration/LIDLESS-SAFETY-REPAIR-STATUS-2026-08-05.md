@@ -2030,3 +2030,201 @@ blockers; this checkpoint is not upgrade-complete and must remain
   pass, and the only unstaged/untracked paths are the six authenticated
   remainder paths. Only this terminal evidence entry is appended afterward;
   no selected product or test byte and no accepted verification result changed.
+
+## Twenty-third invocation — authenticated recovery
+
+- E-342 — 2026-08-06T04:21:56+0200 — Read the canonical handoff,
+  immutable starting-state manifest, rolling remainder manifest and adjacent
+  sidecar, progress log, decision log, architecture, design-reset brief, and
+  this complete append-only ledger before editing. The handoff and immutable
+  manifest matched their supplied SHA-256 values. The sidecar and independently
+  calculated rolling-manifest SHA-256 both equal
+  `c36079aa07a4f4fb0c99fc55855c74f56cf81033ee709f16fe5b7233ff9a082b`.
+  A recursive hidden-file scan found no repository-local `AGENTS.md`,
+  `CLAUDE.md`, `CODEX.md`, `.cursorrules`, or equivalent instruction file.
+  The required top-level `State: IN_PROGRESS`, branch, and starting HEAD were
+  already exact and remain unchanged.
+- E-343 — 2026-08-06T04:21:56+0200 — Applied only the authenticated rolling
+  manifest as recovery authority. The feature canonical path, exact
+  two-worktree linked topology, branch, HEAD
+  `ac50a0542fb65aebc5ef4f9734e660fac35e1777`, linked Git admin/common
+  directories, clean index, empty unmerged list, complete six-path dirty
+  inventory, every recorded status/type/mode/size/raw SHA-256, NUL-status
+  digest `5cf63a070dfe49313ecf75b3b2b7c3995af41ba5f22a8c4c39523108c7863b09`,
+  and tracked binary-diff digest
+  `9246b662e27202b4da57f7adb476aae9ab0133cae5176c50d3a8a115cc34ea6f`
+  matched exactly before this append. Starting HEAD
+  `7f17aaca11bc6228bed48b9265d63b9e576cdea7` remains an ancestor. The
+  historical manifest was not applied to this post-checkpoint state.
+- E-344 — 2026-08-06T04:21:56+0200 — Independently reverified the main
+  checkout without editing it: canonical path and linked topology, `main` at
+  starting HEAD, clean index, empty unmerged list and tracked diff, complete
+  three-path `.playwright-mcp` inventory, every recorded
+  status/type/mode/size/raw SHA-256, NUL-status digest
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked binary-diff digest
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`
+  matched exactly. Recovery passed before the first edit; the main checkout
+  remains untouched.
+
+### Twenty-third finding and verification matrix
+
+| ID | Finding or invariant | Independent evidence and disposition | Verdict |
+|---|---|---|---|
+| T23-01 | The authenticated six-path remainder is not a coherent checkpoint | Independent code review found two unused, misleading removal wrappers and weaker duplicate tests; independent documentation review found stale/unsupported progress claims and founder-gated design material. All six paths remain byte-for-byte unchanged and excluded from the index. | PRESERVED / EXCLUDED |
+| T23-02 | `HelperClient.call` could wait forever when XPC delivered neither its error handler nor reply | The old source had only reply/error branches around a checked continuation. A compile-time RED required the absent finite completion policy. The repair adds a 25 s deadline and lock-protected reply/transport/timeout gate. | FIXED OFFLINE |
+| T23-03 | Timeout and XPC loss callbacks could race, reuse an interrupted connection, or let an old callback clear a newer connection | Interruption, invalidation, and timeout retirement now converge on one MainActor path that unconditionally invalidates the exact lost connection, then identity-guards cached clearing and proof-loss notification. Focused source ordering and 300-way concurrent gate tests pass. | FIXED OFFLINE |
+| T23-04 | A local timeout cannot cancel an already delivered helper mutation or prove its outcome | Error text and architecture explicitly preserve outcome uncertainty; callers retain their committed generation/removal fences and proof-loss recovery. No remote cancellation or outcome claim is made. | OPEN BY DESIGN / FAIL CLOSED |
+| T23-05 | Exact selected bytes must pass deterministic and strict compile evidence without the preserved remainder | Exported index tree `b73777bc37a5276b62d5ace0e86acaa2d1a1ee89` passed 4 focused, 43 related, and all 271 exact tests, Debug/Release Core builds, strict all-product typechecking, and unsigned Debug/Release direct links. | PASS OFFLINE |
+| T23-06 | Runtime callback order, helper restoration, signing trust, sleep/wake, and hardware behavior remain outside offline proof | No product was launched and no live XPC, ServiceManagement, power, signing, or hardware action was performed. Direct outputs are intentionally unsigned loose executables. | HARDWARE / SIGNED-RUNTIME GATES OPEN |
+
+### Twenty-third append-only evidence log
+
+- E-345 — 2026-08-06T04:42:41+0200 — Reviewed the complete preserved diff
+  against HEAD before accepting any byte. The stable Xcode 26.5 Swift 6.3.2
+  baseline passed all 274 then-present working-tree tests in 26 suites
+  (`swift-test-preserved-baseline.log`, SHA-256
+  `11f48648207615ba600e1efc5cd587cfcbb2c83cfb401f8572efd0de29d29897`).
+  Independent code and documentation audits rejected every authenticated
+  remainder hunk as a checkpoint: the removal additions are unused or lossy
+  duplicates, their aggregate tests are weaker than committed dedicated
+  suites, the smoke additions are duplicate/shallow, and the progress/design
+  documents contain stale, unsupported, or founder-gated material. A separate
+  root-cause comparison selected the app-only unbounded XPC await as the
+  narrowest high-value group. Reviewers made no source or index edit.
+- E-346 — 2026-08-06T04:42:41+0200 — Established a hardened compile-time RED
+  before the finite policy existed. The focused regression required the absent
+  `HelperXPCRequestSafety` type and failed compilation
+  (`swift-test-xpc-timeout-hardened-red.log`, SHA-256
+  `10fa967cf7746e10569be41376fd902d7abbde9bc3f11d169ac42371a2b9aa38`).
+  The inspected old client scheduled no deadline: only its XPC error handler
+  and reply could claim `ResumeOnce`, so silence left the continuation
+  suspended without a local bound. An earlier smaller RED is preserved but
+  superseded by this hardened regression.
+- E-347 — 2026-08-06T04:42:41+0200 — Added a process-local three-outcome
+  completion gate and 25 s policy, scheduled the deadline before proxy lookup
+  or remote dispatch, and converted timeout into an explicit outcome-unknown
+  error. Adversarial review then found NSXPC's callback order is unspecified
+  and interruption can reconnect: both handlers and timeout retirement now
+  unconditionally invalidate their exact captured connection before an
+  identity guard, clear only the current cache, and immediately revoke current
+  app proof exactly once. Preliminary GREEN attempts with stale or overly
+  indentation-sensitive source-test boundaries were rejected and preserved
+  (`swift-test-xpc-timeout-green.log`, SHA-256
+  `dac0693e3a4fafdddceb7e974dd55590f6723caaccf187df39ff6983867b9018`;
+  stable hardening log SHA-256
+  `96619b236f7aac383f1fbd8e4bd6df84738eea4d32392ed76434d188e8889a9a`).
+  Neither supplies the accepted verdict.
+- E-348 — 2026-08-06T04:42:41+0200 — Final working-tree verification passed
+  all 4 focused tests (`swift-test-xpc-timeout-green-stable-final2.log`,
+  SHA-256
+  `125a67c0e4151d436efaec3831fa6e5bdcb1975c136811084536559de17e3b63`),
+  43 related tests across arm-proof loss, wake reconciliation, launch
+  reconciliation, removal fencing, and non-sleep restore
+  (`swift-test-xpc-timeout-related-working.log`, SHA-256
+  `57109895c62c45466364c84bd02b9d7ac69e889f628f90e185d616da0837219f`),
+  and all 278 tests in 27 suites including the authenticated remainder
+  (`swift-test-full-working-xpc-final.log`, SHA-256
+  `431f531a4dda564c7f6cda50363813815bf808fa48c8fdf75bbcc7f18021f7c1`).
+- E-349 — 2026-08-06T04:42:41+0200 — Curated exactly five paths: architecture,
+  `HelperClient`, the new Core completion policy, its focused regression, and
+  this ledger. Before the final ledger append, `git diff --cached --check`
+  passed; index tree `b73777bc37a5276b62d5ace0e86acaa2d1a1ee89` had staged binary-diff SHA-256
+  `2bb7789157e5cd5195caee32a165d4f18159b22b93192e495329a28c8c5f7ea0`.
+  Its independently exported 106-path source/test/config input manifest has
+  SHA-256
+  `4f811e2a44fbe9653c4e17b95e0ec8c4fc68d0b8498d59e6526194de585463aa`.
+  Only append-only ledger bytes change after this tested export; final review
+  must compare every selected non-ledger blob with this tree.
+- E-350 — 2026-08-06T04:42:41+0200 — The independently exported index passed
+  4 focused tests (`swift-test-xpc-timeout-focused-exact.log`, SHA-256
+  `786308c4397a946103f52ba18b3558f11ab2b4933f86f0cc7059d597db7519fa`),
+  43 related tests in 6 suites
+  (`swift-test-xpc-timeout-related-exact.log`, SHA-256
+  `115ede466754fcb15f6c7b2a2e5bb13937f5c28b69d4d5a6c5d3aa2cd7691198`),
+  and all 271 exact tests in 26 suites
+  (`swift-test-xpc-timeout-full-exact.log`, SHA-256
+  `e38ae3942cdce9b45b57db291a1962c08c2bc4a8e3fd9bb1e6b2b69b2ee028d5`).
+  The exact suite excludes the authenticated seven-test remainder suite by
+  construction; E-348 proves coexistence in the complete working tree.
+- E-351 — 2026-08-06T04:42:41+0200 — Exact Debug and Release `LidlessCore`
+  builds passed with signing disabled (`swift-build-core-debug-xpc-timeout-exact.log`,
+  SHA-256
+  `4e26878561de37b925a9cc3f2ed4c2da04d597bff79ae257978cb3214856fb50`;
+  Release SHA-256
+  `4aed7a58094ba0246e6b2cefe06a737b7483cfd74f67e3d06ad7458f11ffafa7`).
+  All 25 App, 4 helper, and 1 widget sources passed macOS 15 Swift 6 complete
+  strict-concurrency typechecking with warnings-as-errors
+  (`swiftc-all-products-typecheck-xpc-timeout-exact.log`, SHA-256
+  `38a72eb68c6fa9a0e1c8477e10cd426c48dd05f1b28cfdde22749b96d3d2bf9e`).
+  With `CODE_SIGNING_ALLOWED=NO`, `CODE_SIGNING_REQUIRED=NO`, compiler sandbox
+  disabling, and linker ad-hoc signing disabled, every exact product source
+  set compiled and linked in Debug
+  (`direct-all-products-debug-xpc-timeout-exact.log`, SHA-256
+  `15e81d1d4373d653b1020e9699ac3ac32479c2c86fb648a380197c18dc6b8d9d`)
+  and optimized Release (SHA-256
+  `63c7f29d85809b305aea59778dd09e22c27f4010223b46009dc60d68a7ef72de`).
+- E-352 — 2026-08-06T04:42:41+0200 —
+  `artifact-inspection-xpc-timeout-exact.log` (SHA-256
+  `268e5392fb761320072359368a40e4417be819f01b53e92b661015c89db571e9`)
+  records modes, sizes, hashes, thin arm64 file types, macOS 15 / SDK 26.5
+  build-version commands, absence of `LC_CODE_SIGNATURE`, and expected
+  unsigned codesign verdicts for all six loose Debug/Release outputs.
+  `config-plist-entitlement-inspection-xpc-timeout-exact.log` (SHA-256
+  `e493e78cae6ac71994c60c6f1d86cf408d7513e4e9df077583b94578377110ce`)
+  preserves lint and decoded App/helper/widget plist and entitlement sources,
+  export options, generated-project syntax, identifiers, timeout constants,
+  project bindings, and release-script syntax. These are not built bundles or
+  signed-runtime trust evidence.
+- E-353 — 2026-08-06T04:42:41+0200 — Final independent adversarial review
+  returned PASS with no concrete blocker. It verified captured-connection
+  invalidation before identity testing, stale/new connection isolation,
+  exactly-once current proof-loss notification under MainActor serialization,
+  timer-before-dispatch, all gate/resume pairings, catch/retire/rethrow order,
+  10 + 25 < 45 timing, and the bounded architecture wording. It separately
+  passed strict App typechecking. The reviewer made no source or index edit;
+  real NSXPC callback ordering and helper outcome remain unproved.
+- E-354 — 2026-08-06T04:42:41+0200 — Reverified the feature remainder and main
+  checkout after tests/builds in
+  `main-and-remainder-preservation-xpc-timeout-precommit.log` (SHA-256
+  `eb6ed77489357cf6053a7c0a7584779190be2347c86c3b84e2a9598641d36693`).
+  The exact two-worktree topology, feature branch/precommit HEAD/common Git
+  directory, empty unmerged list, all six remainder modes/sizes/raw hashes,
+  and remainder tracked binary-diff SHA-256
+  `9246b662e27202b4da57f7adb476aae9ab0133cae5176c50d3a8a115cc34ea6f`
+  match the rolling authority. The main remains `main` at starting HEAD with a
+  clean index/tracked diff, exact three-path `.playwright-mcp` inventory,
+  status SHA-256
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked binary-diff SHA-256.
+- E-355 — 2026-08-06T04:42:41+0200 — No App/helper/widget process, helper
+  install/activation/registration/approval/unregister, live XPC, `pmset`,
+  sleep-setting mutation, sleep/wake, hardware, authentication, credential,
+  plugin/provider/connector, Figma, network publication, release,
+  notarization, merge, push, deploy, or main-checkout mutation was performed.
+  Project-native Xcode build/analyze was not retried after the established
+  nested-sandbox failure and automatic LaunchServices side-effect constraint;
+  strict compiler analysis and direct unsigned builds are the bounded static
+  evidence. Remote cancellation/outcome proof, signed XPC trust, real
+  watchdog/connection restoration, stale-helper replacement, wake-ledger
+  persistence, optional managed-setting restoration, registry atomicity, and
+  hardware behavior remain open gates.
+- E-356 — 2026-08-06T04:42:41+0200 — The coherent checkpoint is prepared under
+  subject `safety: bound helper XPC requests`. `State: IN_PROGRESS` is
+  intentionally retained because the authenticated six-path remainder and
+  other root-cause/hardware gates remain. After exactly one local commit, the
+  supervisor must bind the exact remaining tree into a fresh rolling manifest
+  before another invocation.
+- E-357 — 2026-08-06T04:44:05+0200 — Reviewed the complete five-path staged
+  patch. `final-staged-review-xpc-timeout.log` (SHA-256
+  `c58a64dfbbfa14e20bcc9c25065bdf5fc25976fd83b141193fead0de3e8fb377`)
+  records the full staged diff, sole top-level `State: IN_PROGRESS`, exact
+  selected and remainder path sets, pre-terminal index tree
+  `5f0f69145c1081d2cccd1a3899308b0a2ed6add4`, and pre-terminal staged
+  binary-diff SHA-256
+  `6bc98b2009cd7600f457966f6b130cf453d8b710fa7fd6ccbe50cab44ddad39a`.
+  Every selected non-ledger index blob matches the independently tested tree
+  byte-for-byte. Both staged and complete working-tree whitespace checks pass,
+  and the only unstaged/untracked paths are the six authenticated remainder
+  paths. Only this terminal evidence entry is appended afterward; no selected
+  product or test byte and no accepted verification result changed.
