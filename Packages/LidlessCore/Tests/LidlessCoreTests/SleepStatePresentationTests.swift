@@ -311,7 +311,7 @@ struct SleepStatePresentationTests {
             range: helperEligibility.upperBound..<confirmArm.endIndex
         ))
         let armOptions = try #require(confirmArm.range(
-            of: "let options = HelperArmOptions",
+            of: "let options = pending.plan.helperOptions",
             range: helperEligibility.upperBound..<armCall.lowerBound
         ))
         let committedIntent = try #require(confirmArm.range(

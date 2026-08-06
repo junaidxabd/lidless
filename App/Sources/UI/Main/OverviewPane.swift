@@ -148,6 +148,7 @@ struct OverviewContent: View {
                 .disabled(
                     !state.helperState.isUsable
                         || state.sleepPresentation != .verifiedNormal
+                        || state.pendingArm != nil
                 )
             }
         }

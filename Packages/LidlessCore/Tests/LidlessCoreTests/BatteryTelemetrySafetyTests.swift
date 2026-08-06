@@ -253,7 +253,7 @@ struct BatteryTelemetrySafetyTests {
         let app = try repositoryFile("App/Sources/AppState.swift")
         let projection = try section(
             of: app,
-            from: "private func projection(for overrides: SessionOverrides?)",
+            from: "private func projection(for cfg: CutoffConfig)",
             through: "return ArmProjection("
         )
         #expect(projection.contains("TimeInterval(minutes) * 60"))
@@ -478,7 +478,7 @@ struct BatteryTelemetrySafetyTests {
         let refresh = try section(
             of: app,
             from: "func refreshPendingProjection()",
-            through: "private func projection(for overrides: SessionOverrides?)"
+            through: "private func projection(for cfg: CutoffConfig)"
         )
 
         let admission = try #require(refresh.range(

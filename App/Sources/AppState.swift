@@ -163,6 +163,8 @@ final class AppState {
     }
 
     struct PendingArm: Equatable {
+        var id: UUID
+        var plan: ArmIntentPlan
         var overrides: SessionOverrides?
         var source: SessionSource
         var assessment: ArmAssessment
@@ -562,10 +564,54 @@ final class AppState {
         BatteryPresetAdmission.isAttainable(source: source, battery: battery)
     }
 
+    private func armIntentPlan(
+        for overrides: SessionOverrides?,
+        scheduledOccurrence: ScheduleEngine.Occurrence? = nil
+    ) -> ArmIntentPlan {
+        ArmIntentPlan(
+            cutoffs: config.cutoffs.applying(overrides),
+            helperOptions: HelperArmOptions(
+                lowPowerMode: config.behavior.lowPowerModeWhileArmed,
+                tcpKeepAlive: config.behavior.tcpKeepAliveWhileArmed
+            ),
+            scheduledOccurrence: scheduledOccurrence
+        )
+    }
+
+    private func liveScheduledOccurrence(
+        for source: SessionSource,
+        at reference: Date = Date()
+    ) -> ScheduleEngine.Occurrence? {
+        guard case .schedule(let expectedWindowID) = source,
+              config.scheduleAutomationEnabled,
+              let occurrence = ScheduleEngine.activeOccurrence(
+                  windows: config.schedules,
+                  at: reference,
+                  calendar: .current
+              ),
+              occurrence.windowID == expectedWindowID
+        else { return nil }
+        return occurrence
+    }
+
+    private func currentArmIntentPlan(
+        for pending: PendingArm,
+        at reference: Date = Date()
+    ) -> ArmIntentPlan {
+        armIntentPlan(
+            for: pending.overrides,
+            scheduledOccurrence: liveScheduledOccurrence(
+                for: pending.source,
+                at: reference
+            )
+        )
+    }
+
     func beginArmFlow(preset: ArmPreset? = nil) {
         guard !terminationPending,
               !uninstallInProgress,
-              phase == .disarmed
+              phase == .disarmed,
+              pendingArm == nil
         else { return }
         lastError = nil
 
@@ -591,18 +637,21 @@ final class AppState {
             return
         }
         let assessmentAt = Date()
+        let plan = armIntentPlan(for: overrides)
         let assessment = CutoffEngine.assessArm(
-            config: config.cutoffs.applying(overrides),
+            config: plan.cutoffs,
             battery: battery,
             thermal: thermal,
             processThermal: processThermal,
             at: assessmentAt
         )
         let pending = PendingArm(
+            id: UUID(),
+            plan: plan,
             overrides: overrides,
             source: source,
             assessment: assessment,
-            projection: projection(for: overrides),
+            projection: projection(for: plan.cutoffs),
             createdAt: assessmentAt
         )
         pendingArm = pending
@@ -610,11 +659,16 @@ final class AppState {
         // Presets are explicit intent — skip the confirm card when there's
         // nothing to warn about. The master control always shows the card.
         if preset != nil, assessment == .ok {
-            Task { await confirmArm() }
+            Task { await confirmArm(expectedIntentID: pending.id) }
         }
     }
 
     func cancelArmFlow() {
+        guard let pending = pendingArm else { return }
+        if case .schedule = pending.source {
+            suppressedOccurrence = pending.plan.scheduledOccurrence
+            scheduleOccurrence = nil
+        }
         pendingArm = nil
     }
 
@@ -626,23 +680,44 @@ final class AppState {
             lastError = "The 20% preset no longer applies because no internal battery is present."
             return
         }
+        let assessmentAt = Date()
+        let currentPlan = currentArmIntentPlan(
+            for: pending,
+            at: assessmentAt
+        )
+        if case .schedule = pending.source,
+           currentPlan.scheduledOccurrence == nil {
+            pendingArm = nil
+            scheduleOccurrence = nil
+            return
+        }
+        let assessment = CutoffEngine.assessArm(
+            config: currentPlan.cutoffs,
+            battery: battery,
+            thermal: thermal,
+            processThermal: processThermal,
+            at: assessmentAt
+        )
+        let retainsConfirmation = pending.plan == currentPlan
+            && pending.assessment == assessment
+        if case .schedule = pending.source,
+           !retainsConfirmation {
+            pendingArm = nil
+            scheduleOccurrence = nil
+            return
+        }
         pendingArm = PendingArm(
+            id: retainsConfirmation ? pending.id : UUID(),
+            plan: currentPlan,
             overrides: pending.overrides,
             source: pending.source,
-            assessment: CutoffEngine.assessArm(
-                config: config.cutoffs.applying(pending.overrides),
-                battery: battery,
-                thermal: thermal,
-                processThermal: processThermal,
-                at: Date()
-            ),
-            projection: projection(for: pending.overrides),
+            assessment: assessment,
+            projection: projection(for: currentPlan.cutoffs),
             createdAt: pending.createdAt
         )
     }
 
-    private func projection(for overrides: SessionOverrides?) -> ArmProjection {
-        let cfg = config.cutoffs.applying(overrides)
+    private func projection(for cfg: CutoffConfig) -> ArmProjection {
         let reference = Date()
         var floorDate: Date?
         var timeToEmpty: TimeInterval?
@@ -677,11 +752,27 @@ final class AppState {
     }
 
     func confirmArm() async {
+        guard let expectedIntentID = pendingArm?.id else { return }
+        await confirmArm(expectedIntentID: expectedIntentID)
+    }
+
+    func confirmArm(expectedIntentID: UUID) async {
         guard !terminationPending,
               !uninstallInProgress,
               let intent = pendingArm,
               phase == .disarmed
         else { return }
+        guard expectedIntentID == intent.id else { return }
+        guard ArmIntentConfirmationSafety.authorizes(
+            expectedIntentID: expectedIntentID,
+            currentIntentID: intent.id,
+            confirmedPlan: intent.plan,
+            currentPlan: currentArmIntentPlan(for: intent)
+        ) else {
+            refreshPendingProjection()
+            lastError = "Safety settings changed. Review the updated plan before arming."
+            return
+        }
         guard intent.assessment.allowsArm else { return }
         guard batteryPresetIsAttainable(intent.source) else {
             pendingArm = nil
@@ -787,6 +878,7 @@ final class AppState {
         // authorization/helper probes are suspended. Honor only the same live
         // intent and the same assessment the user actually confirmed.
         guard let pending = pendingArm,
+              pending.id == intent.id,
               pending.createdAt == intent.createdAt,
               pending.source == intent.source,
               pending.overrides == intent.overrides else {
@@ -797,8 +889,20 @@ final class AppState {
             publishWidget()
             return
         }
+        guard ArmIntentConfirmationSafety.authorizes(
+            expectedIntentID: expectedIntentID,
+            currentIntentID: pending.id,
+            confirmedPlan: intent.plan,
+            currentPlan: currentArmIntentPlan(for: pending)
+        ) else {
+            phase = .disarmed
+            refreshPendingProjection()
+            lastError = "Safety settings changed during verification. Review the updated plan before arming."
+            publishWidget()
+            return
+        }
         let freshAssessment = CutoffEngine.assessArm(
-            config: config.cutoffs.applying(pending.overrides),
+            config: pending.plan.cutoffs,
             battery: battery,
             thermal: thermal,
             processThermal: processThermal,
@@ -853,10 +957,7 @@ final class AppState {
             return
         }
 
-        let options = HelperArmOptions(
-            lowPowerMode: config.behavior.lowPowerModeWhileArmed,
-            tcpKeepAlive: config.behavior.tcpKeepAliveWhileArmed
-        )
+        let options = pending.plan.helperOptions
         // The mutation dispatch is the commit point: remove the pending card
         // before the XPC suspension so Cancel or a battery refresh cannot
         // mutate a request that is already being applied by the helper.
@@ -924,7 +1025,7 @@ final class AppState {
             batteryMonitor.refresh()
             battery = batteryMonitor.current
             let postArmAssessment = CutoffEngine.assessArm(
-                config: config.cutoffs.applying(pending.overrides),
+                config: pending.plan.cutoffs,
                 battery: battery,
                 thermal: thermal,
                 processThermal: processThermal,
@@ -939,7 +1040,8 @@ final class AppState {
                 // XPC request is suspended.
                 postArmAssessmentAccepted = postArmAssessment == freshAssessment
             }
-            guard postArmAssessmentAccepted,
+            guard pending.plan == currentArmIntentPlan(for: pending),
+                  postArmAssessmentAccepted,
                   batteryPresetIsAttainable(pending.source) else {
                 // Before mutation, transient telemetry stays retryable. Once
                 // a helper arm was proven, suppress this schedule occurrence
@@ -956,14 +1058,14 @@ final class AppState {
                     notificationBody: nil,
                     notificationSound: false,
                     playChime: false,
-                    completionError: "The keep-awake request was restored because its safety evidence changed while arming."
+                    completionError: "The keep-awake request was restored because its confirmed safety plan or evidence changed while arming."
                 ))
                 return
             }
             helperSessionProven = true
 
             let startedAt = Date()
-            let cfg = config.cutoffs.applying(pending.overrides)
+            let cfg = pending.plan.cutoffs
             var session = KeepAwakeSession(
                 startedAt: startedAt,
                 source: pending.source,
@@ -2013,7 +2115,9 @@ final class AppState {
 
         var fired = evaluation.fired
         if case .schedule = session.source {
-            if let live = ScheduleEngine.activeOccurrence(
+            if !config.scheduleAutomationEnabled {
+                fired.append(.scheduleEnded)
+            } else if let live = ScheduleEngine.activeOccurrence(
                 windows: config.schedules,
                 at: reference,
                 calendar: .current
@@ -2106,15 +2210,22 @@ final class AppState {
                 // occurrence eligible so later safe evidence can admit it.
                 return
             case .ok, .lowBatteryWarning:
-                scheduleOccurrence = active
-                pendingArm = PendingArm(
+                let plan = armIntentPlan(
+                    for: nil,
+                    scheduledOccurrence: active
+                )
+                let pending = PendingArm(
+                    id: UUID(),
+                    plan: plan,
                     overrides: nil,
                     source: .schedule(windowID: active.windowID),
                     assessment: assessment,
-                    projection: projection(for: nil),
+                    projection: projection(for: plan.cutoffs),
                     createdAt: reference
                 )
-                Task { await confirmArm() }
+                scheduleOccurrence = active
+                pendingArm = pending
+                Task { await confirmArm(expectedIntentID: pending.id) }
             }
         }
     }

@@ -380,7 +380,9 @@ struct ArmConfirmCard: View {
                 Spacer()
 
                 Button(refused ? "Can't Arm" : "Keep Awake") {
-                    Task { await state.confirmArm() }
+                    Task {
+                        await state.confirmArm(expectedIntentID: pending.id)
+                    }
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)

@@ -238,7 +238,17 @@ offline claims.
 1. **Intent.** Power button in the menu panel (or a preset chip / schedule
    window / `lidless://` URL). If the helper isn't ready, the panel routes to
    Setup instead — arming is impossible until the one-time authorization is
-   done.
+   done. Each pending intent has an unforgeable process-local identity and an
+   immutable snapshot of its effective cutoffs and helper options; a scheduled
+   intent additionally snapshots the exact active window occurrence. Manual,
+   preset, and scheduled confirmation tasks carry that exact identity, so a
+   queued task from a cancelled intent cannot confirm a later replacement. A
+   changed warning, risk-relevant setting, disabled automation, or edited or
+   expired schedule occurrence revokes the authorization. Drift before
+   mutation requires fresh confirmation, and drift after a proven mutation
+   enters verified restoration instead of accepting the session. Disabling
+   automation also terminates an already accepted scheduled session through
+   the normal verified-restoration path.
 2. **Assessment** (`CutoffEngine.assessArm`): enabled thermal protection first
    requires a fresh, structurally meaningful `pmset` sample, and an enabled
    floor requires usable battery/source evidence; unavailable, structurally

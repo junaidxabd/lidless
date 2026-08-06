@@ -339,7 +339,7 @@ struct ThermalTelemetrySafetyTests {
             of: "let postArmAssessment = CutoffEngine.assessArm("
         ))
         let postArmEnd = try #require(app.range(
-            of: "completionError: \"The keep-awake request was restored because its safety evidence changed while arming.\"",
+            of: "completionError: \"The keep-awake request was restored because its confirmed safety plan or evidence changed while arming.\"",
             range: postArmStart.upperBound..<app.endIndex
         ))
         let postArm = app[postArmStart.lowerBound..<postArmEnd.upperBound]

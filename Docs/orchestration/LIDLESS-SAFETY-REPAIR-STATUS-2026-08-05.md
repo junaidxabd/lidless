@@ -3989,3 +3989,219 @@ remain separate work. `State: IN_PROGRESS` therefore remains authoritative.
   network, merge, push, or main-checkout mutation was performed. After this
   commit, the supervisor must authenticate a fresh rolling remainder before a
   later invocation.
+
+## Recovery audit and independent package re-verification — 2026-08-06
+
+| ID | Recovery or verification surface | Independently reproduced evidence | Verdict |
+|---|---|---|---|
+| R32-01 | Required source records | The canonical handoff and original manifest reproduce SHA-256 `95bdacdde663c642c2f97d532c1ec2b931e94a7dfcda47b8031e011ab3944831` and `d84065171a261e24ae574b98164132472ff1e8bb635647403d814b9fcf58c36a`. The rolling manifest sidecar validates its authoritative JSON at SHA-256 `ffdd7a2bf13d7a24d50a695e212aa53aee09e824e340e069a698b6a51a583fbd`. All required handoff, manifest, orchestration, architecture, design-brief, and repository contribution instructions were read completely before this edit. No repository-local `AGENTS.md`, `CLAUDE.md`, or other agent instruction file is present. | PASS |
+| R32-02 | Feature-worktree identity and topology | Canonical path is the required isolated worktree; it is a non-bare linked worktree on `codex/lidless-safety-repair-2026-08-04` at `dcfefde87693e6f3a66d428a6fbede3e3cd7a582`. Its administrative directory is `/Users/junaid/Xcode-Projects/Lidless/.git/worktrees/codex-safety-repair-2026-08-04`, common directory is `/Users/junaid/Xcode-Projects/Lidless/.git`, and its index was clean. | PASS |
+| R32-03 | Complete feature remainder | Before this first edit, the only dirty paths were ` M Docs/orchestration/decisions.md`, ` M Docs/orchestration/progress.md`, and `?? Docs/orchestration/tasks/2026-08-04-design-reset-brief.md`. Their regular-file type, mode `0644`, byte counts `4591`/`5774`/`7188`, and SHA-256 values exactly matched the rolling manifest. The complete NUL-status digest was `3a4984484500650d6b8866b3dfd45bc02ad0ff2888084f86deda5506c36e03dc`; the tracked binary-diff digest was `5bfed6a6f1b1f3578736cce1d9ae66138f0f9e0614ffc8e93d0aa80c4d6e3b82`. | PASS |
+| R32-04 | Main-checkout preservation | The canonical main checkout remained a non-bare worktree on `main` at `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, with clean index, empty tracked binary diff, and exactly the three recorded untracked `.playwright-mcp` files. Every type, mode, size, and raw hash matched; the complete NUL-status digest was `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`. | PASS |
+| A32-01 | Complete checkpointed package | All commits and the full diff from starting HEAD through `dcfefde87693e6f3a66d428a6fbede3e3cd7a582` are under fresh adversarial review. Prior tests, reports, matrices, and verdicts remain untrusted until reproduced against the current bytes. | IN PROGRESS |
+| V32-01 | Exact invocation checkpoint | Focused regression evidence, the complete SwiftPM suite, unsigned Debug/Release builds, bounded static analysis, configuration/artifact inspection, staged-diff review, and post-commit isolation checks remain pending. | PENDING |
+
+### Append-only evidence log (continued)
+
+- E-471 — 2026-08-06T10:03:55+0200 — Recovery used exactly the authenticated
+  rolling-remainder authority because HEAD is beyond the historical starting
+  commit. Every required feature-worktree and main-checkout field and byte
+  matched before this first edit; there was no normalization, overwrite, app
+  or helper launch, install, activation, registration, approval, `pmset`,
+  sleep-setting, design, Figma, plugin, connector, network, merge, push, or
+  main-checkout mutation. `State: IN_PROGRESS` remains authoritative while the
+  complete checkpointed safety package is independently reverified.
+
+## Exact arm-intent confirmation checkpoint — 2026-08-06
+
+| ID | Safety invariant or verification | Independently reproduced evidence and bounded result | Verdict |
+|---|---|---|---|
+| S32-01 | A queued confirmation may authorize only the pending intent that created it | Every pending intent now receives a process-local UUID. Manual UI, preset, and schedule tasks pass the captured UUID; replacement, cancellation, assessment change, and risk-plan change cannot make an older task apply to a newer pending intent. A second begin request is rejected while any intent is pending. | FIXED OFFLINE / MAIN-ACTOR RUNTIME GATE |
+| S32-02 | Confirmation binds the exact risk-relevant settings through mutation and session commit | `ArmIntentPlan` snapshots effective cutoffs and helper Low Power Mode/TCP keepalive options. Equality is checked at confirmation entry, again after every pre-dispatch suspension, and after a proven helper mutation; dispatch, post-arm assessment, and the recorded session consume the snapshot rather than mutable configuration. Post-mutation drift enters verified restoration. | FIXED OFFLINE / LIVE-XPC GATE |
+| S32-03 | Scheduled authorization remains valid only for the exact live occurrence while automation is enabled | A scheduled plan additionally snapshots its concrete `ScheduleEngine.Occurrence`. Current-plan reconstruction requires enabled automation, the same active window ID, and identical occurrence bounds. Disablement, edit, deletion, expiry, or overlap replacement revokes pre-dispatch authorization and forces restoration after proven mutation. Disabling automation also ends an accepted scheduled session through the existing cutoff/restoration path. | FIXED OFFLINE / CLOCK-DST RUNTIME GATE |
+| S32-04 | Explicit cancellation cannot be silently replaced by schedule automation | Cancelling a scheduled pending card suppresses the exact occurrence captured in its plan before clearing schedule and pending bookkeeping. A changed scheduled plan or assessment clears the old pending task so a later tick may create a newly bound task; the scheduler cannot reuse or replace a user-cancelled occurrence. | FIXED OFFLINE / UI-TICK RUNTIME GATE |
+| S32-05 | Projection refresh cannot overwrite an unrelated pending intent | Both the main overview control and `beginArmFlow` reject entry while a pending intent exists. Projection-only refresh retains identity, while a changed warning or manual/preset plan rotates identity and requires a new confirmation. | FIXED OFFLINE |
+| V32-02 | The focused regressions discriminate the old behavior | Five production-source RED stages independently failed for missing identity binding, exact plan binding, pending-overwrite prevention, scheduled occurrence revocation, and schedule-aware cancellation/retry bookkeeping. The final cancellation RED failed with three issues before the final source change. | PASS — RED OBSERVED |
+| V32-03 | Exact staged tests cover the focused, related, and complete package surfaces | Exact pre-ledger index tree `be6ba0402dc29f300efd22f62cd5e7944f1fd03b` passed four focused tests, 73 related tests in five suites, and all 329 package tests in 33 suites under the stable toolchain with local caches and SwiftPM sandboxing disabled. | PASS FOR EXACT STAGED CODE |
+| V32-04 | Debug/Release compilation and bounded static analysis use the final production bytes | All 63 final production Swift sources match the exact staged export. `LidlessCore` built in Debug and optimized Release; all 25 App, four helper, and one widget sources passed Swift 6 complete-concurrency typechecking with warnings as errors; all three products linked in Debug and optimized Release with signing and linker ad-hoc signing disabled. | PASS FOR OFFLINE SOURCES / XCODE GRAPH BLOCKED |
+| V32-05 | Actual loose artifacts and source configuration support only bounded claims | Six loose outputs are arm64 Mach-O executables targeting macOS 15.0 / SDK 26.5, contain no `LC_CODE_SIGNATURE`, and report unsigned. Exact source plist/entitlement files and `project.pbxproj` linted and were decoded; an independent Xcodegen round trip reproduced project/workspace/scheme bytes. These are not bundles, signatures, entitlements, or runtime trust proof. | PARTIAL — OFFLINE ARTIFACTS ONLY |
+| V32-06 | Selected bytes, authenticated remainder, and main checkout stay isolated | Nine non-ledger 100644 paths alone form the exact source/test/doc tree. The rolling three-file design remainder reproduces every status/mode/size/hash and both digests; the main checkout reproduces every recorded field, file, and digest. | PASS BEFORE LOCAL CHECKPOINT |
+
+This checkpoint is limited to exact pending-arm identity, risk-plan and schedule
+occurrence binding, scheduled cancellation, post-mutation restoration on plan
+drift, tests, and architecture wording. Scheduled-wake transactional
+durability, helper interruption/owner-loss timing, crash-session journal
+semantics, XPC timeout/connection liveness, stale-helper replacement,
+Homebrew removal/upgrade safety, privileged child storage/path hardening,
+release-artifact permission validation, live status reconciliation, and every
+live/hardware gate remain separate work. `State: IN_PROGRESS` therefore
+remains authoritative.
+
+### Exact arm-intent append-only evidence log (continued)
+
+- E-472 — 2026-08-06T10:34:23+0200 — Before production edits, the literal
+  required `swift test --package-path Packages/LidlessCore` reached the default
+  Xcode-beta compiler but failed solely at the sandbox-inaccessible
+  `/Users/junaid/.cache/clang/ModuleCache`; `swift-test-literal-baseline.log`
+  is six lines / 2,347 bytes, SHA-256
+  `b2ed94195db3462988e5ef9b6cfb82ce20ca6eeadd9bd38b183dadfec3a73bef`.
+  The stable Xcode toolchain with workspace-local caches and SwiftPM's sandbox
+  disabled passed the unchanged baseline's 325 tests in 32 suites;
+  `swift-test-stable-baseline.log` is 826 lines / 64,537 bytes, SHA-256
+  `a30e242cbd010049b62a87b9c23932f65cede6ac4ec40c33b12c4c7cc7aed4d3`.
+- E-473 — 2026-08-06T10:34:23+0200 — Source tracing confirmed the selected
+  root cause: preset and schedule tasks invoked an ambient `confirmArm()`, so
+  cancellation or replacement could make an old task confirm a later intent;
+  settings were re-read rather than bound to confirmation; another begin could
+  overwrite pending state. The first regression failed as one test / one suite
+  with nine issues (`arm-intent-confirmation-red.log`, 8,645 lines / 346,208
+  bytes, SHA-256
+  `ae58538e86b2fd2862b8728fa65ebbbb0723df4ae2ed6fec6f0a42a6f12edd52`).
+  Successive focused REDs then failed with eight plan issues
+  (`arm-intent-plan-red.log`, 107 lines / 7,716 bytes, SHA-256
+  `135d82c1102e06f186a2d72361afba3d20f9e1a80a24a6428a1933bed1b89f6a`),
+  two overwrite/UI issues (`arm-intent-overwrite-red.log`, 404 lines / 15,984
+  bytes, SHA-256
+  `f30d7f10d3907cc2208fb10b33cad8ae77435b0b682acd7278e4df6705b58166`),
+  and six exact-schedule issues
+  (`arm-intent-schedule-revocation-red.log`, 1,404 lines / 61,568 bytes,
+  SHA-256
+  `31338eeb7fa568d727c87dc06e4c01b2c2a200b8d5e8dd7ba842511ad29721de`).
+  The final cancellation/retry regression failed with three issues before its
+  source fix (`arm-intent-schedule-cancel-red-final.log`, 2,537 lines / 102,492
+  bytes, SHA-256
+  `eaef94fb103568ce096f39e909adea241f8afcc64386f0e555bf701e45bed6c4`).
+  A preceding test-only misplaced local produced a compile error and is
+  preserved, but not promoted as RED evidence
+  (`arm-intent-schedule-cancel-red.log`, SHA-256
+  `b027fcdf0e31c51b64e70f4a849721254839c99237da4d3399154d3d29e9f2d3`).
+- E-474 — 2026-08-06T10:34:23+0200 — The bounded repair adds the pure
+  `ArmIntentConfirmationSafety` equality policy and an exact `ArmIntentPlan`,
+  captures UUID/plan/occurrence at every arm-intent producer, rejects stale
+  UUIDs and plan drift before helper dispatch, consumes confirmed cutoffs and
+  options, and enters verified restoration if the plan changes after a proven
+  arm. Pending overwrite is blocked at state and UI boundaries. Scheduled
+  cancellation suppresses the captured occurrence, changed scheduled state is
+  discarded for a fresh later task, and disabled automation terminates an
+  accepted scheduled session. Structural tests pin preflight before
+  `trackedArm`, postflight after it, and postflight before session commit.
+- E-475 — 2026-08-06T10:34:23+0200 — The nine selected non-ledger paths were
+  staged alone and exported as exact index tree
+  `be6ba0402dc29f300efd22f62cd5e7944f1fd03b`. The exact literal command again
+  reproduced only the default Xcode-beta cache denial
+  (`exact-final-literal-swift-test.log`, six lines / 2,420 bytes, SHA-256
+  `73955f998dbc9890dc407844916aaa0608a1099f92c6f387ed954bc301120ef1`).
+  Stable exact-index verification passed four focused tests in one suite
+  (`exact-final-arm-intent-focused.log`, 101 lines / 6,571 bytes, SHA-256
+  `dd853d77a2cadd41c38af9018365908815b3e040c22ad00695f2aed028e18827`),
+  73 related intent/battery/thermal/sleep/schedule tests in five suites
+  (`exact-final-arm-intent-related.log`, 247 lines / 17,548 bytes, SHA-256
+  `94b1a3d1e1b36c51bf53c074e51658e64216668c641c278c5314f8d0388b08bd`),
+  and all 329 tests in 33 suites (`exact-final-full-swift-test.log`, 838 lines
+  / 65,432 bytes, SHA-256
+  `27b9fc61875223876d8437e431deeb5aae6df945e65790fda01f5cfb96b268b1`).
+- E-476 — 2026-08-06T10:34:23+0200 — Project-native unsigned Debug and Release
+  attempts stopped during package resolution at the managed environment's
+  nested `sandbox-exec: sandbox_apply: Operation not permitted`, before product
+  compilation; the complete terminal attempts are
+  `xcodebuild-debug-final.log` (58 lines / 7,461 bytes, SHA-256
+  `d07a78da73e27f57e32b0f715e9d413f4735c8a6b1293966d51862af17665746`)
+  and `xcodebuild-release.log` (58 lines / 7,447 bytes, SHA-256
+  `904a9f06b19f6a2e640442eff4c5a4d1e389f9e2fbad674d598cca048692cef7`).
+  The bounded direct fallback used stable Xcode 6.3.2/SDK 26.5 and a
+  before/after-identical 63-source inventory, SHA-256
+  `93ace6e881722bc752b386759f9cf9aa70ec3ca2eebca5dbd4b93045f51e2237`.
+  Final Core Debug/Release builds passed (`core-debug.log`, 40 lines / 2,462
+  bytes, SHA-256
+  `3498f3f238b860546113662ba37973844476a7fd2cd4bab55c74435344102804`;
+  `core-release.log`, seven lines / 664 bytes, SHA-256
+  `a591c590c95ef5d6920c2f0f7d8140543aab96ce3680ab08c57b9c4aad5b0d81`).
+  Complete-concurrency warnings-as-errors typechecking passed all 25 App, four
+  helper, and one widget sources (`all-products-typecheck.log`, seven lines /
+  3,714 bytes, SHA-256
+  `504187faec1f125c7713dc1caac30f6db2010fe118daa6656c5068af2d881f59`).
+  Direct Debug and optimized Release links of all three products passed with
+  signing controls and linker ad-hoc signing disabled (`products-debug.log`,
+  seven lines / 27,899 bytes, SHA-256
+  `bcd1585bfb2d9fcf1b8adfbd016d6361879608b694c1d2d1b2f1251036cc3517`;
+  `products-release.log`, seven lines / 28,300 bytes, SHA-256
+  `6b8b80d9bc47b8a235eac24613e18dd8094e767ebd32dc65451f06f9be316f4c`).
+  No product was launched.
+- E-477 — 2026-08-06T10:34:23+0200 — Exact staged/current source comparison
+  found zero differences across all 63 compiled Swift files;
+  `exact-final-source-index-proof.log` is nine lines / 1,032 bytes, SHA-256
+  `0a884bac4e6d1e16903bd110324ff4076a599a572dfe0cace9675bd0b2af0de1`.
+  Artifact inspection is 86 lines / 7,468 bytes, SHA-256
+  `ae401c674dfc5f35895c3b6a697899a797312e06df838a0d7b0ad5f9f29ab314`:
+  all six outputs are thin arm64 Mach-O executables with minimum macOS 15.0 /
+  SDK 26.5, zero `LC_CODE_SIGNATURE`, and expected unsigned `codesign` exit 1.
+  Debug and Release App symbols include `ArmIntentPlan`, its scheduled
+  occurrence, and `ArmIntentConfirmationSafety.authorizes`;
+  `exact-final-arm-intent-symbol-inspection.log` is 46 lines / 4,248 bytes,
+  SHA-256
+  `e88be289185512711e213215b1ae789b9dfcd6d0c496662ff78d299fe138daa6`.
+  Seven exact source plist/entitlement/project files linted; decoded values and
+  bindings are in `exact-final-configuration-inspection.log` (143 lines /
+  13,233 bytes, SHA-256
+  `22e2b971bfcc6494ff3c0e861f70fafa3c0afaad2dbce1eef1889ac74f7d1d8f`).
+  An independent read-only Xcodegen round trip reproduced the committed
+  project, workspace, and scheme byte-for-byte; its 52-line / 2,818-byte log
+  has SHA-256
+  `e7d20ceff11e3d7b6ac51f28a48f3597764e49c4806f66a7e07fd07f682dfeb1`.
+  Loose products and source configuration prove no embedded bundle contents,
+  entitlement application, signing identity, XPC trust, ServiceManagement,
+  runtime, notarization, or release readiness.
+- E-478 — 2026-08-06T10:34:23+0200 — Independent read-only source reviews
+  first found and then verified closure of three scheduled-intent extensions of
+  the same root cause: automation/edit/expiry revocation, stale replacement
+  bookkeeping, and user cancellation followed by scheduler replacement. The
+  final review found no remaining Blocker/High issue in this checkpoint and
+  confirmed `git diff HEAD --check`. The retained Medium limitation is explicit:
+  AppState suspension/interleaving is tested by pure policy plus ordered source
+  contracts and strict compilation, not by executing a fake helper across the
+  async boundary. Separate helper, wake, journal, timeout, removal, storage,
+  release-verifier, and live-status findings were not folded into this commit.
+- E-479 — 2026-08-06T10:34:23+0200 — Every selected source/test/doc hunk was
+  reviewed and `git diff --cached --check` passed. Before this ledger append,
+  the exact nine-path binary cached diff is 719 lines / 30,355 bytes, SHA-256
+  `22e99be99901bc0cfaac1052ef63b7cf4c4d8f393b7765a63ce7176585f367e0`;
+  its NUL name-list digest is
+  `d154bd924c5e18cdf5ed5b69a0998d94a2dc67c6f5ac9f66cb52aee967754b4b`.
+  Pre-commit preservation reverified feature topology, common directory,
+  branch, and unchanged HEAD `dcfefde87693e6f3a66d428a6fbede3e3cd7a582`.
+  The three design-remainder paths remain unstaged and reproduce status, mode,
+  byte count, raw hash, NUL-status digest
+  `3a4984484500650d6b8866b3dfd45bc02ad0ff2888084f86deda5506c36e03dc`,
+  and tracked binary-diff digest
+  `5bfed6a6f1b1f3578736cce1d9ae66138f0f9e0614ffc8e93d0aa80c4d6e3b82`.
+  The main checkout remains `main` at
+  `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, with clean index/tracked diff
+  and its exact three `.playwright-mcp` records, NUL-status digest
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked binary-diff digest. The complete preservation log is 54
+  lines / 3,278 bytes, SHA-256
+  `8df3e0d3380ea643558e02a6d9cc6e55820cf1c20f57adf8ebdc876619ade5df`.
+- E-480 — 2026-08-06T10:34:23+0200 — `State: IN_PROGRESS` is retained because
+  the separately scoped groups and every live/hardware gate above remain open.
+  Real MainActor scheduling, notifications authorization, NSXPC suspension and
+  failure ordering, signed helper trust, actual arm/restore, schedule wall-clock
+  behavior, sleep/wake, closed-lid hardware, helper crash/upgrade recovery,
+  notarization, and release readiness remain unproved. The intended single
+  local checkpoint subject is `safety: bind confirmation to exact arm intent`.
+  No app/helper was launched; no install, activation, registration, approval,
+  live XPC, `pmset`, sleep-setting mutation, sleep/wake, hardware, plugin,
+  connector, Figma, network, merge, push, or main-checkout mutation was
+  performed. After this one commit, the supervisor must authenticate a fresh
+  rolling remainder before any later invocation.
+- E-481 — 2026-08-06T10:34:23+0200 — Nomenclature correction: E-476's phrase
+  “stable Xcode 6.3.2/SDK 26.5” means the stable Xcode developer directory with
+  **Apple Swift 6.3.2** and macOS SDK 26.5; it is not an assertion that the
+  Xcode application version is 6.3.2. This correction is appended rather than
+  rewriting E-476.
+- E-482 — 2026-08-06T10:34:23+0200 — Precision correction for S32-02: exact
+  plan equality is checked at confirmation entry, once after the complete
+  sequence of pre-dispatch suspensions and immediately before dispatch, and
+  once after a proven mutation before session commit. “Again after every
+  pre-dispatch suspension” describes the final check occurring after all such
+  suspension points; it does not assert a separate equality call after each
+  individual `await`.
