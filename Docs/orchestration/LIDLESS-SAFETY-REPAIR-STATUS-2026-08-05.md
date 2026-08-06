@@ -4453,3 +4453,355 @@ notarization, or release readiness. `State: IN_PROGRESS` remains authoritative.
   plugin/connector, network, merge, push, release, or main-checkout mutation
   was performed. After this one commit, the supervisor must authenticate a
   fresh rolling remainder before any later invocation.
+
+## Checkpoint 34 — same-wire stale-helper recovery and bounded replacement — 2026-08-06T12:07:36+0200
+
+| ID | Finding / invariant | Exact evidence and disposition | Verdict |
+|---|---|---|---|
+| F34-01 | Revision 7 made an installed revision-mismatched protocol-v6 helper unreachable from Setup's replacement action | The old `install()` path called `register()` for every stale state. An already enabled stale helper therefore remained registered and the new helper could not replace it. The same exact-revision predicate also rejected a structurally restored stale reply before independent registry-OFF evidence could complete de-risking recovery or cleanup. | CONFIRMED IMPORTANT / SELECTED ROOT CAUSE |
+| F34-02 | Risk-increasing and de-risking compatibility must remain separate | Readiness, arming, one-source restore, outside-ownership classification, and scheduled-wake acceptance still require protocol 6 plus exact safety revision 7. Only the two-source restore/removal overloads accept a revision-missing, older, or newer protocol-6 responder. `helperSafetyRevision` remains 7. | FIXED OFFLINE |
+| F34-03 | Revision mismatch cannot substitute for restoration proof | Same-wire recovery additionally requires a successful reply, `armed == false`, verified registry OFF, `restorePending == false`, and a separately obtained app registry-OFF observation. Nil/true/contradictory fields, negative replies, and either unknown observation reject. Different or unknown wire versions remain manual fallback. | FIXED OFFLINE |
+| F34-04 | Replacement must be fresh, user-invoked, bounded, and fail closed | `install()` freshly reclassifies the live registration. Only a same-wire stale classification enters the existing token-bound cleanup and two-source restore proof; proven cleanup is followed by awaited unregister plus final inactive/OFF proof, then one register attempt and fresh post-register classification. There is no launch replacement or retry loop. A failed register after proven removal is surfaced as safe-but-uninstalled, never success. | FIXED OFFLINE / LIVE SERVICEMANAGEMENT GATE |
+| F34-05 | Replacement must exclude app lifecycle races and invalidate removed wake evidence | App admission now requires quiescent termination, lifecycle, session, arm, restore, and sleep-transition state. The removal-style exclusion covers every suspension. Scheduled-wake reply evidence is invalidated before cleanup and reconciled only after lifecycle release; stale-recovery admission also performs a fresh helper classification and rechecks exclusions after suspension. | FIXED OFFLINE / LIVE ORDERING GATE |
+| F34-06 | Setup must not offer unsafe automatic replacement | Setup and onboarding offer `Replace Helper…` only for exact protocol 6 with a stale behavior revision. Different-wire and nonresponding states display manual-fallback copy. Cleanup/register failures are rendered to the user instead of leaving only a generic stale status. | FIXED OFFLINE |
+| V34-01 | TDD discriminates the old policy and the app/UI wiring | Focused REDs first failed for the missing recovery-compatibility policy, missing truthful replacement/error UI, and missing scheduled-wake invalidation/reconciliation. Production changes followed those failures. | PASS — RED OBSERVED |
+| V34-02 | Working-tree behavioral verification covers the repaired group and whole package | The terminal focused run passed four tests in one suite. Nine collision-adjacent suites passed 51 tests. The complete package passed 338 tests in 35 suites under stable Xcode 26.5. | PASS FOR WORKING TREE |
+| G34-01 | Live replacement remains unproved and unauthorized | No app/helper was launched; no real status selector, cleanup token, registry read, unregister/register, approval, mixed-version XPC, signing, or timing behavior was exercised. Unsupported old selectors, ServiceManagement ABA, installed-byte identity, and failed/approval-pending live outcomes remain explicit runtime gates. | OPEN LIVE GATE |
+| G34-02 | Other independently confirmed package defects remain separate | Crash-session journal finalization, scheduled-wake transaction durability, Homebrew raw-`launchctl` lifecycle bypass, release-artifact permission validation, and earlier storage/removal/live-proof groups are not changed by this checkpoint. | OPEN SEPARATE GROUPS |
+
+This checkpoint is limited to offline same-wire revision-mismatch recovery,
+user-invoked bounded replacement admission, truthful Setup/onboarding states,
+focused tests, and architecture wording. It does not claim live helper
+replacement, actual restoration, sleep/wake, ServiceManagement behavior,
+hardware, signing, notarization, or release readiness. `State: IN_PROGRESS`
+remains authoritative.
+
+### Same-wire stale-helper recovery append-only evidence log (continued)
+
+- E-500 — 2026-08-06T12:07:36+0200 — Recovery began from feature HEAD
+  `de9d9db3b7964de0f86f75772b5a82063564e709`. Before edits, the authenticated
+  three-file design remainder reproduced NUL status digest
+  `3a4984484500650d6b8866b3dfd45bc02ad0ff2888084f86deda5506c36e03dc`
+  and tracked binary-diff digest
+  `5bfed6a6f1b1f3578736cce1d9ae66138f0f9e0614ffc8e93d0aa80c4d6e3b82`.
+  Main remained `main` at `7f17aaca11bc6228bed48b9265d63b9e576cdea7`
+  with clean index/tracked diff and only its authenticated three
+  `.playwright-mcp` paths. The rolling manifest and sidecar both reproduced
+  SHA-256
+  `ff00db0887befb47d49f81d5c5f50226ea3a379afffdbe3024ce3bd6f5560dac`.
+- E-501 — 2026-08-06T12:07:36+0200 — The selected root cause was traced through
+  `SleepOverrideSafety`, `NonSleepRestoreGate`, `HelperRemovalSafety`,
+  `HelperClient.install()`/`uninstall()`, `AppState` restore and repair paths,
+  and both Setup surfaces. The pre-repair focused test failed on the absent
+  exact-wire recovery policy. Later REDs separately rejected missing UI error
+  copy and missing scheduled-wake invalidation/reconciliation before those
+  production changes were made.
+- E-502 — 2026-08-06T12:07:36+0200 — The final policy retains exact protocol 6
+  plus behavior revision 7 for every risk-increasing and one-source boundary.
+  Its exact-wire compatibility predicate is consumed only by de-risking
+  two-source restore/removal proof, stale repair eligibility, cleanup
+  preparation, and the user-invoked replacement/manual-fallback split.
+  Revision-mismatched statuses cannot prove outside ownership or scheduled
+  wake and cannot arm.
+- E-503 — 2026-08-06T12:07:36+0200 — The replacement sequence has one fresh
+  classification, one reviewed cleanup/unregister attempt, and one register
+  attempt. Existing cleanup token, launchd-state recheck, local unresolved-
+  outcome fence, post-unregister inactive/OFF proof, and connection
+  invalidation remain intact. A different/unknown responder or ambiguous
+  result stops without registration; no automatic retry or launch-time path
+  was added.
+- E-504 — 2026-08-06T12:07:36+0200 — Terminal working-tree verification under
+  `/Applications/Xcode.app` (Xcode 26.5) passed four focused stale-helper tests,
+  51 tests across nine collision-adjacent suites, and all 338 tests in 35
+  suites. The complete suite includes malformed reply, missing/older/future
+  revision, different wire version, strict arm/one-source proof, two-source
+  restore/removal, lifecycle fencing, scheduled-wake, and UI source contracts.
+- E-505 — 2026-08-06T12:07:36+0200 — No app, helper, widget, or compiled product
+  was launched. No live install, activation, registration, unregister,
+  approval, XPC, `pmset`, sleep-setting mutation, sleep/wake, hardware,
+  signing, design/Figma, authentication, credential, provider, plugin/MCP,
+  connector, network, merge, push, deploy, release, or main-checkout mutation
+  occurred. Exact staged builds, artifact inspection, independent final review,
+  and pre-commit preservation are still pending at this evidence point.
+
+## Checkpoint 34 independent-review correction — 2026-08-06T12:21:42+0200
+
+| ID | Review finding / corrected invariant | Exact evidence and disposition | Verdict |
+|---|---|---|---|
+| F34-07 | Protocol compatibility alone cannot authorize destructive cleanup | The first draft admitted every protocol-v6 revision to cleanup and removal. Historical revision 3 is a concrete counterexample: later checkpoints introduced mandatory wake-ledger absence and other cleanup guarantees. Independent registry-OFF evidence proves only the main `disablesleep` flag; it does not prove wake cancellation, optional-setting restoration, data cleanup, or future cleanup semantics. F34-02/F34-04 and E-502/E-503 are therefore superseded where they described broad same-wire **cleanup/removal** admission. Broad same-wire two-source proof remains valid only for normal-sleep restoration. | HIGH FOUND / FIXED OFFLINE |
+| F34-08 | Automatic cleanup/replacement needs an explicit reviewed revision | Helper state now preserves both wire and behavior revision. Cleanup requires protocol 6 plus current revision 7 or explicitly pinned reviewed predecessor revision 6. Automatic stale replacement requires exactly protocol 6 / revision 6. Missing, revisions 0–5, future revision 8, different wire, nonresponding, and unknown evidence stop before `commitUninstall`. The predecessor pin is literal 6, not `current - 1`, so a future bump cannot silently expand admission. | FIXED OFFLINE |
+| F34-09 | Compatibility status is not installed-byte verification | Onboarding's prior “Helper installed and verified” copy contradicted the documented self-reported evidence boundary. It now says “Helper installed and responding,” aligned with Setup and without claiming executable attestation or an installation receipt. F34-06 is corrected accordingly. | IMPORTANT FOUND / FIXED OFFLINE |
+| F34-10 | The emergency sleep command is not a full replacement procedure | Setup, onboarding, and client errors now label `sudo pmset -a disablesleep 0` as emergency normal-sleep recovery only and explicitly say it does not remove the helper, cancel helper-managed wakes, restore other settings, or delete helper data. Full removal points to Setup & Help in the matching Lidless version or a reviewed support procedure. The earlier “exact manual fallback” wording in F34-06/architecture is superseded. | IMPORTANT FOUND / FIXED OFFLINE |
+
+### Independent-review correction evidence log (continued)
+
+- E-506 — 2026-08-06T12:21:42+0200 — Independent full-diff review reported
+  one High and two Important findings before commit: overly broad destructive
+  same-wire cleanup, onboarding's installed-byte overclaim, and a sleep-only
+  command presented as replacement guidance. Commit was stopped immediately;
+  the previously green exact staged tree
+  `cddef02fcfb7179b6575b6a46acc9bdef909ff96` and its build evidence are
+  quarantined as pre-review, non-final evidence.
+- E-507 — 2026-08-06T12:21:42+0200 — A new focused regression was added before
+  the correction. It failed compilation because
+  `isReviewedCleanupCompatibleHelper` and the explicit reviewed-predecessor
+  pin did not exist. After the pure policy was added, a second source-contract
+  RED failed because `install()` still used protocol-only admission. The
+  production/client/UI correction followed those discriminating failures.
+- E-508 — 2026-08-06T12:21:42+0200 — The corrected split is now three-tiered:
+  exact revision 7 for risk-increasing and one-source proof; any exact-wire
+  revision only for structurally complete two-source normal-sleep restoration;
+  and exact wire plus revision 7 or reviewed predecessor 6 for destructive
+  cleanup/removal. Only stale revision 6 may enter automatic replacement.
+  Reported revision is retained in `HelperInstallState`; no revision bump,
+  retry loop, or launch-time replacement was added.
+- E-509 — 2026-08-06T12:21:42+0200 — Corrected working-tree verification
+  passed five focused tests, 55 tests across ten cleanup/recovery/lifecycle
+  suites, and all 339 package tests in 35 suites. Strict Swift 6 complete-
+  concurrency App typechecking with warnings as errors also passed all 25 App
+  sources. Exact staged tests, complete all-product builds, and restarted
+  independent review remain pending at this evidence point.
+
+## Checkpoint 34 final-review removal-guidance correction — 2026-08-06T12:34:49+0200
+
+| ID | Review finding / corrected invariant | Exact evidence and disposition | Verdict |
+|---|---|---|---|
+| F34-11 | An unreviewed helper revision must not be sent to its matching app's generic uninstall path | Final independent review found that the corrected automatic gate was safe but the manual guidance still told every rejected revision to use a matching Lidless version. That is not a reviewed removal path: historical revision 3 predates mandatory wake-ledger-absence proof, and its matching app's destructive cleanup is a concrete counterexample. Rejected missing, 0–5, future, different-wire, nonresponding, or unknown helpers now remain registered and direct only to a separately reviewed, revision-specific support removal procedure. Revision 6 remains the sole pinned automatic predecessor. F34-10 is superseded only where it recommended a generic matching-version removal route. | HIGH FOUND / FIXED OFFLINE |
+
+### Final-review removal-guidance evidence log (continued)
+
+- E-510 — 2026-08-06T12:34:49+0200 — The reviewer reported F34-11 before
+  commit. The exact staged tree
+  `904c8b1cbd79ad44dac7d048ff5731eb6dce28e0`, its five focused, 60 related,
+  and 339 complete exact-test passes, and its direct Debug/Release build and
+  unsigned-product inspection are quarantined as pre-finding, non-final
+  evidence. No commit or live action followed that green result.
+- E-511 — 2026-08-06T12:34:49+0200 — A source-contract regression was changed
+  before production copy. It failed ten expectations because client, Setup,
+  onboarding, AppState, and architecture still contained generic matching-
+  version removal guidance and lacked the separately reviewed support-only
+  route. Production copy then removed every such recommendation, requires the
+  helper to stay registered, and preserves the emergency command's sleep-only
+  scope. The focused suite passed all five tests afterward. Exact staged
+  package/build verification and restarted independent review remain pending.
+
+## Checkpoint 34 final-review truth-boundary correction — 2026-08-06T12:39:04+0200
+
+| ID | Review finding / corrected invariant | Exact evidence and disposition | Verdict |
+|---|---|---|---|
+| F34-12 | Setup and onboarding must not promise restoration that runtime evidence cannot prove | Modified UI surfaces still said every helper path restores normal sleep, the override cannot outlive Lidless, and crash/reboot recovery completes within seconds. Architecture already records memory-only fallback and forced-process-loss gaps plus open launchd/hardware gates. The copy now describes layered restoration requests and retries, reports completion only after verified normal sleep, and directs the user to verify uncertain recovery. Absolute “never,” “every,” “always,” and timing claims were removed. | IMPORTANT FOUND / FIXED OFFLINE |
+| F34-13 | ServiceManagement `.notFound` cannot mint safe-but-uninstalled state | The install-state refresh collapsed `.notFound` with explicit `.notRegistered`. The installed SDK defines `.notFound` as an error, while this ledger's existing removal policy already classifies it as unknown. Refresh now preserves that distinction. Only explicit `.notRegistered` can yield `.notInstalled` or the post-replacement safe-but-uninstalled message; `.notFound`/unknown blocks retry and never claims the helper is absent. F34-04's earlier broad safe-but-uninstalled wording is narrowed accordingly. | IMPORTANT FOUND / FIXED OFFLINE |
+
+### Final-review truth-boundary evidence log (continued)
+
+- E-512 — 2026-08-06T12:39:04+0200 — The reviewer reported F34-12 and F34-13
+  before commit. New source-contract REDs first failed on the absolute recovery
+  copy, then on the combined `.notRegistered, .notFound` classifier and absent
+  unknown-state retry block. Production changes followed each failure. The
+  focused stale-helper suite passed all five tests after both corrections.
+  Exact staged package/build verification and a restarted zero-finding review
+  remain pending; no live action or commit occurred.
+
+## Checkpoint 34 final-review force-sleep-boundary correction — 2026-08-06T12:44:03+0200
+
+| ID | Review finding / corrected invariant | Exact evidence and disposition | Verdict |
+|---|---|---|---|
+| F34-14 | Broad revision-mismatched restore proof cannot authorize `sleepnow` | The broadened two-source proof entered `NonSleepRestoreGate.evaluateBaseProof`, whose prior one-shot branch returned `dispatchForceSleep` whenever a cutoff had requested the follow-up. That could send `disarm(forceSleep: true)` to a same-wire revision-6, missing, or future responder even though the broad boundary was authorized only for normal-sleep restoration. The gate now requires exact-current revision 7 before returning `dispatchForceSleep`. A stale structurally restored reply may complete normal-sleep restoration but skips the power mutation; AppState changes the notification, disables the chime/sound, and retains a truthful completion error. | IMPORTANT FOUND / FIXED OFFLINE |
+
+### Final-review force-sleep-boundary evidence log (continued)
+
+- E-513 — 2026-08-06T12:44:03+0200 — The reviewer reported F34-14 before
+  commit. A pure RED showed missing, revision-6, and future revision-8 replies
+  each returned `dispatchForceSleep` despite complete two-source normal-sleep
+  proof; a source-contract RED also found no truthful skip path. After the
+  correction, all three mismatches completed normal-sleep restoration without
+  force-sleep authorization, the exact-current one-shot regression still
+  passed, and the AppState source contract proved the skip copy path. Exact
+  staged package/build verification and restarted independent review remain
+  pending; no live action or commit occurred.
+
+## Checkpoint 34 terminal-review recovery-fence correction — 2026-08-06T13:11:47+0200
+
+| ID | Review finding / corrected invariant | Exact evidence and disposition | Verdict |
+|---|---|---|---|
+| F34-15 | Revision-mismatched completion must synchronously retire cached readiness | A broad same-wire restore reply could complete a session while `HelperClient.installState` still cached `.ready`; `finalizeSession()` could then call scheduled-wake reconciliation against the stale responder. Every broad completion surface and failed-arm already-restored path now synchronously invalidates wake reconciliation and records recovery-only helper state before finalization. A refresh epoch prevents an older suspended status refresh from overwriting that demotion. | HIGH FOUND / FIXED OFFLINE |
+| F34-16 | Failed-arm structural status is a narrow negative-reply exception | Operation completion and removal still require `reply.ok`. `failedArmDisposition` intentionally does not claim operation success: a negative arm reply's fresh structural OFF status plus independent registry OFF may prove the attempted arm is already restored. Architecture and a revision-mismatch regression now state this exception instead of claiming every negative reply remains recovery work. | IMPORTANT FOUND / FIXED OFFLINE |
+| F34-17 | Automatic predecessor replacement must remain bound to the selected target across cleanup preparation | Initial admission was revision-6-only, but generic uninstall also accepted current revision 7 after the `prepareUninstall` suspension. Replacement now carries the exact protocol-6/revision-6 target through preparation and rechecks it before `commitUninstall`. If an exact-current revision-7 responder has taken over, replacement returns ready without cleanup, deregistration, or registration; every other changed target aborts before destructive mutation. Ordinary user removal retains its separately reviewed revision-6-or-7 boundary. | HIGH FOUND / FIXED OFFLINE |
+| F34-18 | Different-wire responders must not enter or continue automatic mutation loops | Launch reconciliation now requires same-wire recovery eligibility before query and rechecks the post-await reply. `NonSleepRestoreGate` ends an incompatible-wire generation as manual recovery rather than returning an unbounded retry, and AppState preserves the unresolved session/journal without claiming normal sleep. Established recovery stops dispatching unsupported XPC mutations and surfaces emergency sleep-only/support guidance. | HIGH FOUND / FIXED OFFLINE |
+| F34-19 | Force-sleep skip/ambiguity handling must preserve notification opt-out | The new stale-revision skip path overwrote a nil notification title and would notify users who disabled state-change notifications; the adjacent ambiguous-follow-up path had the same defect. Both now rewrite title/body only when notification was already enabled, while retaining truthful error state and one-shot no-repeat behavior. | IMPORTANT FOUND / FIXED OFFLINE |
+| F34-20 | Incompatible-wire terminalization cannot clear a late-arm recovery fence | The first F34-18 correction checked wire before `armRequestsInFlight`, so a different-wire reply could clear the generation while a suspended arm later enabled the override. Gate base/follow-up/final decisions now retain ownership while any arm is in flight. Sleep-transition recovery latches the incompatible status, sends no further unsupported mutation, waits only for arm settlement, and enters manual recovery afterward without claiming completion. | CRITICAL/HIGH FOUND / FIXED OFFLINE |
+| F34-21 | Unknown helper classification is not an indefinite progress state | `.unknown` includes ServiceManagement `.notFound`, different-wire demotion, and ambiguous terminal classifications. Setup and onboarding no longer render it as “Checking…” with a spinner. They state that helper status is unverified, offer Re-check, explain emergency sleep-only recovery and support boundaries, and never offer automatic install/replacement from unknown evidence. | IMPORTANT FOUND / FIXED OFFLINE |
+
+### Terminal-review recovery-fence evidence log (continued)
+
+- E-514 — 2026-08-06T13:11:47+0200 — Independent review continued after the
+  quarantined exact tree from E-510. Each finding above was reported before
+  commit; no green package/build result from an earlier tree is reused as final
+  evidence.
+- E-515 — 2026-08-06T13:11:47+0200 — The F34-15 source contract failed first
+  because no synchronous demotion, refresh epoch, or pre-finalization wake
+  invalidation existed. Production wiring then covered sleep transition,
+  ordinary restore, force-sleep follow-up, quit final proof, and failed-arm
+  already-restored completion. The focused stale-helper suite passed afterward.
+- E-516 — 2026-08-06T13:11:47+0200 — F34-16 has a pure regression over
+  missing, revision-6, and future revision-8 same-wire status. It distinguishes
+  unsuccessful operation proof from two-source failed-arm structural status.
+  Architecture now records the same narrow exception.
+- E-517 — 2026-08-06T13:11:47+0200 — The F34-17 source RED found no expected
+  target carried into uninstall and no pre-commit target recheck. The corrected
+  sequence rechecks registration, then exact selected target, then cleanup
+  authorization, before setting the unresolved-outcome fence and dispatching
+  `commitUninstall`. A second RED required the revision-6-to-current-revision-7
+  race to return benign ready instead of a false replacement failure.
+- E-518 — 2026-08-06T13:11:47+0200 — Pure launch and restore-gate REDs showed
+  different-wire armed/pending replies entering restore and returning retry.
+  Corrected tests require launch abandonment and terminal manual recovery at
+  zero in-flight arms. Source contracts require same-wire cached eligibility,
+  post-await validation, and no automatic unsupported retry path.
+- E-519 — 2026-08-06T13:11:47+0200 — Notification source-contract REDs first
+  found unconditional title replacement in both skipped and ambiguous
+  force-sleep follow-up paths. Both paths now preserve nil notification opt-in.
+- E-520 — 2026-08-06T13:11:47+0200 — The F34-20 regression first observed
+  `.manualRecoveryRequired` and lost gate ownership with
+  `armRequestsInFlight == 1`. Base, follow-up, and final proof now return retry
+  while retaining ownership at count 1, then terminalize at count 0. A direct
+  sleep-transition source contract requires a generation-bound incompatible
+  status latch before helper redispatch.
+- E-521 — 2026-08-06T13:11:47+0200 — F34-21 source REDs found nine false or
+  missing unknown-state UI expectations across Setup and onboarding. The
+  corrected focused suites pass six stale-helper tests, thirteen restore-gate
+  tests, and seven launch-reconciliation tests. A fresh strict Swift 6 complete-
+  concurrency App typecheck with warnings as errors passes all 25 App sources.
+  Full exact-tree tests/builds and a zero-material-finding independent review
+  remain pending; no live action or commit occurred.
+
+## Checkpoint 35 — one wake-admission boundary and fence integrity — 2026-08-06T14:12:47+0200
+
+Continuation lane (Claude) taking over the paused Codex lane. Every prior claim
+was treated as untrusted and re-derived from the working tree; the recorded
+handoff HEAD and all four dirty-state fingerprints reproduced exactly before
+any edit.
+
+| ID | Finding / invariant | Exact evidence and disposition | Verdict |
+|---|---|---|---|
+| F35-01 | `refreshInstallState` bypassed the wake-admission boundary | The app never sees the `HelperStatus` that `HelperClient.refreshInstallState()` classifies internally, so a live non-current classification demoted `installState` but left `scheduledWakeReconciliation` holding a confirmation produced by a different responder. A later exact-current takeover then read `begin(desired:)` as already confirmed and never re-dispatched the wake. `retainRecoveryOnlyHelperStateIfNeeded` is now one primitive with two entry points: the status-bearing one demotes the client first, then both converge on a single `!helperState.isUsable` decision. | HIGH FOUND / FIXED OFFLINE |
+| F35-02 | The initial install state was rendered as a terminal verdict | `installState` initialised to `.unknown`, which checkpoint 34 had just redefined as a *concluded* "cannot be verified" verdict with emergency/support copy. Every fresh launch therefore showed that terminal copy before anything had been classified. A distinct pre-refresh `.checking` case is now the initial value, is never produced by live evidence, is rendered as progress, and fails both `install()` classification switches closed. | IMPORTANT FOUND / FIXED OFFLINE |
+| F35-03 | Failed-arm disposition consumed an unadmitted reply | The demotion was wrapped in `if responseIsOwned`, but a superseded reply is still consumed: `failedArmDisposition` can disarm the phase or start recovery, because a failed arm may have partially applied. The boundary crossing is now unconditional and precedes the ownership guard. Demotion-only plus the live re-classification at the end of that branch makes this the fail-closed direction. | IMPORTANT FOUND / FIXED OFFLINE |
+| F35-04 | The incompatible-wire fence was defeated by any later proof loss | Terminalizing deliberately preserves `pendingRestore` and `.disarming` to keep the session and journal live, so the fence was represented only by the absence of a monitor task. `startTerminalRecoveryAfterHelperProofLoss` restarts a monitor from exactly that state, re-dispatching unsupported privileged mutations; when the call throws — the expected outcome for a mismatched responder — the `catch` never consults the gate and the loop retried every 5 s forever, overwriting the manual-recovery instruction with "Lidless will keep checking." An explicit `manualRecoveryGeneration` latch is now consulted by both the monitor's start path and its loop, including after the retry delay. | CRITICAL/HIGH FOUND / FIXED OFFLINE |
+| F35-05 | The sleep-transition fence had no representable state | That path clears `pendingRestore` before fencing, so a generation-keyed latch alone reported "recovery still running" for an equally terminal state, and the quit handler overwrote the fence's own message with the false one. It is keyed on `sleepGeneration` instead, which `recordSleepTransition` bumps, so a stale fence cannot be inherited. Exactly two `phase = .disarming` sites exist and both were re-verified. | HIGH FOUND / FIXED OFFLINE |
+| F35-06 | Quit copy claimed verification that had stopped | `.disarming` no longer implies work in progress. The quit refusal now branches on `automaticRecoveryStopped`, states that Lidless cannot clear the state itself, and names force-quit. The first correction of this copy asserted force-quit "will not change the current sleep setting", which `HelperDaemon.connectionEnded` → `.restoreOwnedSession` → `performRestore` refutes; the final wording claims only that force-quit cannot make the setting worse and that ending the connection is a signal *a* Lidless helper treats as a restoration trigger — hedged because the fenced responder's protocol is by definition unverifiable. | IMPORTANT FOUND / FIXED OFFLINE |
+| F35-07 | A concluded `.unknown` was invisible outside Setup | `AppState.statusDetail` and the menu-bar banner both excluded `.unknown` from their "helper needs attention" condition, written when `.unknown` meant "not yet checked". Both now suppress only `.checking`, and terminal states (`.unknown`, `.notResponding`, non-reviewed `.stale`) get a `.warning` banner, truthful text, and an "Open Setup…" action instead of a one-tap "Set Up…" chore. Setup's status icon no longer marks a terminal stale revision with the retryable circular-arrows glyph. | IMPORTANT FOUND / FIXED OFFLINE |
+| F35-08 | Removal-failure guidance contradicted what the code proved | The alert appended "Do not assume the helper is still installed after an error" to every failure, including the seven paths whose own message states that no cleanup or deregistration was requested — pushing the user toward manual removal, the one action that strips launchd's KeepAlive/RunAtLoad supervision from a provably intact helper. `HelperRemovalFailureInfo.didNotStartKey` now marks codes 5, 6, 7, 10, 11, 12 (both sites) and 13; codes 3, 4, 8 and 9 stay ambiguous (code 4 delivered `commitUninstall`, so remote cleanup did run). Guidance is composed alongside the failure. The uninstall button stays enabled: gating it on a cached classification would reintroduce the cached-eligibility anti-pattern this repair removed. | IMPORTANT FOUND / FIXED OFFLINE |
+| F35-09 | Replacement understated an irreversible sequence | "Helper safety update required" + "Replace Helper…" ran remote cleanup, deregistration and re-registration with no disclosure. Both Setup and onboarding now state that replacing removes the current helper first — cancelling its scheduled wakes, restoring the other settings it manages, deleting its data, deregistering it — and that a failed re-registration leaves no helper registered. | IMPORTANT FOUND / FIXED OFFLINE |
+| F35-10 | A possibly-applied wake was classified as an explicit rejection | A responder replying `ok: true` from a refused revision may already have programmed the RTC wake. Reusing `.rejected` recorded no ordering hazard. `scheduleWake` now splits the guards: `!reply.ok` throws `.rejected`; refused-after-delivery throws the new `HelperClientError.outcomeUnknown`, which maps to `.uncertain` and sets the sticky hazard. | MINOR FOUND / FIXED OFFLINE |
+| F35-11 | Launch wake maintenance was dead code | `reconcileWithHelper`'s trailing `maintainScheduledWake()` always self-blocked on its own `!launchReconciliationInFlight` guard, because the `defer` clears the flag at function exit. The exclusion is now released explicitly after the decision and demotion — preserving its ordering rule — and before that maintenance pass. | MINOR FOUND / FIXED OFFLINE |
+| V35-01 | Strict TDD with observed RED on every change | Each of the fourteen new regressions failed first against the pre-change tree (8, 13, 1, 5, 9, 2, 1 and 5 discriminating expectations across the successive passes) before any production edit. The strict Swift 6 typecheck independently produced the RED for `.checking` by rejecting two non-exhaustive `install()` switches. | PASS — RED OBSERVED |
+| V35-02 | Complete verification at the final tree | 357 tests in 35 suites; strict Swift 6 complete-concurrency typechecks with warnings-as-errors over 25 App, 4 Helper and 1 Widget sources; Debug and Release `LidlessCore` builds; Debug and Release unsigned `xcodebuild` with verified bundle layout. Baseline before this lane was 343 tests. | PASS FOR WORKING TREE |
+| V35-03 | Independent adversarial review reached zero material findings | Three review passes on Opus-class reasoning against the live tree. Pass 1 independently reproduced F35-01 and F35-02 and found F35-04/F35-06/F35-07/F35-08/F35-09; pass 2 found F35-05 and refuted nothing already fixed; pass 3 refuted the force-quit clause in F35-06 with a direct daemon citation. Every reported defect was reproduced in the code before being accepted. | PASS |
+| G35-01 | No live behaviour is proved | No app, helper or widget was launched; no install, activation, registration, unregister, approval, live XPC, `pmset`, sleep-setting mutation, sleep/wake, hardware, signing, notarization, network, merge, push or release action occurred. `xcodebuild` runs its normal `lsregister` bundle-registration build phase; that registers the built bundle with LaunchServices and does not install, activate or contact the privileged helper. | OPEN LIVE GATE |
+| G35-02 | Other confirmed package defects remain separate | Crash-session journal finalization, scheduled-wake transaction durability, Homebrew raw-`launchctl` lifecycle bypass, release-artifact permission validation, and the earlier storage/removal/live-proof groups are untouched by this checkpoint. | OPEN SEPARATE GROUPS |
+
+### Checkpoint 35 append-only evidence log
+
+- E-522 — 2026-08-06T14:12:47+0200 — Recovery began from feature HEAD
+  `de9d9db3b7964de0f86f75772b5a82063564e709` on branch
+  `codex/lidless-safety-repair-2026-08-04`. Before any edit, the recorded
+  handoff fingerprints reproduced exactly: combined `git diff HEAD --binary`
+  `9839001466efe26ca922f59b190d6a2596476f8637d1d51dfefee7cf8b4db8f9`, cached
+  `ebc9282c3b7dcc7d14e0d1a37dc51dd3a807fbfca588d0ea811847f2a04036bf`,
+  unstaged `159cc8744fb2bab1999f068a7d597f9f20ad13b53cafbfb4a8991108b0176810`,
+  and untracked design brief
+  `4835b0dc2fa44257d2e4aca6429e5bd5ad1cf93989686c709311d91b9659e7f7`. The
+  Git index was never modified during this lane; its digest is unchanged at
+  commit time.
+- E-523 — 2026-08-06T14:12:47+0200 — The central invariant was audited ingress
+  by ingress rather than by inspection of the previously claimed paths. Sleep
+  transition, restore monitor, force-sleep follow-up, quit final proof,
+  failed-arm disposition, launch reconciliation, heartbeat, `scheduleWake`,
+  `refreshInstallState`, and `install`/`uninstall`/`prepareUninstall` were each
+  traced to either a boundary crossing or an `AppState`-level invalidation.
+  Two ingresses did not cross it (F35-01, F35-03); both now do.
+- E-524 — 2026-08-06T14:12:47+0200 — Verification reproduced the repository's
+  own commands under the documented stable toolchain
+  `/Applications/Xcode.app` (Xcode 26.5), not the active 27.0 beta:
+  `swift test --package-path Packages/LidlessCore` (357 tests, 35 suites);
+  `xcodebuild -project Lidless.xcodeproj -scheme Lidless -configuration
+  {Debug,Release} CODE_SIGNING_ALLOWED=NO build` with the CI bundle-layout
+  assertions; Debug and Release `swift build` of `LidlessCore`; and the
+  recorded strict typecheck
+  `swiftc -typecheck -swift-version 6 -strict-concurrency=complete
+  -warnings-as-errors -target arm64-apple-macosx15.0` over all App, Helper and
+  Widget sources. One setup failure is preserved and not counted: the first
+  Helper typecheck wrongly passed `-parse-as-library` to a target with a
+  top-level `main.swift`; the corrected invocation passed.
+- E-525 — 2026-08-06T14:12:47+0200 — The independent reviewer was read-only and
+  ran no privileged, lifecycle or state-mutating command. Two of its findings
+  were rejected as written and re-scoped after direct code inspection: a
+  proposed negative assertion that would have banned the terminal `case .stale:`
+  arm outright, and the suggestion to disable the uninstall button in
+  guaranteed-failure states, which would have reintroduced cached-eligibility
+  gating. Three pre-existing test assertions pinned code shapes this checkpoint
+  deliberately changed — `if responseIsOwned`, `guard reply.ok,` (committed at
+  HEAD as a proxy for "never accept an ok-only reply"), and the SetupPane
+  removal-alert copy. Each was re-verified for provenance and rewritten to test
+  the underlying invariant at its new location rather than deleted.
+- E-526 — 2026-08-06T14:12:47+0200 — Accepted as-is, with reasons rather than
+  silence: an ambiguous force-sleep follow-up still plays its notification
+  sound while the skipped path does not (cosmetic, no truth claim); a
+  follow-up-stage `.manualRecoveryRequired` reports "without claiming normal
+  sleep" even though base-stage two-source proof already succeeded
+  (conservative in the safe direction); and `markForceSleepFollowUpSkipped`
+  can say "skipped" for a request that was dispatched (cosmetic, terminal path
+  only). None affects a gate decision.
+- E-527 — 2026-08-06T14:12:47+0200 — No app, helper, widget or compiled product
+  was launched. No install, activation, registration, unregister, approval,
+  live XPC, `pmset`, sleep-setting mutation, sleep/wake, hardware, signing,
+  design/Figma, authentication, credential, provider, plugin/MCP, connector,
+  network, merge, push, deploy, release, or main-checkout mutation occurred.
+  All verification artifacts are under the git-ignored `build/` tree.
+- E-528 — 2026-08-06T14:12:47+0200 — A late review pass found that the fenced
+  copy was written to `lastError` but was unreachable: `lastError` renders only
+  in `MenuPanelView`, `SetupPane` and `OnboardingView`, `OverviewPane` renders
+  it nowhere, `mainPane` defaults to `.overview`, and `requestMainWindow(pane:)`
+  assigns the pane only when one is passed. The fenced user therefore saw only
+  the `.restoring` hero, "Restoring sleep…" — precisely the false impression the
+  fence exists to remove — and the copy telling them to open Setup & Help did
+  not take them there. All four quit-refusal branches in
+  `applicationShouldTerminate`, the incompatible-wire fence, and
+  `repairOverride`'s "Open Setup" branch now pass `pane: .setup`.
+  `beginArmFlow`'s bare `requestMainWindow()` is deliberately left alone: it
+  sets no error text at all, so routing it would not fix it, and deciding what
+  it should say is outside this checkpoint. It is recorded here as open.
+- E-529 — 2026-08-06T14:12:47+0200 — Committed roster (24 paths): `ARCHITECTURE.md`;
+  `App/Sources/{AppState,LidlessApp}.swift`; `App/Sources/Helper/HelperClient.swift`;
+  `App/Sources/Simulation/Simulation.swift`;
+  `App/Sources/UI/{Main/SetupPane,MenuBar/MenuPanelView,Onboarding/OnboardingView}.swift`;
+  this status ledger; `Packages/LidlessCore/Sources/LidlessCore/{HelperRemovalSafety,LaunchReconciliationSafety,LidlessIDs,NonSleepRestoreGate,SleepOverrideSafety}.swift`;
+  and nine `Packages/LidlessCore/Tests/LidlessCoreTests` suites. Deliberately
+  excluded and left uncommitted so the founder still owns them:
+  `Docs/orchestration/decisions.md` and `Docs/orchestration/progress.md`, whose
+  pending edits are the 2026-08-04 design-reset entry, and the untracked
+  `Docs/orchestration/tasks/2026-08-04-design-reset-brief.md`
+  (`4835b0dc2fa44257d2e4aca6429e5bd5ad1cf93989686c709311d91b9659e7f7`,
+  unchanged throughout this lane).
+- E-530 — 2026-08-06T14:12:47+0200 — Remaining risks and next step. Every live
+  gate from checkpoint 34 stays open and this checkpoint adds no runtime proof:
+  the fence, the wake-admission demotion, replacement, and removal guidance are
+  all verified only against source, pure policy, and source-order contracts. A
+  fenced session still cannot be resolved inside the app — quitting from the
+  menu stays blocked while normal sleep is unverified, and making it resolvable
+  would need single-source completion after user-performed emergency recovery,
+  a policy change this lane was not authorized to make and which the founder
+  should rule on. `beginArmFlow`'s silent window request is open. The next step
+  is a founder decision on that fenced-session exit policy, then the live
+  hardware shakedown that every offline checkpoint has deferred.
+- E-531 — 2026-08-06T14:12:47+0200 — Routing the fenced state to Setup made the
+  removal refusal reachable directly from it, where "Lidless is keeping the
+  helper installed while recovery continues" was false: recovery had terminally
+  stopped. The refusal itself is correct — `canProceedRemoval(isDisarmed:)`
+  rightly declines — so only its reason was corrected, branching on
+  `automaticRecoveryStopped`. The reviewer's final summary also listed the
+  launch-reconciliation dead-call (F35-11) as still open; that note was stale
+  from an earlier pass and the fix was re-verified in place before the report
+  was accepted. Review reached zero unresolved Critical, High or Important
+  findings at the committed tree.

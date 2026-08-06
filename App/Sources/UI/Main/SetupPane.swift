@@ -57,10 +57,17 @@ struct SetupPane: View {
                 statusActions
             }
             .padding(.vertical, Theme.s1)
+
+            if let error = state.lastError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
+            }
         } header: {
             Text("Privileged helper")
         } footer: {
-            Text("The helper is a tiny root daemon that runs `pmset` on Lidless's behalf. You authorize it once; every code path it has — including crash recovery and a watchdog — restores normal sleep.")
+            Text("The helper is a tiny root daemon that runs `pmset` on Lidless's behalf. Its disarm, watchdog, and connection-loss layers request and retry restoration. Recovery or removal is reported complete only after verified normal sleep; use the checks below whenever recovery is uncertain.")
         }
     }
 
@@ -71,11 +78,24 @@ struct SetupPane: View {
                 Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
             case .requiresApproval:
                 Image(systemName: "person.badge.clock.fill").foregroundStyle(.orange)
-            case .stale:
+            // The circular-arrows glyph reads as "retryable update in
+            // progress". Only the reviewed-predecessor case has an automatic
+            // path; every other stale revision is terminal.
+            case .stale(let version, let revision)
+                where SleepOverrideSafety.isReviewedStaleReplacementCompatible(
+                    helperVersion: version,
+                    helperSafetyRevision: revision
+                ):
                 Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(.orange)
+            case .stale:
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
             case .notResponding:
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-            case .notInstalled, .unknown:
+            case .unknown:
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            case .checking:
+                Image(systemName: "circle.dashed").foregroundStyle(.secondary)
+            case .notInstalled:
                 Image(systemName: "circle.dashed").foregroundStyle(.secondary)
             }
         }
@@ -88,10 +108,19 @@ struct SetupPane: View {
         case .ready(let version): "Installed and responding (v\(version))"
         case .simulated: "Simulated helper (dry-run mode)"
         case .requiresApproval: "Waiting for your approval"
-        case .stale(let version): "Helper v\(version) is incompatible"
+        case .stale(let version, let revision):
+            if SleepOverrideSafety.isReviewedStaleReplacementCompatible(
+                helperVersion: version,
+                helperSafetyRevision: revision
+            ) {
+                "Helper safety update required"
+            } else {
+                "Helper protocol v\(version), revision \(revisionLabel(revision)), requires a reviewed removal procedure"
+            }
         case .notResponding: "Installed but not responding"
         case .notInstalled: "Not installed"
-        case .unknown: "Checking…"
+        case .unknown: "Helper status unverified"
+        case .checking: "Checking…"
         }
     }
 
@@ -100,18 +129,30 @@ struct SetupPane: View {
         case .ready: "Keep-awake is fully operational."
         case .simulated: "No system changes are made in this mode."
         case .requiresApproval: "Open System Settings → General → Login Items & Extensions, and allow “Lidless”."
-        case .stale: "Reinstall the matching helper."
-        case .notResponding(let error): error
+        case .stale(let version, let revision):
+            if SleepOverrideSafety.isReviewedStaleReplacementCompatible(
+                helperVersion: version,
+                helperSafetyRevision: revision
+            ) {
+                "This responder uses the current wire protocol but not this app's exact safety behavior revision. Replacing removes the current helper first: it cancels its scheduled wakes, restores the other settings it manages, deletes its data, and deregisters it. The new helper will not be registered until that cleanup and normal sleep are independently verified, and if that registration then fails you will be left with no helper registered until you install one again."
+            } else {
+                "Automatic cleanup is unavailable because this helper's complete removal behavior is not reviewed by this app. Emergency sleep recovery only: run \(LidlessIDs.manualFallbackCommand) and verify normal sleep. That command does not remove the helper, cancel its wakes, restore other settings, or delete its data. Keep the helper registered and contact Lidless support for a separately reviewed, revision-specific removal procedure."
+            }
+        case .notResponding(let error):
+            "\(error) Automatic replacement is unavailable without a compatible live reply. Emergency sleep recovery only: run \(LidlessIDs.manualFallbackCommand) and verify normal sleep. That command does not remove the helper or complete replacement. Keep the helper registered and contact Lidless support for a separately reviewed removal procedure for the installed helper."
         case .notInstalled: "One-time install; macOS asks for your password."
-        case .unknown: ""
+        case .unknown:
+            "Helper classification is unavailable, so Lidless will not assume the helper is absent or safe to replace. Emergency sleep recovery only: run \(LidlessIDs.manualFallbackCommand) and verify normal sleep. That command does not remove a helper or establish registration state. Keep any helper registered and contact Lidless support if Re-check cannot classify it."
+        case .checking:
+            "Lidless has not classified the installed helper yet."
         }
     }
 
     @ViewBuilder
     private var statusActions: some View {
         switch state.helperState {
-        case .notInstalled, .stale, .notResponding:
-            Button(state.helperState == .notInstalled ? "Install Helper…" : "Reinstall…") {
+        case .notInstalled:
+            Button("Install Helper…") {
                 Task {
                     busy = true
                     await state.installHelper()
@@ -120,6 +161,24 @@ struct SetupPane: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(busy)
+        case .stale(let version, let revision)
+            where SleepOverrideSafety.isReviewedStaleReplacementCompatible(
+                helperVersion: version,
+                helperSafetyRevision: revision
+            ):
+            Button("Replace Helper…") {
+                Task {
+                    busy = true
+                    await state.installHelper()
+                    busy = false
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(busy)
+        case .stale, .notResponding:
+            Text("Reviewed removal procedure required")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.orange)
         case .requiresApproval:
             Button("Open Login Items…") {
                 state.openApprovalSettings()
@@ -133,8 +192,19 @@ struct SetupPane: View {
                 Task { await state.refreshHelperState() }
             }
         case .unknown:
+            Button("Re-check") {
+                Task { await state.refreshHelperState() }
+            }
+        // Progress is truthful only before the first classification lands.
+        // A concluded-but-unverifiable helper is `.unknown` above and keeps
+        // its terminal copy and Re-check action instead of a spinner.
+        case .checking:
             ProgressView().controlSize(.small)
         }
+    }
+
+    private func revisionLabel(_ revision: Int?) -> String {
+        revision.map(String.init) ?? "missing"
     }
 
     // MARK: - App behavior
@@ -172,9 +242,9 @@ struct SetupPane: View {
             .padding(.vertical, Theme.s1)
 
             VStack(alignment: .leading, spacing: Theme.s2) {
-                Text("Manual fallback")
+                Text("Emergency sleep recovery")
                     .font(.body.weight(.medium))
-                Text("If Lidless is ever gone but sleep stays disabled (it shouldn't be possible), one command undoes everything:")
+                Text("If normal sleep cannot be verified, this command restores only the main system sleep flag. It does not remove the helper, cancel helper-managed wakes, restore other settings, or delete helper data:")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 CommandField(command: LidlessIDs.manualFallbackCommand)
@@ -230,7 +300,7 @@ struct SetupPane: View {
                     }
                 }
             } message: {
-                Text("Lidless verifies normal sleep and confirms the helper is not registered before reporting success.")
+                Text("Removal is reported successful only after Lidless verifies normal sleep and confirms the helper is not registered.")
             }
             .disabled(busy || state.isSimulation)
             .alert(item: $uninstallResult) { result in
@@ -247,7 +317,9 @@ struct SetupPane: View {
                 case .failure(let message):
                     Alert(
                         title: Text("Uninstall didn't finish"),
-                        message: Text("\(message)\n\nDo not assume the helper is still installed after an error. If normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand) in Terminal before retrying."),
+                        // The guidance is composed alongside the failure so it
+                        // can match what that code path actually proved.
+                        message: Text(message),
                         dismissButton: .default(Text("OK"))
                     )
                 }

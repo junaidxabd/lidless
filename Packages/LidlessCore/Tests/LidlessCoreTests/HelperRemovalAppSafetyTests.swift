@@ -143,7 +143,7 @@ struct HelperRemovalAppSafetyTests {
             "Couldn't arm because helper removal began during verification."
         ))
 
-        let installFence = try #require(install.range(of: "guard !uninstallInProgress"))
+        let installFence = try #require(install.range(of: "!uninstallInProgress,"))
         let installBegin = try #require(install.range(of: "beginHelperLifecycleOperation()"))
         #expect(installFence.lowerBound < installBegin.lowerBound)
         #expect(publicRefresh.contains("guard await refreshHelperInstallState() else { return }"))

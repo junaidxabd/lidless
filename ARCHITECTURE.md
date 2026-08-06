@@ -205,29 +205,144 @@ Ad-hoc helpers fail closed because an identifier-only requirement is locally
 spoofable. Payloads are Codable JSON over `Data` (one
 encoding for XPC, sentinel, and logs); malformed input produces an error
 reply, never a crash. Every reply carries a fresh `HelperStatus` including
-the *read-back* override value. Readiness and every app-side arm, restore,
-outside-ownership, enabled-registration removal, and scheduled-wake acceptance
-boundary require both protocol v6 and the exact safety behavior revision 7.
-A missing, older, or future revision is stale and cannot supply proof. The
-revision is self-reported compatibility metadata, not executable attestation
-or an installation receipt; safely replacing an already registered stale
-helper remains a separate deployment gate.
+the *read-back* override value. Risk-increasing admission remains strict:
+readiness, arming, armed-session proof, outside-ownership classification, and
+scheduled-wake acceptance require both protocol v6 and the exact safety
+behavior revision 7. A missing, older, or future revision is stale and can
+never arm. The revision is self-reported compatibility metadata, not executable
+attestation or an installation receipt.
 
-Enabled-helper cleanup has the same compatibility boundary on entry, not only
-on its reply. The client asks the responder to prepare cleanup, requires the
-exact protocol and safety revision in that non-cleanup reply, and rechecks that
-launchd still classifies the service as enabled. Preparation also returns a
-random authorization bound to that helper process lifetime. The receiving
-daemon validates it before advancing lifecycle state, restoring settings,
-cancelling wakes, or removing data. A commit delivered to a restarted or
-replacement process therefore rejects before cleanup mutation. The legacy
-unbound cleanup selector is fail-closed. The token does not bind a lingering
-responder to the SMAppService registration that will later be unregistered, so
-registration/executable identity and enabled-to-enabled registration ABA remain
-open gates. This handshake is self-reported compatibility evidence, not
-attestation of installed bytes or a receipt for the registered executable;
-signed replacement and live ServiceManagement/XPC behavior remain separate
-runtime gates.
+De-risking normal-sleep completion has a deliberately separate boundary. A
+responder using exact protocol v6 may prove restoration despite a missing or
+mismatched behavior revision, but only when its reply is successful and
+structurally complete (`armed == false`, verified registry OFF, and
+`restorePending == false`) **and** the app independently reads the registry OFF.
+Failed-arm disposition is the narrow exception to reply-success admission: it
+does not claim the failed operation completed, and may classify the arm as
+already restored when the reply's fresh structural status plus the independent
+registry read both prove OFF despite `ok == false`.
+This broad boundary proves only the main sleep flag; it cannot authorize wake
+ledger mutation, optional-setting restoration, data deletion, or
+deregistration. Helper-side and other one-source restore decisions still
+require exact revision 7. A cutoff's optional `sleepnow` follow-up is also a
+separate power mutation: a revision-mismatched helper may complete two-source
+normal-sleep proof, but only an exact-current revision-7 reply can authorize
+the one-shot follow-up. Before any revision-mismatched recovery completion can
+finalize a session, the app synchronously demotes cached helper readiness and
+invalidates scheduled-wake reconciliation; only a later fresh exact-current
+classification can re-enable arm or wake work. Every accepted live-evidence
+ingress crosses that one boundary — sleep-transition recovery, the restore
+monitor, the force-sleep follow-up, the quit final proof, failed-arm
+disposition, launch reconciliation, the heartbeat, `scheduleWake` replies, and,
+including a refresh the client classifies itself, `refreshInstallState`. The
+refresh reads status inside `HelperClient`, so the app never sees that
+`HelperStatus`; the surviving classification is routed through the same
+boundary instead of a second copy of the rule. Cached scheduled-wake authority
+therefore survives only an exact-current `.ready` (or `.simulated`)
+classification, so a stale, different-wire, unresponsive, or unclassifiable
+responder can never inherit a wake confirmation that another responder
+produced. The boundary only demotes; it never promotes. A different wire protocol ends
+the automatic recovery generation without claiming restoration **only after**
+every dispatched arm has settled. While an arm is in flight, the generation
+and manual-recovery latch remain live and no second unsupported mutation is
+sent; this prevents a late arm from re-enabling the override after its recovery
+fence was cleared. Terminalizing keeps the pending restore and `.disarming`
+so the session and crash journal stay live, so the fence is an explicit
+generation latch rather than an implied state: the
+absence of a monitor task is not a fence, because any later helper-proof loss
+restarts a monitor from exactly that state and would re-dispatch unsupported
+mutations on a five-second loop. Both the monitor's start path and its loop
+consult the latch, and quit copy reports that automatic recovery stopped
+instead of claiming restoration is still in progress. The sleep-transition
+fence has no restore generation to latch — that path already cleared the
+pending restore — so it is keyed on the sleep generation instead, which every
+new transition bumps, so a stale fence can never be inherited. Quitting stays
+blocked while normal sleep is unverified; resolving a fenced session is a
+manual, support-guided path, and the copy says so rather than implying an
+in-app route that does not exist. A malformed or negative operation reply outside the
+failed-arm exception, either unknown observation, or any contradiction cannot
+prove completion.
+
+Enabled-helper cleanup has the stricter behavior boundary because it can
+restore optional settings, cancel persisted wakes, delete helper data, and
+authorize deregistration. The responder must use exact protocol v6 **and**
+either current revision 7 or explicitly reviewed predecessor revision 6.
+Missing revisions, revisions 0–5, and future revisions are rejected before
+`commitUninstall`; wire compatibility alone never authorizes destructive
+cleanup. The client then asks that reviewed responder to prepare cleanup and
+rechecks that launchd still classifies the service as enabled. Automatic
+replacement additionally rechecks that preparation came from the exact
+protocol-v6/revision-6 target selected before the await. If revision 7 answers,
+replacement returns ready without cleanup or registration; any other changed
+responder aborts before destructive cleanup.
+Preparation returns a random authorization bound to that helper process
+lifetime. The receiving daemon validates it before advancing lifecycle state,
+restoring settings, cancelling wakes, or removing data. A commit delivered to
+a restarted or replacement process therefore rejects before cleanup mutation.
+The legacy unbound cleanup selector remains fail-closed. Only after the cleanup
+reply plus the independent registry read prove normal sleep may the client call
+asynchronous unregister; success additionally requires a fresh inactive
+registration classification and another registry-OFF read.
+
+Replacement is user-invoked only. `install()` freshly reclassifies the live
+service instead of trusting Setup's cached state and preserves both its wire
+version and reported behavior revision. Only protocol v6 / reviewed predecessor
+revision 6 may run the cleanup/unregister proof once. It registers once after
+proven completion and then requires either exact-current readiness or the
+explicit macOS approval state. It never retries automatically. Missing,
+revisions 0–5, future revisions, a different/unknown wire version, unsupported
+cleanup selector, ambiguous cleanup or unregister outcome, or failed
+post-register verification stops without cleanup or another registration.
+Only explicit `.notRegistered` after a failed registration may surface a
+safe-but-uninstalled state. ServiceManagement `.notFound` is an error, not
+inactive-registration proof; it and every unknown classification block retry
+without claiming the helper is absent. Setup and onboarding render that state
+as unverified with Re-check plus emergency sleep-only/support guidance, never
+as an indefinite progress state or automatic-replacement opportunity. Because
+that verdict is a conclusion about the installed helper, the
+not-yet-classified state is distinct from that verdict: a separate pre-refresh
+`.checking` value is the app's initial install state, is rendered as work in
+progress, and is never produced by live evidence. Neither value is usable, reachable, or
+recovery-eligible, and both `install()` classification switches fail closed on
+`.checking` rather than install, replace, or claim success from absent
+evidence. No replacement is attempted on launch.
+Launch reconciliation may query and restore an exact-wire stale revision, but
+both cached eligibility and the post-await reply decision reject a different
+wire protocol before any automatic disarm loop can begin.
+
+`sudo pmset -a disablesleep 0` is an emergency normal-sleep recovery command,
+not a complete helper-removal procedure: it does not cancel a helper-managed
+wake, restore other managed settings, delete helper data, or deregister
+ServiceManagement. A helper outside the reviewed cleanup boundary must be
+kept registered and must stay registered until a separately reviewed,
+revision-specific support removal procedure is available. Running an older
+matching app's generic uninstall path is not presumed safe. The UI does not
+describe the sleep-only command as automatic or complete replacement.
+
+The process token does not bind a lingering responder to the SMAppService
+registration later unregistered, so registration/executable identity and
+enabled-to-enabled registration ABA remain open gates. The handshake and
+revision are self-reported compatibility evidence, not attestation of installed
+bytes or a receipt for the registered executable. Signed mixed-version XPC,
+real cleanup and registry behavior, asynchronous unregister/register, and
+replacement timing remain separate runtime gates.
+
+Removal-failure guidance is likewise split by what the failing path proved.
+Most removal errors stop before any remote mutation and say so in their own
+message. Those carry an explicit marker, and the alert
+must not tell the user to disbelieve it: manual removal is what strips
+launchd's KeepAlive/RunAtLoad supervision from a helper that is provably
+intact. Only a genuinely unresolved remote outcome gets the "do not assume
+removal happened" warning and the emergency command.
+
+Scheduled-wake outcomes distinguish the two ways a reconciliation can fail. An
+explicit negative reply is a rejection: the mutation did not happen, and the
+desired value stays plainly retryable. A reply that this app
+refused after delivery is an indeterminate remote outcome — the responder
+reported success but does not match the required safety revision, so it may
+already have programmed the RTC wake. Only that classification records the
+sticky ordering hazard that prevents a later matching success from being read
+as confirmation.
 
 Uninstall-time scheduled-wake cleanup is also fail-closed. After `pmset`
 accepts cancellation, the daemon must remove the exact persisted wake record

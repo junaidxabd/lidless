@@ -17,12 +17,15 @@ public struct NonSleepRestoreGeneration: Hashable, Sendable {
 /// The app owns the asynchronous work; this gate owns the safety decisions:
 /// stale generations are ignored, completion requires helper and independent
 /// registry proof with no arm request in flight, an optional sleep request is
-/// authorized at most once, and quit can require a second proof immediately
-/// before committing termination.
+/// authorized at most once and only from an exact-current helper proof, and
+/// quit can require a second proof immediately before committing termination.
 public struct NonSleepRestoreGate: Sendable {
     public enum Action: Sendable, Equatable {
         case ignore
         case retry
+        /// The responder changed to an unsupported wire protocol. End this
+        /// automatic generation instead of retrying incompatible mutations.
+        case manualRecoveryRequired
         case dispatchForceSleep
         case awaitFinalProof
         case complete
@@ -136,6 +139,20 @@ public struct NonSleepRestoreGate: Sendable {
         guard var current = active,
               current.generation == generation
         else { return .ignore }
+        // A late arm can re-enable the override after this reply. Preserve the
+        // generation until every dispatched arm has settled, even when the
+        // responder has changed to an incompatible wire protocol.
+        guard armRequestsInFlight == 0 else {
+            current.awaitingFinalProof = false
+            active = current
+            return .retry
+        }
+        guard SleepOverrideSafety.isRecoveryCompatibleHelper(
+            helperReply.status
+        ) else {
+            active = nil
+            return .manualRecoveryRequired
+        }
         guard proofIsComplete(
             helperReply: helperReply,
             independentlyObserved: independentlyObserved,
@@ -147,6 +164,12 @@ public struct NonSleepRestoreGate: Sendable {
         }
 
         if current.forceSleepRequested, !current.forceSleepDispatched {
+            // Broad same-wire proof may complete only de-risking normal-sleep
+            // restoration. `sleepnow` is a separate power mutation and keeps
+            // the exact-current behavior-revision boundary.
+            guard SleepOverrideSafety.isCurrentHelper(helperReply.status) else {
+                return advanceAfterRestoreProof(current)
+            }
             // Commit the one-shot decision before the caller suspends in XPC.
             current.forceSleepDispatched = true
             active = current
@@ -166,6 +189,13 @@ public struct NonSleepRestoreGate: Sendable {
               current.generation == generation,
               current.forceSleepDispatched
         else { return .ignore }
+        guard armRequestsInFlight == 0 else { return .retry }
+        guard SleepOverrideSafety.isRecoveryCompatibleHelper(
+            helperReply.status
+        ) else {
+            active = nil
+            return .manualRecoveryRequired
+        }
         guard proofIsComplete(
             helperReply: helperReply,
             independentlyObserved: independentlyObserved,
@@ -188,6 +218,17 @@ public struct NonSleepRestoreGate: Sendable {
               current.requiresFinalProof,
               current.awaitingFinalProof
         else { return .ignore }
+        guard armRequestsInFlight == 0 else {
+            current.awaitingFinalProof = false
+            active = current
+            return .retry
+        }
+        guard SleepOverrideSafety.isRecoveryCompatibleHelper(
+            helperReply.status
+        ) else {
+            active = nil
+            return .manualRecoveryRequired
+        }
         guard proofIsComplete(
             helperReply: helperReply,
             independentlyObserved: independentlyObserved,

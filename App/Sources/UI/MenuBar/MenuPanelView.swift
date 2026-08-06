@@ -123,12 +123,18 @@ struct MenuPanelView: View {
             }
             .padding(.top, Theme.s2)
         }
-        if !state.helperState.isUsable, state.helperState != .unknown, !state.isArmed {
+        // Only the pre-classification value is silent. `.unknown` is a
+        // concluded verdict, so it gets a banner that says so rather than
+        // disappearing behind an ordinary state.
+        if !state.helperState.isUsable,
+           state.helperState != .checking,
+           !state.helperLifecycleWorkInProgress,
+           !state.isArmed {
             Banner(
-                kind: .info,
+                kind: helperBannerIsTerminal ? .warning : .info,
                 message: helperBannerMessage
             ) {
-                Button(state.helperState == .requiresApproval ? "Approve…" : "Set Up…") {
+                Button(helperBannerActionLabel) {
                     if state.helperState == .requiresApproval {
                         state.openApprovalSettings()
                     } else {
@@ -142,11 +148,36 @@ struct MenuPanelView: View {
         }
     }
 
+    /// States with no automatic in-app resolution. Their button opens Setup for
+    /// the full explanation instead of implying a one-tap setup chore.
+    private var helperBannerIsTerminal: Bool {
+        switch state.helperState {
+        case .unknown, .notResponding:
+            true
+        case .stale(let version, let revision):
+            !SleepOverrideSafety.isReviewedStaleReplacementCompatible(
+                helperVersion: version,
+                helperSafetyRevision: revision
+            )
+        default:
+            false
+        }
+    }
+
+    private var helperBannerActionLabel: String {
+        if state.helperState == .requiresApproval { return "Approve…" }
+        return helperBannerIsTerminal ? "Open Setup…" : "Set Up…"
+    }
+
     private var helperBannerMessage: String {
         switch state.helperState {
         case .notInstalled: "One-time setup: install the privileged helper to enable keep-awake."
         case .requiresApproval: "Almost there — approve Lidless in Login Items & Extensions."
-        case .notResponding: "The helper isn't responding."
+        case .notResponding: "The helper isn't responding. Its status is unverified."
+        case .unknown: "The helper could not be classified, so its status is unverified."
+        case .stale where helperBannerIsTerminal:
+            "This helper needs a reviewed removal procedure. Lidless will not replace it automatically."
+        case .stale: "The helper needs a safety update before keep-awake can arm."
         default: "Helper setup needed."
         }
     }

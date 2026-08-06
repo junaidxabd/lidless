@@ -23,6 +23,12 @@ public enum LidlessIDs {
     /// executable identity or a replacement/install receipt.
     public static let helperSafetyRevision = 7
 
+    /// The only non-current behavior revision whose complete cleanup path has
+    /// been reviewed for automatic replacement by revision 7. This is an
+    /// explicit pin, not `helperSafetyRevision - 1`: a later revision bump
+    /// must not silently admit a predecessor that has not been reviewed.
+    public static let reviewedStaleReplacementSafetyRevision = 6
+
     public static let appGroupID = "group.com.lidless.shared"
     public static let urlScheme = "lidless"
 

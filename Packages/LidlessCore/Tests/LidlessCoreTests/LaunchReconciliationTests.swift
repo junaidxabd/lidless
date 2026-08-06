@@ -23,11 +23,12 @@ struct LaunchReconciliationTests {
     }
 
     private func status(
+        version: Int = LidlessIDs.helperVersion,
         armed: Bool = false,
         restorePending: Bool? = false
     ) -> HelperStatus {
         HelperStatus(
-            helperVersion: LidlessIDs.helperVersion,
+            helperVersion: version,
             armed: armed,
             sleepDisabled: armed,
             sleepStateVerified: true,
@@ -97,10 +98,41 @@ struct LaunchReconciliationTests {
         ) == .none)
     }
 
+    @Test func differentWireResponderCannotStartAutomaticLaunchRecovery() {
+        for version in [
+            LidlessIDs.helperVersion - 1,
+            LidlessIDs.helperVersion + 1,
+        ] {
+            #expect(LaunchReconciliationSafety.decide(
+                initial: quiescent,
+                current: quiescent,
+                helperStateUnchanged: true,
+                status: status(version: version, armed: true)
+            ) == .abandon)
+            #expect(LaunchReconciliationSafety.decide(
+                initial: quiescent,
+                current: quiescent,
+                helperStateUnchanged: true,
+                status: status(version: version, restorePending: true)
+            ) == .abandon)
+        }
+    }
+
     @Test func aLateReplyCannotCrossANewSessionArmOrLifecycleGeneration() {
+        #expect(LaunchReconciliationSafety.responseBelongsToContext(
+            initial: quiescent,
+            current: quiescent,
+            helperStateUnchanged: true
+        ))
+
         var changed = quiescent
         changed.isDisarmed = false
         changed.hasCurrentSession = true
+        #expect(!LaunchReconciliationSafety.responseBelongsToContext(
+            initial: quiescent,
+            current: changed,
+            helperStateUnchanged: true
+        ))
         #expect(LaunchReconciliationSafety.decide(
             initial: quiescent,
             current: changed,
@@ -128,6 +160,11 @@ struct LaunchReconciliationTests {
 
         changed = quiescent
         changed.helperLifecycleEpoch &+= 1
+        #expect(!LaunchReconciliationSafety.responseBelongsToContext(
+            initial: quiescent,
+            current: changed,
+            helperStateUnchanged: true
+        ))
         #expect(LaunchReconciliationSafety.decide(
             initial: quiescent,
             current: changed,
@@ -159,6 +196,11 @@ struct LaunchReconciliationTests {
             helperStateUnchanged: false,
             status: status(armed: true)
         ) == .abandon)
+        #expect(!LaunchReconciliationSafety.responseBelongsToContext(
+            initial: quiescent,
+            current: quiescent,
+            helperStateUnchanged: false
+        ))
     }
 
     @Test func terminationRemovalSleepAndPendingRecoveryFailClosed() {
@@ -243,7 +285,8 @@ struct LaunchReconciliationTests {
         #expect(context.contains("terminationPending: terminationPending"))
         #expect(context.contains("uninstallInProgress: uninstallInProgress"))
         #expect(context.contains("sleepTerminationInProgress: sleepTerminationGeneration != nil"))
-        #expect(context.contains("helperReachable: helperState.isReachable"))
+        #expect(context.contains("helperReachable: helperState.isRecoveryUsable"))
+        #expect(!context.contains("helperReachable: helperState.isReachable"))
         #expect(context.contains("helperProofEpoch: helperProofEpoch"))
         #expect(context.contains("helperLifecycleEpoch: helperLifecycleEpoch"))
         #expect(context.contains("helperLifecycleOperationsInFlight: helperLifecycleOperationsInFlight"))
@@ -252,9 +295,18 @@ struct LaunchReconciliationTests {
         #expect(reconciliation.contains("let initial = launchReconciliationContext()"))
         #expect(reconciliation.contains("let initialHelperState = helperState"))
         #expect(reconciliation.contains("LaunchReconciliationSafety.canQuery(initial)"))
+        #expect(reconciliation.contains("guard !launchReconciliationInFlight else"))
+        #expect(reconciliation.contains("launchReconciliationInFlight = true"))
+        #expect(reconciliation.contains("defer { launchReconciliationInFlight = false }"))
+        #expect(reconciliation.contains("let current = launchReconciliationContext()"))
+        #expect(reconciliation.contains("let helperStateUnchanged = helperState == initialHelperState"))
+        #expect(reconciliation.contains("LaunchReconciliationSafety.responseBelongsToContext("))
+        #expect(reconciliation.contains("retainRecoveryOnlyHelperStateIfNeeded(status)"))
+        #expect(reconciliation.contains("let decision = LaunchReconciliationSafety.decide("))
         #expect(reconciliation.contains("LaunchReconciliationSafety.decide("))
-        #expect(reconciliation.contains("current: launchReconciliationContext()"))
-        #expect(reconciliation.contains("helperStateUnchanged: helperState == initialHelperState"))
+        #expect(reconciliation.contains("current: current"))
+        #expect(reconciliation.contains("helperStateUnchanged: helperStateUnchanged"))
+        #expect(reconciliation.contains("switch decision"))
         #expect(reconciliation.contains("case .abandon:\n            return"))
         #expect(reconciliation.contains("case .restore(let cancelQueuedArmIntent):"))
         #expect(reconciliation.contains("if cancelQueuedArmIntent"))
@@ -270,8 +322,23 @@ struct LaunchReconciliationTests {
             of: "let initial = launchReconciliationContext()"
         ))
         let statusRead = try #require(reconciliation.range(of: "await helper.status()"))
+        let launchExclusion = try #require(reconciliation.range(
+            of: "launchReconciliationInFlight = true"
+        ))
+        let launchExclusionRelease = try #require(reconciliation.range(
+            of: "defer { launchReconciliationInFlight = false }"
+        ))
+        let responseFence = try #require(reconciliation.range(
+            of: "LaunchReconciliationSafety.responseBelongsToContext("
+        ))
+        let wakeAdmission = try #require(reconciliation.range(
+            of: "retainRecoveryOnlyHelperStateIfNeeded(status)"
+        ))
         let postAwaitDecision = try #require(reconciliation.range(
-            of: "LaunchReconciliationSafety.decide("
+            of: "let decision = LaunchReconciliationSafety.decide("
+        ))
+        let decisionSwitch = try #require(reconciliation.range(
+            of: "switch decision"
         ))
         let coordinatedRestore = try #require(reconciliation.range(
             of: "guard beginRestore(PendingRestore("
@@ -292,6 +359,12 @@ struct LaunchReconciliationTests {
             range: restoreReturn.upperBound..<reconciliation.endIndex
         ))
         #expect(initialCapture.lowerBound < statusRead.lowerBound)
+        #expect(launchExclusion.lowerBound < launchExclusionRelease.lowerBound)
+        #expect(launchExclusionRelease.lowerBound < statusRead.lowerBound)
+        #expect(statusRead.lowerBound < responseFence.lowerBound)
+        #expect(responseFence.lowerBound < wakeAdmission.lowerBound)
+        #expect(wakeAdmission.lowerBound < postAwaitDecision.lowerBound)
+        #expect(postAwaitDecision.lowerBound < decisionSwitch.lowerBound)
         #expect(statusRead.lowerBound < postAwaitDecision.lowerBound)
         #expect(queuedIntentCancellation.lowerBound < coordinatedRestore.lowerBound)
         #expect(postAwaitDecision.lowerBound < coordinatedRestore.lowerBound)
@@ -310,7 +383,7 @@ struct LaunchReconciliationTests {
         let install = app[installStart.lowerBound..<uninstallStart.lowerBound]
         let uninstall = app[uninstallStart.lowerBound..<loginItem.lowerBound]
         let installBegin = try #require(install.range(of: "beginHelperLifecycleOperation()"))
-        let installEnd = try #require(install.range(of: "defer { endHelperLifecycleOperation() }"))
+        let installEnd = try #require(install.range(of: "endHelperLifecycleOperation()"))
         let installAwait = try #require(install.range(of: "try await helper.install()"))
         let uninstallBegin = try #require(uninstall.range(of: "beginHelperLifecycleOperation()"))
         let uninstallEnd = try #require(uninstall.range(of: "endHelperLifecycleOperation()"))

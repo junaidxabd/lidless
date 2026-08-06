@@ -251,7 +251,7 @@ struct SleepStatePresentationTests {
         let usability = try section(
             of: helper,
             from: "var isUsable: Bool",
-            through: "var isReachable: Bool"
+            through: "/// De-risking restore"
         )
         #expect(usability.contains("case .ready, .simulated: true"))
         #expect(!usability.contains(".stale"))
@@ -442,7 +442,9 @@ struct SleepStatePresentationTests {
             through: "var effectiveConfig"
         )
         #expect(restore.contains("armRequestsInFlight == 0"))
-        #expect(restore.contains("SleepOverrideSafety.isRestoreProven(reply)"))
+        #expect(restore.contains("let independentlyObserved = overrideStateVerified ? overrideActive : nil"))
+        #expect(restore.contains("SleepOverrideSafety.isRestoreProven("))
+        #expect(restore.contains("independentlyObserved: independentlyObserved"))
         #expect(restore.contains("finalizeSession(endReason: .systemSlept)"))
 
         let restorePaths = try section(

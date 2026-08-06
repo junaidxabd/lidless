@@ -189,7 +189,9 @@ struct ArmLossRecoveryTests {
         ) == .recoveryRequired)
 
         let client = try repositoryFile("App/Sources/Helper/HelperClient.swift")
-        #expect(client.contains("installState = SleepOverrideSafety.isCurrentHelper(status)"))
+        #expect(client.contains("installState = classifiedInstallState(for: status)"))
+        #expect(client.contains("SleepOverrideSafety.isCurrentHelper(status)"))
+        #expect(client.contains("guard epoch == installStateEpoch else { return }"))
         #expect(!client.contains("installState = status.helperVersion == LidlessIDs.helperVersion"))
         #expect(!client.contains("status.helperVersion >= LidlessIDs.helperVersion"))
     }
@@ -251,8 +253,18 @@ struct ArmLossRecoveryTests {
         #expect(stopHeartbeat.contains("heartbeatGeneration = UUID()"))
         #expect(!heartbeat.contains("next beat retries"))
         #expect(confirmArm.contains("SleepOverrideSafety.failedArmDisposition("))
+        #expect(confirmArm.contains("let responseIsOwned = phase == .arming"))
+        // Ownership decides whether the reply may *establish* an arm; it must
+        // not decide whether the reply is admitted. A superseded reply is still
+        // consumed by `failedArmDisposition`, so it crosses the demotion
+        // boundary too — see `failedArmDispositionCannotConsumeAnUnadmittedReply`.
+        #expect(!confirmArm.contains(
+            "if responseIsOwned {\n"
+                + "                retainRecoveryOnlyHelperStateIfNeeded(reply.status)\n"
+                + "            }"
+        ))
         #expect(confirmArm.contains(
-            "guard phase == .arming,\n                  helperState.isUsable,"
+            "guard responseIsOwned,\n                  helperState.isUsable,"
         ))
         #expect(confirmArm.contains("case .externalOverride:"))
         #expect(occurrenceCount(

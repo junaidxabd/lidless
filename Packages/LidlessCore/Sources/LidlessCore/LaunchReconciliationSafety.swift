@@ -63,19 +63,41 @@ public enum LaunchReconciliationSafety {
         isQuiescent(context)
     }
 
+    /// Separates late-reply ownership from status interpretation. Callers may
+    /// synchronously retire cached wake authority from an accepted live status
+    /// before deciding whether that status proves orphaned recovery work.
+    public static func responseBelongsToContext(
+        initial: Context,
+        current: Context,
+        helperStateUnchanged: Bool
+    ) -> Bool {
+        isQuiescent(initial)
+            && isQuiescent(current)
+            && helperStateUnchanged
+            && initial.helperProofEpoch == current.helperProofEpoch
+            && initial.helperLifecycleEpoch == current.helperLifecycleEpoch
+            && initial.sleepGeneration == current.sleepGeneration
+    }
+
     public static func decide(
         initial: Context,
         current: Context,
         helperStateUnchanged: Bool,
         status: HelperStatus
     ) -> Action {
-        guard isQuiescent(initial),
-              isQuiescent(current),
-              helperStateUnchanged,
-              initial.helperProofEpoch == current.helperProofEpoch,
-              initial.helperLifecycleEpoch == current.helperLifecycleEpoch,
-              initial.sleepGeneration == current.sleepGeneration
-        else {
+        guard responseBelongsToContext(
+            initial: initial,
+            current: current,
+            helperStateUnchanged: helperStateUnchanged
+        ) else {
+            return .abandon
+        }
+
+        // Automatic launch recovery may use a same-wire stale revision for
+        // two-source normal-sleep restoration, but it must never dispatch an
+        // unsupported request to a different wire protocol. Recheck the live
+        // reply as well as the pre-query app state to close the await race.
+        guard SleepOverrideSafety.isRecoveryCompatibleHelper(status) else {
             return .abandon
         }
 

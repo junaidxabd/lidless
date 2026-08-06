@@ -94,6 +94,14 @@ struct OnboardingView: View {
             VStack(spacing: Theme.s3) {
                 helperStatusRow
 
+                if let error = state.lastError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .textSelection(.enabled)
+                }
+
                 if state.helperState == .requiresApproval {
                     Text("macOS added Lidless under Login Items & Extensions — flip the switch there, then come back.")
                         .font(.callout)
@@ -112,7 +120,7 @@ struct OnboardingView: View {
                 Image(systemName: "checkmark.seal.fill")
                     .font(.title2)
                     .foregroundStyle(.green)
-                Text(state.helperState == .simulated ? "Simulated helper active" : "Helper installed and verified")
+                Text(state.helperState == .simulated ? "Simulated helper active" : "Helper installed and responding")
                     .font(.body.weight(.medium))
             case .requiresApproval:
                 Image(systemName: "person.badge.clock.fill")
@@ -124,7 +132,49 @@ struct OnboardingView: View {
                 Button("Open Login Items…") { state.openApprovalSettings() }
                     .buttonStyle(.borderedProminent)
                 Button("Re-check") { Task { await state.refreshHelperState() } }
-            default:
+            case .stale(let version, let revision)
+                where SleepOverrideSafety.isReviewedStaleReplacementCompatible(
+                    helperVersion: version,
+                    helperSafetyRevision: revision
+                ):
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Helper safety update required")
+                        .font(.body.weight(.medium))
+                    Text("Replacing removes the current helper first: it cancels its scheduled wakes, restores the other settings it manages, deletes its data, and deregisters it. A new helper is registered only after normal sleep is independently verified; if that registration fails you will be left with no helper registered until you install one again.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Replace Helper…") {
+                    Task { await state.installHelper() }
+                }
+                .buttonStyle(.borderedProminent)
+            case .stale(let version, let revision):
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Reviewed removal required")
+                        .font(.body.weight(.medium))
+                    Text("Protocol v\(version), revision \(revisionLabel(revision)), has no reviewed automatic cleanup path. Emergency sleep recovery only: run \(LidlessIDs.manualFallbackCommand) and verify normal sleep. That command does not remove the helper. Keep the helper registered and contact Lidless support for a separately reviewed, revision-specific removal procedure.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            case .notResponding(let detail):
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Reviewed removal required")
+                        .font(.body.weight(.medium))
+                    Text("\(detail) Emergency sleep recovery only: run \(LidlessIDs.manualFallbackCommand) and verify normal sleep. That command does not remove the helper. Keep the helper registered and contact Lidless support for a separately reviewed removal procedure for the installed helper.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            case .notInstalled:
                 Image(systemName: "circle.dashed")
                     .font(.title2)
                     .foregroundStyle(.secondary)
@@ -135,6 +185,29 @@ struct OnboardingView: View {
                     Task { await state.installHelper() }
                 }
                 .buttonStyle(.borderedProminent)
+            case .unknown:
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Helper status unverified")
+                        .font(.body.weight(.medium))
+                    Text("Helper classification is unavailable, so Lidless will not assume the helper is absent or safe to replace. Emergency sleep recovery only: run \(LidlessIDs.manualFallbackCommand) and verify normal sleep. That command does not remove a helper or establish registration state. Keep any helper registered and contact Lidless support if Re-check cannot classify it.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Re-check") {
+                    Task { await state.refreshHelperState() }
+                }
+            // Only the pre-classification value shows progress. A concluded
+            // `.unknown` verdict keeps its terminal copy and Re-check above.
+            case .checking:
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 24)
+                Text("Checking helper…")
+                    .font(.body.weight(.medium))
             }
         }
         .padding(Theme.s4)
@@ -151,19 +224,19 @@ struct OnboardingView: View {
                 .foregroundStyle(.green)
 
             VStack(spacing: Theme.s2) {
-                Text("Never stranded")
+                Text("Layered recovery")
                     .font(.largeTitle.weight(.bold))
-                Text("The sleep override can't outlive Lidless. Every failure path restores normal sleep:")
+                Text("Lidless requests and retries normal-sleep restoration across cutoffs, shutdown, connection loss, and watchdog events; verify the result whenever recovery is reported:")
                     .font(.title3)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
 
             VStack(alignment: .leading, spacing: Theme.s2) {
-                bullet("bolt.heart", "Cutoffs, disarm, quit — normal sleep first, always.")
-                bullet("ant", "App or helper crash: a watchdog and launchd recovery restore within seconds; a reboot also cleans up.")
-                bullet("eye.trianglebadge.exclamationmark", "The menu bar eye warns any time the override is on — even if another tool set it.")
-                bullet("trash", "Uninstall lives in Setup & Help: one click removes the helper and every trace. Manual fallback: \(LidlessIDs.manualFallbackCommand)")
+                bullet("bolt.heart", "Cutoffs, disarm, and quit request normal sleep before completion is reported.")
+                bullet("ant", "App or helper loss triggers watchdog and launchd recovery attempts; verify normal sleep in Setup & Help.")
+                bullet("eye.trianglebadge.exclamationmark", "The menu bar eye shows verified Lidless state and warns when it detects an outside override.")
+                bullet("trash", "Uninstall lives in Setup & Help. Emergency sleep recovery only: \(LidlessIDs.manualFallbackCommand). That command does not uninstall the helper.")
             }
             .frame(maxWidth: 460)
 
@@ -185,6 +258,10 @@ struct OnboardingView: View {
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private func revisionLabel(_ revision: Int?) -> String {
+        revision.map(String.init) ?? "missing"
     }
 
     // MARK: - Footer

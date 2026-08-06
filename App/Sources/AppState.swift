@@ -48,6 +48,10 @@ final class AppState {
     /// value before the suspended reply resumes.
     private var helperLifecycleEpoch: UInt64 = 0
     private var helperLifecycleOperationsInFlight = 0
+    /// Blocks scheduled-wake mutation while launch status is suspended. A
+    /// startup refresh may have cached `.ready`, but the second live query can
+    /// still reveal a stale or different-wire responder.
+    private var launchReconciliationInFlight = false
     private(set) var drainPerHour: Double?
     private(set) var rollingSamples: [BatterySample] = []
 
@@ -88,6 +92,23 @@ final class AppState {
     /// A sleep transition may replace the local worker but must preserve the
     /// privileged mutation needed by its interrupted restore generation.
     private var sleepTerminationActuation: NonSleepRestoreActuation?
+    /// A different-wire reply cannot clear a terminal generation while an arm
+    /// is still in flight. Latch that status and wait without sending another
+    /// unsupported mutation; once the late arm settles, surface manual recovery.
+    private var sleepTerminationIncompatibleWireStatus: HelperStatus?
+    /// The restore generation whose automatic recovery terminally stopped
+    /// because the responder uses an unsupported wire protocol. Terminalizing
+    /// deliberately preserves `pendingRestore` and `.disarming` to keep the
+    /// session and crash journal live, so the fence cannot be represented by
+    /// the absence of a monitor task: any later helper-proof loss restarts one
+    /// from exactly that state. Generations are UUID-identified, so a retired
+    /// value can never alias a newer one and needs no clearing.
+    private var manualRecoveryGeneration: NonSleepRestoreGeneration?
+    /// The sleep-transition fence has no restore generation to latch: that path
+    /// already cleared `pendingRestore`. Its self-invalidating key is the sleep
+    /// generation, which `recordSleepTransition` bumps, so a later transition
+    /// can never inherit a stale fence.
+    private var manualRecoverySleepGeneration: UInt64?
     private var armRequestsInFlight = 0
 
     private var tickTask: Task<Void, Never>?
@@ -282,11 +303,113 @@ final class AppState {
         helperLifecycleEpoch &+= 1
     }
 
+    /// A user-initiated install/replace/remove passes through intermediate
+    /// unclassified states by design. Surfacing them as terminal helper
+    /// warnings would flash a false verdict mid-operation. Deliberately scoped
+    /// to those flows — `installHelper()` holds the same exclusion — and not to
+    /// a plain status refresh, which writes `installState` once at the end:
+    /// folding that in would mute a real warning for the whole XPC timeout,
+    /// which is longest exactly when the helper is wedged.
+    var helperLifecycleWorkInProgress: Bool {
+        uninstallInProgress
+    }
+
     private func refreshHelperInstallState() async -> Bool {
         guard !uninstallInProgress else { return false }
         beginHelperLifecycleOperation()
         defer { endHelperLifecycleOperation() }
         await helper.refreshInstallState()
+        retainRecoveryOnlyHelperStateIfNeeded()
+        return true
+    }
+
+    /// Single synchronous admission boundary for accepted live helper evidence.
+    /// A non-current responder may still help prove normal sleep when its wire
+    /// protocol is compatible, but it must lose cached wake/arm authority before
+    /// any path-specific proof, retry, completion, or return can run.
+    private func retainRecoveryOnlyHelperStateIfNeeded(_ status: HelperStatus) {
+        if !SleepOverrideSafety.isCurrentHelper(status) {
+            helper.recordRecoveryOnlyStatus(status)
+        }
+        retainRecoveryOnlyHelperStateIfNeeded()
+    }
+
+    /// The same boundary for evidence the client classified itself. An
+    /// install-state refresh reads live status inside `HelperClient`, so the
+    /// app never sees that `HelperStatus`; routing the surviving
+    /// classification through here keeps one wake-admission decision instead
+    /// of a second copy of the rule. Cached scheduled-wake authority survives
+    /// only an exact-current `.ready` (or `.simulated`) classification, so a
+    /// stale, different-wire, unresponsive, or unclassifiable responder can
+    /// never inherit a confirmation that belonged to another one. Demotes
+    /// only; it never promotes.
+    private func retainRecoveryOnlyHelperStateIfNeeded() {
+        guard !helperState.isUsable else { return }
+        scheduledWakeReconciliation.invalidate()
+    }
+
+    /// True once automatic recovery for the live generation has terminally
+    /// stopped. `.disarming` then no longer means work is in progress, so
+    /// user-facing copy must not promise verification Lidless will not attempt.
+    var automaticRecoveryStopped: Bool {
+        // Only `.disarming` can be fenced, and both keys outlive their episode
+        // by design. Narrowing here keeps a retired key from reading as a live
+        // fence if this is ever consulted from another context.
+        guard phase == .disarming else { return false }
+        if let pending = pendingRestore {
+            return manualRecoveryGeneration == pending.id
+        }
+        // No pending restore: the only way to sit in `.disarming` is a sleep
+        // transition, whose fence is keyed on the sleep generation.
+        return manualRecoverySleepGeneration == sleepGeneration
+    }
+
+    /// A different wire protocol cannot safely participate in automatic
+    /// recovery. Stop this generation without claiming restoration, preserve
+    /// the live session/journal, and surface the manual recovery boundary.
+    @discardableResult
+    private func stopAutomaticRecoveryForIncompatibleWire(
+        _ status: HelperStatus,
+        restoreID: NonSleepRestoreGeneration? = nil
+    ) -> Bool {
+        guard !SleepOverrideSafety.isRecoveryCompatibleHelper(status) else {
+            return false
+        }
+        guard armRequestsInFlight == 0 else {
+            lastError = "Waiting for an in-flight arm request before automatic recovery can stop safely."
+            publishWidget()
+            return false
+        }
+
+        retainRecoveryOnlyHelperStateIfNeeded(status)
+        // The sleep-transition caller has no generation to latch — it already
+        // cleared `pendingRestore` — but its resting state is just as fenced,
+        // so key that one on the sleep generation.
+        manualRecoverySleepGeneration = sleepGeneration
+        if let restoreID {
+            // Latch before stopping the worker: the monitor can be restarted
+            // from `.disarming` plus a live `pendingRestore` by any later
+            // helper-proof loss, and both entry points consult this latch.
+            manualRecoveryGeneration = restoreID
+            restoreGate.cancel(restoreID)
+            if terminationRestoreGeneration == restoreID {
+                terminationPending = false
+                terminationRestoreGeneration = nil
+            }
+            if var pending = pendingRestore,
+               pending.id == restoreID {
+                pending.waitsForCompletion = false
+                pendingRestore = pending
+            }
+            stopRestoreMonitor()
+        }
+        lastError = "The helper changed to an unsupported wire protocol. Lidless stopped automatic recovery without claiming normal sleep. Keep the helper registered, use Setup's emergency sleep recovery, verify normal sleep, and contact Lidless support."
+        // Overview does not render `lastError` and is the default pane, so a
+        // bare request would surface only the `.restoring` hero — the exact
+        // false impression this fence removes. Route to the pane that shows
+        // the message and holds the command it tells the user to run.
+        requestMainWindow(pane: .setup)
+        publishWidget()
         return true
     }
 
@@ -322,6 +445,7 @@ final class AppState {
             if sleepTerminationGeneration == nil {
                 sleepTerminationGeneration = sleepGeneration
                 sleepTerminationActuation = pendingRestore?.actuation ?? .disarm
+                sleepTerminationIncompatibleWireStatus = nil
             }
             cancelPendingRestoreForSleepTransition()
             phase = .disarming
@@ -370,6 +494,24 @@ final class AppState {
                   let terminalActuation = sleepTerminationActuation
             else { return }
 
+            if let incompatibleStatus = sleepTerminationIncompatibleWireStatus {
+                if armRequestsInFlight == 0 {
+                    stopAutomaticRecoveryForIncompatibleWire(incompatibleStatus)
+                    sleepTerminationGeneration = nil
+                    sleepTerminationActuation = nil
+                    sleepTerminationIncompatibleWireStatus = nil
+                    return
+                }
+                lastError = "The helper changed to an unsupported wire protocol while an arm request was still settling. Lidless is preserving the recovery fence and will not send another unsupported request."
+                publishWidget()
+                do {
+                    try await Task.sleep(for: .milliseconds(100))
+                } catch {
+                    return
+                }
+                continue
+            }
+
             do {
                 let reply: HelperReply
                 switch terminalActuation {
@@ -382,43 +524,58 @@ final class AppState {
                     reply = try await helper.repairOverride()
                 }
                 guard terminalGeneration == sleepTerminationGeneration else { continue }
-
-                systemMonitor?.refresh()
-                refreshSystemFlags()
-                if SleepOverrideSafety.isRestoreProven(reply),
-                   overrideStateVerified,
-                   !overrideActive,
-                   armRequestsInFlight == 0 {
-                    let endedSession = currentSession != nil
-                    pendingRestore = nil
-                    stopRestoreMonitor()
-                    if endedSession {
-                        finalizeSession(endReason: .systemSlept)
-                    } else {
-                        stopHeartbeat()
+                retainRecoveryOnlyHelperStateIfNeeded(reply.status)
+                if !SleepOverrideSafety.isRecoveryCompatibleHelper(reply.status) {
+                    sleepTerminationIncompatibleWireStatus = reply.status
+                    if armRequestsInFlight == 0,
+                       stopAutomaticRecoveryForIncompatibleWire(reply.status) {
+                        sleepTerminationGeneration = nil
+                        sleepTerminationActuation = nil
+                        sleepTerminationIncompatibleWireStatus = nil
+                        return
                     }
-                    sleepTerminationGeneration = nil
-                    sleepTerminationActuation = nil
-                    phase = .disarmed
-                    lastError = nil
+                    lastError = "The helper changed to an unsupported wire protocol while an arm request was still settling. Lidless is preserving the recovery fence and will not send another unsupported request."
+                } else {
                     systemMonitor?.refresh()
                     refreshSystemFlags()
-                    if endedSession,
-                       config.behavior.notifyOnStateChanges,
-                       sleepPresentation == .verifiedNormal {
-                        notifications.post(
-                            title: "Keep-awake ended",
-                            body: "Your Mac was put to sleep, so Lidless restored normal behavior."
-                        )
+                    let independentlyObserved = overrideStateVerified ? overrideActive : nil
+                    if SleepOverrideSafety.isRestoreProven(
+                            reply,
+                            independentlyObserved: independentlyObserved
+                       ),
+                       armRequestsInFlight == 0 {
+                        let endedSession = currentSession != nil
+                        pendingRestore = nil
+                        stopRestoreMonitor()
+                        if endedSession {
+                            finalizeSession(endReason: .systemSlept)
+                        } else {
+                            stopHeartbeat()
+                        }
+                        sleepTerminationGeneration = nil
+                        sleepTerminationActuation = nil
+                        sleepTerminationIncompatibleWireStatus = nil
+                        phase = .disarmed
+                        lastError = nil
+                        systemMonitor?.refresh()
+                        refreshSystemFlags()
+                        if endedSession,
+                           config.behavior.notifyOnStateChanges,
+                           sleepPresentation == .verifiedNormal {
+                            notifications.post(
+                                title: "Keep-awake ended",
+                                body: "Your Mac was put to sleep, so Lidless restored normal behavior."
+                            )
+                        }
+                        publishWidget()
+                        return
                     }
-                    publishWidget()
-                    return
-                }
 
-                lastError = reply.error
-                    ?? (armRequestsInFlight == 0
-                        ? "Normal sleep is not verified yet. Lidless will keep checking."
-                        : "Waiting for an in-flight arm request before normal sleep can be verified.")
+                    lastError = reply.error
+                        ?? (armRequestsInFlight == 0
+                            ? "Normal sleep is not verified yet. Lidless will keep checking."
+                            : "Waiting for an in-flight arm request before normal sleep can be verified.")
+                }
             } catch {
                 guard terminalGeneration == sleepTerminationGeneration else { continue }
                 lastError = "Normal sleep is not verified yet (\(error.localizedDescription)). Lidless will keep checking."
@@ -472,7 +629,13 @@ final class AppState {
         case .unknown:
             return "Lidless couldn't verify the system sleep state"
         case .verifiedNormal:
-            if !helperState.isUsable, helperState != .unknown {
+            // Only the pre-classification value is silent here. `.unknown` is a
+            // concluded verdict that the helper cannot be verified, so hiding
+            // it would render a terminal state as an ordinary schedule.
+            if helperState == .unknown {
+                return "Helper status unverified"
+            }
+            if !helperState.isUsable, helperState != .checking {
                 return "Helper setup needed"
             }
             return nextScheduleDescription
@@ -967,10 +1130,18 @@ final class AppState {
 
         do {
             let reply = try await trackedArm(options)
-            guard phase == .arming,
+            let responseIsOwned = phase == .arming
+                && armSleepGeneration == sleepGeneration
+                && armProofEpoch == helperProofEpoch
+            // A superseded reply is still consumed below: `failedArmDisposition`
+            // may disarm the phase or start recovery, because a failed arm can
+            // have partially applied and must never be left unrecovered. So it
+            // crosses the boundary too. The boundary only demotes, and the live
+            // re-classification at the end of this branch re-promotes an
+            // exact-current responder, so this is the fail-closed direction.
+            retainRecoveryOnlyHelperStateIfNeeded(reply.status)
+            guard responseIsOwned,
                   helperState.isUsable,
-                  armSleepGeneration == sleepGeneration,
-                  armProofEpoch == helperProofEpoch,
                   SleepOverrideSafety.isArmProven(reply) else {
                 invalidateHelperSessionProof()
                 overrideStateVerified = false
@@ -1002,7 +1173,7 @@ final class AppState {
                     lastError = "Couldn't arm because a sleep override is active outside Lidless. Lidless left it unchanged."
                     publishWidget()
                 case .recoveryRequired:
-                    _ = beginRestore(PendingRestore(
+                    let restoreID = beginRestore(PendingRestore(
                         options: HelperDisarmOptions(forceSleep: false, reason: "recovering failed arm"),
                         endReason: nil,
                         notificationTitle: nil,
@@ -1012,6 +1183,12 @@ final class AppState {
                         allowsUnownedExternalOverrideCompletion: true,
                         completionError: message
                     ))
+                    if let restoreID {
+                        stopAutomaticRecoveryForIncompatibleWire(
+                            reply.status,
+                            restoreID: restoreID
+                        )
+                    }
                 }
                 _ = await refreshHelperInstallState()
                 return
@@ -1334,6 +1511,7 @@ final class AppState {
                 return false
             }
 
+            retainRecoveryOnlyHelperStateIfNeeded(reply.status)
             let independentlyObserved = refreshedSleepOverride()
             switch restoreGate.evaluateFinalProof(
                 generation: restoreID,
@@ -1344,6 +1522,12 @@ final class AppState {
             case .complete:
                 completePendingRestore(expectedID: restoreID)
                 return nil
+            case .manualRecoveryRequired:
+                stopAutomaticRecoveryForIncompatibleWire(
+                    reply.status,
+                    restoreID: restoreID
+                )
+                return false
             case .retry:
                 lastError = reply.error
                     ?? (armRequestsInFlight == 0
@@ -1415,7 +1599,8 @@ final class AppState {
 
     private func startRestoreMonitor(delayFirstAttempt: Bool = false) {
         guard restoreMonitorTask == nil,
-              let restoreID = pendingRestore?.id
+              let restoreID = pendingRestore?.id,
+              manualRecoveryGeneration != restoreID
         else { return }
 
         restoreMonitorTask = Task { [weak self] in
@@ -1442,7 +1627,11 @@ final class AppState {
         while !Task.isCancelled {
             guard phase == .disarming,
                   let pending = pendingRestore,
-                  pending.id == restoreID
+                  pending.id == restoreID,
+                  // A generation fenced for an unsupported wire protocol must
+                  // never dispatch another privileged mutation, and its 5s
+                  // retry must never overwrite the manual-recovery instruction.
+                  manualRecoveryGeneration != restoreID
             else { return }
 
             if shouldDelay {
@@ -1451,9 +1640,19 @@ final class AppState {
                 } catch {
                     return
                 }
-                guard pendingRestore?.id == restoreID else { return }
+                // Re-check the fence here too, so the loop is self-fencing
+                // rather than relying on an external `stopRestoreMonitor()`.
+                guard pendingRestore?.id == restoreID,
+                      manualRecoveryGeneration != restoreID
+                else { return }
             }
             shouldDelay = true
+
+            guard armRequestsInFlight == 0 else {
+                lastError = "Waiting for an in-flight arm request before normal sleep recovery can continue."
+                publishWidget()
+                continue
+            }
 
             do {
                 let reply: HelperReply
@@ -1470,6 +1669,7 @@ final class AppState {
                     return
                 }
 
+                retainRecoveryOnlyHelperStateIfNeeded(reply.status)
                 let independentlyObserved = refreshedSleepOverride()
                 if pending.allowsUnownedExternalOverrideCompletion {
                     switch restoreGate.completeUnownedExternalOverride(
@@ -1484,7 +1684,8 @@ final class AppState {
                         return
                     case .ignore:
                         return
-                    case .retry, .dispatchForceSleep, .awaitFinalProof:
+                    case .retry, .manualRecoveryRequired,
+                         .dispatchForceSleep, .awaitFinalProof:
                         break
                     }
                 }
@@ -1495,7 +1696,17 @@ final class AppState {
                     armRequestsInFlight: armRequestsInFlight
                 ) {
                 case .complete:
+                    if pending.forceSleepFollowUp != nil,
+                       !SleepOverrideSafety.isCurrentHelper(reply.status) {
+                        markForceSleepFollowUpSkipped(restoreID: restoreID)
+                    }
                     completePendingRestore(expectedID: restoreID)
+                    return
+                case .manualRecoveryRequired:
+                    stopAutomaticRecoveryForIncompatibleWire(
+                        reply.status,
+                        restoreID: restoreID
+                    )
                     return
                 case .dispatchForceSleep:
                     if await dispatchForceSleepFollowUp(restoreID: restoreID) {
@@ -1539,6 +1750,7 @@ final class AppState {
                 scheduleSleepTerminationRestore()
                 return true
             }
+            retainRecoveryOnlyHelperStateIfNeeded(reply.status)
             let followUpObservation = refreshedSleepOverride()
             switch restoreGate.evaluateFollowUpProof(
                 generation: restoreID,
@@ -1549,6 +1761,12 @@ final class AppState {
             case .complete:
                 completePendingRestore(expectedID: restoreID)
                 return pendingRestore?.id != restoreID
+            case .manualRecoveryRequired:
+                stopAutomaticRecoveryForIncompatibleWire(
+                    reply.status,
+                    restoreID: restoreID
+                )
+                return true
             case .retry:
                 markForceSleepFollowUpUnverified(
                     restoreID: restoreID,
@@ -1571,6 +1789,26 @@ final class AppState {
         return false
     }
 
+    private func markForceSleepFollowUpSkipped(
+        restoreID: NonSleepRestoreGeneration
+    ) {
+        guard var pending = pendingRestore,
+              pending.id == restoreID,
+              pending.forceSleepFollowUp != nil
+        else { return }
+        let message = "The follow-up sleep request was skipped because the responder did not match this app's current safety revision. Normal sleep was verified."
+        pending.forceSleepFollowUp = nil
+        if pending.notificationTitle != nil {
+            pending.notificationTitle = "Keep-awake ended"
+            pending.notificationBody = message
+        }
+        pending.notificationSound = false
+        pending.playChime = false
+        pending.completionError = message
+        pendingRestore = pending
+        lastError = message
+    }
+
     private func markForceSleepFollowUpUnverified(
         restoreID: NonSleepRestoreGeneration,
         detail: String
@@ -1579,7 +1817,10 @@ final class AppState {
               pending.id == restoreID
         else { return }
         let message = "The follow-up sleep request was ambiguous (\(detail)). Lidless did not repeat it."
-        pending.notificationTitle = "Keep-awake ended"
+        if pending.notificationTitle != nil {
+            pending.notificationTitle = "Keep-awake ended"
+            pending.notificationBody = message
+        }
         pending.playChime = false
         pending.completionError = message
         pendingRestore = pending
@@ -1701,9 +1942,26 @@ final class AppState {
               armRequestsInFlight == 0,
               sleepPresentation == .outsideOverride
         else { return }
-        guard helperState.isUsable else {
-            lastError = "The current helper is unavailable or incompatible. Open Setup before restoring the outside sleep override."
-            requestMainWindow()
+
+        // Recovery may be performed by the exact current wire protocol even
+        // when its safety behavior revision is stale, but never from cached
+        // eligibility alone. Recheck the live responder before selecting the
+        // de-risking operation, then revalidate every app-local exclusion that
+        // could have changed while the probe was suspended.
+        guard await refreshHelperInstallState() else { return }
+        guard !terminationPending,
+              !uninstallInProgress,
+              sleepTerminationGeneration == nil,
+              phase == .disarmed,
+              currentSession == nil,
+              pendingArm == nil,
+              pendingRestore == nil,
+              armRequestsInFlight == 0,
+              sleepPresentation == .outsideOverride
+        else { return }
+        guard helperState.isRecoveryUsable else {
+            lastError = "The helper is unavailable or uses a different wire protocol. Automatic recovery is unavailable. Open Setup for emergency sleep recovery. Keep the helper registered and contact Lidless support for a separately reviewed removal procedure."
+            requestMainWindow(pane: .setup)
             return
         }
         guard refreshedSleepOverride() == true,
@@ -1733,12 +1991,34 @@ final class AppState {
     }
 
     func installHelper() async {
-        guard !uninstallInProgress else {
-            lastError = "Wait for helper removal to finish before installing it again."
+        guard !terminationPending,
+              !uninstallInProgress,
+              helperLifecycleOperationsInFlight == 0,
+              phase == .disarmed,
+              currentSession == nil,
+              pendingArm == nil,
+              pendingRestore == nil,
+              armRequestsInFlight == 0,
+              sleepTerminationGeneration == nil
+        else {
+            lastError = "Wait for active recovery or helper work to finish before installing or replacing the helper."
             return
         }
+        lastError = nil
+        // Cleanup cancels the helper-owned RTC wake. Drop app-local reply
+        // evidence before replacement and reconcile again only after the
+        // lifecycle exclusion is released and an exact-current helper is
+        // available.
+        scheduledWakeReconciliation.invalidate()
+        // Also excludes arm confirmation and repair while a user-invoked
+        // replacement suspends inside cleanup/unregister/register.
+        uninstallInProgress = true
         beginHelperLifecycleOperation()
-        defer { endHelperLifecycleOperation() }
+        defer {
+            endHelperLifecycleOperation()
+            uninstallInProgress = false
+            maintainScheduledWake()
+        }
         do {
             try await helper.install()
         } catch {
@@ -1813,12 +2093,28 @@ final class AppState {
             armRequestsInFlight: armRequestsInFlight,
             sleepTerminationInProgress: sleepTerminationGeneration != nil
         ) else {
-            return "Normal sleep has not been verified yet. Lidless is keeping the helper installed while recovery continues."
+            // The refusal is right either way; only its reason differs. A
+            // fenced generation is not "recovery in progress" — it has
+            // terminally stopped — and Setup is now reachable directly from
+            // that state, so this must not contradict the fence's own message.
+            return automaticRecoveryStopped
+                ? "Normal sleep has not been verified, and Lidless has stopped automatic recovery because the helper uses an unsupported wire protocol. It is keeping the helper installed rather than removing supervision from an unverified sleep state. Use the emergency sleep recovery command above, verify normal sleep, and contact Lidless support."
+                : "Normal sleep has not been verified yet. Lidless is keeping the helper installed while recovery continues."
         }
         do {
             try await helper.uninstall()
         } catch {
-            return "Helper removal could not be fully verified: \(error.localizedDescription)"
+            // Most removal failures stop before any remote mutation and say so
+            // in their own message. Appending a blanket "do not assume the
+            // helper is still installed" would contradict that and push the
+            // user toward manual removal — the one action that strips launchd's
+            // supervision from a helper that is provably intact.
+            let removalDidNotStart = (error as NSError)
+                .userInfo[HelperRemovalFailureInfo.didNotStartKey] as? Bool == true
+            let guidance = removalDidNotStart
+                ? "Lidless did not request cleanup or deregistration, so the helper is still installed and still supervised. Do not remove it manually. If normal sleep is not verified, use the emergency sleep recovery command in Setup & Help, then retry removal once the condition above is resolved."
+                : "The remote outcome is unresolved, so do not assume the helper is still installed. If normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand) in Terminal and verify it. That command restores only the main sleep flag; it does not remove the helper or establish registration state. Check registration before retrying."
+            return "Helper removal could not be fully verified: \(error.localizedDescription)\n\n\(guidance)"
         }
         setLaunchAtLogin(false)
         ConfigStore.deleteAllData()
@@ -1953,7 +2249,7 @@ final class AppState {
             terminationPending: terminationPending,
             uninstallInProgress: uninstallInProgress,
             sleepTerminationInProgress: sleepTerminationGeneration != nil,
-            helperReachable: helperState.isReachable,
+            helperReachable: helperState.isRecoveryUsable,
             helperProofEpoch: helperProofEpoch,
             helperLifecycleEpoch: helperLifecycleEpoch,
             helperLifecycleOperationsInFlight: helperLifecycleOperationsInFlight,
@@ -1965,14 +2261,26 @@ final class AppState {
         let initial = launchReconciliationContext()
         let initialHelperState = helperState
         guard LaunchReconciliationSafety.canQuery(initial) else { return }
+        guard !launchReconciliationInFlight else { return }
+        launchReconciliationInFlight = true
+        defer { launchReconciliationInFlight = false }
         guard let status = try? await helper.status() else { return }
 
-        switch LaunchReconciliationSafety.decide(
+        let current = launchReconciliationContext()
+        let helperStateUnchanged = helperState == initialHelperState
+        guard LaunchReconciliationSafety.responseBelongsToContext(
             initial: initial,
-            current: launchReconciliationContext(),
-            helperStateUnchanged: helperState == initialHelperState,
+            current: current,
+            helperStateUnchanged: helperStateUnchanged
+        ) else { return }
+        retainRecoveryOnlyHelperStateIfNeeded(status)
+        let decision = LaunchReconciliationSafety.decide(
+            initial: initial,
+            current: current,
+            helperStateUnchanged: helperStateUnchanged,
             status: status
-        ) {
+        )
+        switch decision {
         case .abandon:
             return
         case .none:
@@ -1999,6 +2307,11 @@ final class AppState {
             return
         }
         refreshSystemFlags()
+        // Release the launch exclusion here — after the decision and the
+        // demotion, per its own ordering rule — so this maintenance pass is
+        // not blocked by this function's own in-flight guard. The `defer`
+        // still covers every earlier exit; clearing twice is a no-op.
+        launchReconciliationInFlight = false
         maintainScheduledWake()
         publishWidget()
     }
@@ -2238,6 +2551,12 @@ final class AppState {
     private func maintainScheduledWake() {
         guard !isSimulation,
               !uninstallInProgress,
+              !launchReconciliationInFlight,
+              helperLifecycleOperationsInFlight == 0,
+              pendingRestore == nil,
+              sleepTerminationGeneration == nil,
+              !terminationPending,
+              phase != .disarming,
               helperState.isUsable
         else { return }
 
@@ -2286,6 +2605,7 @@ final class AppState {
                           self.heartbeatGeneration == generation,
                           self.phase == .armed
                     else { return }
+                    self.retainRecoveryOnlyHelperStateIfNeeded(reply.status)
                     if proofEpoch != self.helperProofEpoch
                         || !SleepOverrideSafety.isArmProven(reply) {
                         self.invalidateHelperSessionProof()

@@ -115,24 +115,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return .terminateNow
         }
 
+        // Every refusal below states its reason in `lastError`, which the
+        // default Overview pane does not render — so each one names the pane
+        // that does. A quit the user cannot complete and cannot see a reason
+        // for is the failure mode these messages exist to prevent.
+
         // Never quit through an in-flight arm: its XPC outcome is not known
         // yet. Keep the app alive until that operation either proves the arm
         // or enters the visible restore path.
         if state.phase == .arming {
             state.lastError = "Lidless is still verifying the sleep override. Try quitting again in a moment."
-            state.requestMainWindow()
+            state.requestMainWindow(pane: .setup)
             return .terminateCancel
         }
 
         if state.phase == .disarming {
-            state.lastError = "Lidless is still restoring normal sleep. Keep the app open until restoration is verified."
-            state.requestMainWindow()
+            // `.disarming` alone no longer implies work is in progress: an
+            // unsupported-wire generation is fenced and will not retry. Quit
+            // still stays blocked because normal sleep is unverified, but the
+            // copy must not promise a verification Lidless has stopped
+            // attempting — or a retry that will not clear this state.
+            state.lastError = state.automaticRecoveryStopped
+                ? "Lidless stopped automatic recovery because the helper uses an unsupported wire protocol, so it cannot verify normal sleep and will not report restoration. Use the emergency sleep recovery command in Setup & Help and verify normal sleep. Lidless cannot clear this state itself, so quitting from the menu stays blocked. Force-quitting cannot make the sleep setting worse — Lidless has already stopped changing it — and ending the app's connection is a signal a Lidless helper treats as a reason to restore normal sleep. Contact Lidless support."
+                : "Lidless is still restoring normal sleep. Keep the app open until restoration is verified."
+            // Overview renders neither `lastError` nor anything but the
+            // `.restoring` hero, so open the pane that shows the message and
+            // the emergency command it points at.
+            state.requestMainWindow(pane: .setup)
             return .terminateCancel
         }
 
         guard state.phase == .armed else {
             state.lastError = "Lidless will quit only after normal sleep is verified. Restore normal sleep, then try again."
-            state.requestMainWindow()
+            state.requestMainWindow(pane: .setup)
             return .terminateCancel
         }
 
@@ -152,7 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 let restored = await state.disarmForQuit()
                 if !restored {
-                    state.requestMainWindow()
+                    state.requestMainWindow(pane: .setup)
                 }
                 // Keep AppKit's terminate-later request open for the entire
                 // recovery. A false reply is sent only when that exact restore

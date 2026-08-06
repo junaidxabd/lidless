@@ -29,6 +29,9 @@ public enum HelperRemovalSafety {
         switch registrationState {
         case .enabled:
             guard let helperReply,
+                  SleepOverrideSafety.isReviewedCleanupCompatibleHelper(
+                    helperReply.status
+                  ),
                   SleepOverrideSafety.isRestoreProven(
                       helperReply,
                       independentlyObserved: independentlyObserved

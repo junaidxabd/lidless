@@ -93,7 +93,7 @@ struct HelperClientRemovalProofTests {
         #expect(!uninstall.contains("catch let error as NSError where error.domain == \"Lidless\""))
     }
 
-    @Test func cleanupAuthorizationIsBoundToExactCurrentResponderBeforeMutation() throws {
+    @Test func cleanupAuthorizationIsBoundToReviewedResponderBeforeMutation() throws {
         let client = try repositoryFile("App/Sources/Helper/HelperClient.swift")
         let helper = try repositoryFile("Helper/HelperDaemon.swift")
         let uninstall = try section(
@@ -114,7 +114,10 @@ struct HelperClientRemovalProofTests {
             of: "cleanupPreparation = try await prepareUninstall()"
         ))
         let compatibilityGate = try #require(enabled.range(
-            of: "SleepOverrideSafety.isCurrentHelper(cleanupPreparation.status)"
+            of: "SleepOverrideSafety.isReviewedCleanupCompatibleHelper("
+        ))
+        #expect(enabled[compatibilityGate.upperBound...].contains(
+            "cleanupPreparation.status"
         ))
         let authorization = try #require(enabled.range(
             of: "let cleanupAuthorization = cleanupPreparation.authorization"
@@ -141,7 +144,9 @@ struct HelperClientRemovalProofTests {
         #expect(cleanupFence.lowerBound < cleanupDispatch.lowerBound)
         #expect(cleanupDispatch.lowerBound < encodedAuthorization.lowerBound)
         #expect(enabled.contains("did not request cleanup or deregistration"))
-        #expect(enabled.contains("installState = .stale("))
+        #expect(enabled.contains(
+            "installState = classifiedInstallState(for: cleanupPreparation.status)"
+        ))
         #expect(enabled.contains("installState = .notResponding("))
         #expect(!enabled.contains("proxy.uninstall(done)"))
         #expect(String(enabled).components(

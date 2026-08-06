@@ -3,6 +3,12 @@ import ServiceManagement
 import LidlessCore
 
 enum HelperInstallState: Equatable {
+    /// No classification has been attempted yet in this process. This is the
+    /// pre-refresh value only — never the result of live evidence — so it must
+    /// be rendered as work in progress, never as a verdict about the installed
+    /// helper. `.unknown` is the opposite: a classification that concluded the
+    /// helper cannot be verified.
+    case checking
     case unknown
     /// Not registered with launchd yet (fresh install, or unregistered).
     case notInstalled
@@ -10,8 +16,9 @@ enum HelperInstallState: Equatable {
     case requiresApproval
     case ready(helperVersion: Int)
     /// Helper responds with a protocol or safety revision incompatible with
-    /// this app. The associated value is the wire protocol version only.
-    case stale(helperVersion: Int)
+    /// this app. Preserve both self-reported values so policy and user-facing
+    /// recovery instructions can distinguish the reviewed predecessor.
+    case stale(helperVersion: Int, helperSafetyRevision: Int?)
     /// launchd says enabled, but XPC calls fail.
     case notResponding(String)
     case simulated
@@ -20,6 +27,20 @@ enum HelperInstallState: Equatable {
         switch self {
         case .ready, .simulated: true
         default: false
+        }
+    }
+
+    /// De-risking restore is available to the exact current wire protocol
+    /// even when its safety behavior revision is stale. This must never be
+    /// used for arming or another risk-increasing operation.
+    var isRecoveryUsable: Bool {
+        switch self {
+        case .ready, .simulated:
+            true
+        case .stale(let helperVersion, _):
+            SleepOverrideSafety.isRecoveryCompatibleHelperVersion(helperVersion)
+        default:
+            false
         }
     }
 
@@ -43,6 +64,10 @@ protocol HelperControlling: AnyObject {
     var onInterruption: (@MainActor () -> Void)? { get set }
 
     func refreshInstallState() async
+    /// Synchronously retire cached readiness when a fresh recovery reply says
+    /// the responder is not the exact current safety revision. This method
+    /// may demote readiness, never promote it.
+    func recordRecoveryOnlyStatus(_ status: HelperStatus)
     func install() async throws
     func openApprovalSettings()
     /// Restores all managed state, removes helper data, deregisters the daemon.
@@ -56,12 +81,48 @@ protocol HelperControlling: AnyObject {
     func scheduleWake(_ date: Date?) async throws
 }
 
+private struct HelperCleanupTarget: Equatable {
+    let helperVersion: Int
+    let helperSafetyRevision: Int?
+
+    func matches(_ status: HelperStatus) -> Bool {
+        status.helperVersion == helperVersion
+            && status.helperSafetyRevision == helperSafetyRevision
+            && SleepOverrideSafety.isReviewedStaleReplacementCompatible(
+                helperVersion: status.helperVersion,
+                helperSafetyRevision: status.helperSafetyRevision
+            )
+    }
+}
+
+private enum HelperCleanupOutcome: Equatable {
+    case removed
+    case replacementNoLongerNeeded
+}
+
+/// Removal failures split into two kinds, and the user-facing guidance must
+/// match. Most stop before any remote mutation and can say so definitely; a
+/// few leave the remote outcome genuinely unresolved. Telling a user to
+/// disbelieve a proven "nothing was removed" pushes them toward manual removal,
+/// which is exactly what strips launchd's KeepAlive/RunAtLoad supervision.
+enum HelperRemovalFailureInfo {
+    /// Present and `true` when this failure provably requested neither cleanup
+    /// nor deregistration, so the helper is still installed and supervised.
+    static let didNotStartKey = "LidlessRemovalDidNotStart"
+}
+
 enum HelperClientError: LocalizedError {
     case notInstalled
     case badProxy
     case malformedReply
     case timedOut(TimeInterval)
+    /// The helper returned an explicit negative reply. The requested mutation
+    /// did not happen.
     case rejected(String)
+    /// The call completed, but this app refused the responder's evidence after
+    /// the request was already delivered. The remote effect is unknown — never
+    /// classify this as a negative reply.
+    case outcomeUnknown(String)
 
     var errorDescription: String? {
         switch self {
@@ -71,6 +132,7 @@ enum HelperClientError: LocalizedError {
         case .timedOut(let timeout):
             "The helper request timed out after \(Int(timeout)) seconds; its remote outcome is unknown."
         case .rejected(let message): message
+        case .outcomeUnknown(let message): message
         }
     }
 }
@@ -78,7 +140,7 @@ enum HelperClientError: LocalizedError {
 @MainActor
 @Observable
 final class HelperClient: HelperControlling {
-    private(set) var installState: HelperInstallState = .unknown
+    private(set) var installState: HelperInstallState = .checking
     var onInterruption: (@MainActor () -> Void)?
 
     private var connection: NSXPCConnection?
@@ -88,6 +150,10 @@ final class HelperClient: HelperControlling {
     /// and normal-sleep evidence jointly resolve that ambiguity. Recovery-only
     /// restoration and cancellation remain available.
     private var removalFence: HelperRemovalClientSafety.Fence = .open
+    /// Every install-state refresh owns an epoch across its XPC suspension.
+    /// A synchronous stale-status demotion advances the epoch so an older
+    /// refresh cannot later overwrite it with cached-ready evidence.
+    private var installStateEpoch: UInt64 = 0
 
     private var service: SMAppService {
         SMAppService.daemon(plistName: LidlessIDs.helperPlistName)
@@ -96,6 +162,8 @@ final class HelperClient: HelperControlling {
     // MARK: - Install lifecycle
 
     func refreshInstallState() async {
+        installStateEpoch &+= 1
+        let epoch = installStateEpoch
         let registrationStatus = service.status
         if removalFence == .outcomeUnresolved {
             if registrationStatus == .notRegistered {
@@ -118,22 +186,49 @@ final class HelperClient: HelperControlling {
         }
 
         switch registrationStatus {
-        case .notRegistered, .notFound:
+        case .notRegistered:
             installState = .notInstalled
+        // ServiceManagement documents `.notFound` as an error, not proof that
+        // registration is inactive. Never let it mint install eligibility or
+        // the safe-but-uninstalled post-replacement state.
+        case .notFound:
+            installState = .unknown
         case .requiresApproval:
             installState = .requiresApproval
         case .enabled:
             do {
                 let status = try await status()
-                installState = SleepOverrideSafety.isCurrentHelper(status)
-                    ? .ready(helperVersion: status.helperVersion)
-                    : .stale(helperVersion: status.helperVersion)
+                guard epoch == installStateEpoch else { return }
+                installState = classifiedInstallState(for: status)
             } catch {
+                guard epoch == installStateEpoch else { return }
                 installState = .notResponding(error.localizedDescription)
             }
         @unknown default:
             installState = .unknown
         }
+    }
+
+    func recordRecoveryOnlyStatus(_ status: HelperStatus) {
+        guard !SleepOverrideSafety.isCurrentHelper(status) else { return }
+        installStateEpoch &+= 1
+        installState = SleepOverrideSafety.isRecoveryCompatibleHelper(status)
+            ? .stale(
+                helperVersion: status.helperVersion,
+                helperSafetyRevision: status.helperSafetyRevision
+            )
+            : .unknown
+    }
+
+    private func classifiedInstallState(
+        for status: HelperStatus
+    ) -> HelperInstallState {
+        SleepOverrideSafety.isCurrentHelper(status)
+            ? .ready(helperVersion: status.helperVersion)
+            : .stale(
+                helperVersion: status.helperVersion,
+                helperSafetyRevision: status.helperSafetyRevision
+            )
     }
 
     func install() async throws {
@@ -145,6 +240,70 @@ final class HelperClient: HelperControlling {
                 )
             }
         }
+
+        // Installation is user-invoked, but the setup screen may have been
+        // open while launchd or the responder changed. Reclassify from live
+        // ServiceManagement and XPC evidence; never replace from cached UI
+        // state alone.
+        await refreshInstallState()
+        var replacedStaleHelper = false
+        switch installState {
+        case .notInstalled:
+            break
+        case .requiresApproval:
+            openApprovalSettings()
+            return
+        case .ready, .simulated:
+            return
+        case .stale(let helperVersion, let helperSafetyRevision):
+            guard SleepOverrideSafety.isReviewedStaleReplacementCompatible(
+                helperVersion: helperVersion,
+                helperSafetyRevision: helperSafetyRevision
+            ) else {
+                let revision = helperSafetyRevision.map(String.init) ?? "missing"
+                throw HelperClientError.rejected(
+                    "The registered helper reports protocol v\(helperVersion), safety revision \(revision). Automatic cleanup is unavailable because this app has not reviewed that helper's complete removal behavior. Emergency sleep recovery only: run \(LidlessIDs.manualFallbackCommand) and verify normal sleep. That command does not cancel helper-managed wakes, restore other settings, delete helper data, or remove its registration. Keep the helper registered and contact Lidless support for a separately reviewed, revision-specific removal procedure."
+                )
+            }
+            // `uninstall()` owns the reviewed two-phase cleanup, independent
+            // registry-OFF proof, asynchronous unregister, and final inactive
+            // registration proof. Register only after that entire boundary
+            // reports `.notInstalled`.
+            let cleanupOutcome = try await uninstall(
+                expectedCleanupTarget: HelperCleanupTarget(
+                    helperVersion: helperVersion,
+                    helperSafetyRevision: helperSafetyRevision
+                )
+            )
+            switch cleanupOutcome {
+            case .removed:
+                break
+            case .replacementNoLongerNeeded:
+                return
+            }
+            guard installState == .notInstalled else {
+                throw HelperClientError.rejected(
+                    "The stale helper replacement did not reach a verified inactive registration. Lidless did not register another helper. Emergency sleep recovery only: run \(LidlessIDs.manualFallbackCommand) and verify normal sleep. That command does not remove the helper or complete replacement. Keep the helper registered and contact Lidless support for a separately reviewed resolution."
+                )
+            }
+            replacedStaleHelper = true
+        case .notResponding(let detail):
+            throw HelperClientError.rejected(
+                "The registered helper did not provide a compatible live status (\(detail)). Automatic replacement is unavailable. Emergency sleep recovery only: run \(LidlessIDs.manualFallbackCommand) and verify normal sleep. That command does not remove the helper or complete replacement. Keep the helper registered and contact Lidless support for a separately reviewed removal procedure for the installed helper."
+            )
+        case .unknown:
+            throw HelperClientError.rejected(
+                "The helper registration could not be classified. Automatic replacement is unavailable. Emergency sleep recovery only: run \(LidlessIDs.manualFallbackCommand) and verify normal sleep. That command does not remove the helper or complete replacement. Keep the helper registered and contact Lidless support for a separately reviewed removal procedure for the installed helper."
+            )
+        // A concurrent refresh superseded this one, so no classification is
+        // available to act on. Nothing has been mutated; fail closed rather
+        // than install or replace from absent evidence.
+        case .checking:
+            throw HelperClientError.rejected(
+                "Lidless has not finished classifying the installed helper, so it did not install, replace, or remove anything. Re-check helper status in Setup, then try again."
+            )
+        }
+
         do {
             try service.register()
         } catch {
@@ -155,11 +314,52 @@ final class HelperClient: HelperControlling {
                 openApprovalSettings()
                 return
             }
+            if replacedStaleHelper, installState == .notInstalled {
+                throw HelperClientError.rejected(
+                    "The stale helper was safely removed, but the new helper could not be registered (\(error.localizedDescription)). Normal sleep is verified and no helper is registered; retry installation from Setup."
+                )
+            }
+            if replacedStaleHelper, installState == .unknown {
+                throw HelperClientError.rejected(
+                    "The stale helper removal completed, but the new registration attempt returned an error and ServiceManagement could not classify its final state (\(error.localizedDescription)). Lidless will not claim the helper is absent. Do not retry installation until registration and normal sleep are independently verified; contact Lidless support."
+                )
+            }
             throw error
         }
         await refreshInstallState()
-        if installState == .requiresApproval {
+        switch installState {
+        case .ready, .simulated:
+            return
+        case .requiresApproval:
             openApprovalSettings()
+        case .notInstalled where replacedStaleHelper:
+            throw HelperClientError.rejected(
+                "The stale helper was safely removed, but the new helper is not registered. Normal sleep is verified; retry installation from Setup."
+            )
+        case .stale(let helperVersion, let helperSafetyRevision):
+            let revision = helperSafetyRevision.map(String.init) ?? "missing"
+            throw HelperClientError.rejected(
+                "The registered responder still reports protocol v\(helperVersion), safety revision \(revision). Lidless will not retry replacement automatically. Emergency sleep recovery only: run \(LidlessIDs.manualFallbackCommand) and verify normal sleep. Keep the helper registered and contact Lidless support for a separately reviewed, revision-specific resolution."
+            )
+        case .notResponding(let detail):
+            throw HelperClientError.rejected(
+                "The new helper registration could not be verified (\(detail)). Lidless will not retry automatically. Verify normal sleep before taking manual action."
+            )
+        case .notInstalled:
+            throw HelperClientError.rejected(
+                "The new helper registration could not be verified. Lidless will not claim installation success; verify registration and normal sleep before retrying."
+            )
+        case .unknown:
+            throw HelperClientError.rejected(
+                "ServiceManagement could not classify the helper after registration. Lidless will not claim the helper is absent or retry automatically. Do not retry installation until registration and normal sleep are independently verified; contact Lidless support."
+            )
+        // The register call returned, but a concurrent refresh superseded the
+        // verification. Registration state is genuinely unresolved here, so
+        // this must never read as success or as proof the helper is absent.
+        case .checking:
+            throw HelperClientError.rejected(
+                "The registration attempt completed, but Lidless did not finish classifying the result, so it will not claim installation succeeded or that the helper is absent. Re-check helper status in Setup and verify normal sleep before retrying."
+            )
         }
     }
 
@@ -168,6 +368,12 @@ final class HelperClient: HelperControlling {
     }
 
     func uninstall() async throws {
+        _ = try await uninstall(expectedCleanupTarget: nil)
+    }
+
+    private func uninstall(
+        expectedCleanupTarget: HelperCleanupTarget?
+    ) async throws -> HelperCleanupOutcome {
         // Order is safety-critical: deregistering removes launchd's
         // KeepAlive/RunAtLoad supervision, so it must never happen while the
         // helper reports (or the registry shows) the override might still be
@@ -181,7 +387,12 @@ final class HelperClient: HelperControlling {
             // have weaker restoration semantics, so rejecting its reply after
             // cleanup is too late: it may already have discarded the only
             // recovery record. Invalidate cached readiness first, then obtain
-            // a process-bound authorization from the exact-current responder.
+            // a process-bound authorization from a responder whose cleanup
+            // behavior is explicitly reviewed: the current safety revision or
+            // the pinned predecessor revision. Other revision-mismatched
+            // responders remain ineligible to arm or clean up; cleanup
+            // completion additionally needs structural helper proof and a
+            // fresh independent registry-OFF read.
             installState = .unknown
             let cleanupPreparation: HelperCleanupPreparation
             do {
@@ -190,15 +401,49 @@ final class HelperClient: HelperControlling {
                 installState = .notResponding(error.localizedDescription)
                 invalidateConnection()
                 throw NSError(domain: "Lidless", code: 10, userInfo: [
-                    NSLocalizedDescriptionKey: "The registered helper could not be verified before cleanup (\(error.localizedDescription)). Lidless did not request cleanup or deregistration. Keep the helper registered. If normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand), then verify it before manually replacing or removing the helper.",
+                    HelperRemovalFailureInfo.didNotStartKey: true,
+                    NSLocalizedDescriptionKey: "The registered helper could not be verified before cleanup (\(error.localizedDescription)). Lidless did not request cleanup or deregistration. Keep the helper registered. Emergency sleep recovery only: if normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand) and verify it. That command does not remove the helper or complete replacement. Contact Lidless support for a separately reviewed removal procedure for the installed helper.",
                 ])
             }
-            guard SleepOverrideSafety.isCurrentHelper(cleanupPreparation.status) else {
-                installState = .stale(
-                    helperVersion: cleanupPreparation.status.helperVersion
+            let cleanupTargetAccepted: Bool
+            if let expectedCleanupTarget {
+                if SleepOverrideSafety.isCurrentHelper(cleanupPreparation.status) {
+                    // The selected predecessor was replaced while preparation
+                    // was suspended. The enabled responder is already current,
+                    // so replacement is complete without cleanup or register.
+                    if removalRegistrationState() != registrationState {
+                        installState = .unknown
+                        invalidateConnection()
+                        throw NSError(domain: "Lidless", code: 12, userInfo: [
+                            HelperRemovalFailureInfo.didNotStartKey: true,
+                            NSLocalizedDescriptionKey: "The helper registration changed during cleanup verification. Lidless did not request cleanup or deregistration; try again from a fresh state.",
+                        ])
+                    }
+                    installState = .ready(
+                        helperVersion: cleanupPreparation.status.helperVersion
+                    )
+                    return .replacementNoLongerNeeded
+                }
+                // Automatic stale replacement is bound to the exact reviewed
+                // predecessor observed before this suspension. A responder
+                // that became current (or changed to anything else) must not
+                // inherit permission for destructive replacement cleanup.
+                cleanupTargetAccepted = expectedCleanupTarget.matches(cleanupPreparation.status)
+            } else {
+                cleanupTargetAccepted = SleepOverrideSafety.isReviewedCleanupCompatibleHelper(
+                    cleanupPreparation.status
                 )
+            }
+            guard cleanupTargetAccepted else {
+                installState = classifiedInstallState(for: cleanupPreparation.status)
+                let revision = cleanupPreparation.status.helperSafetyRevision
+                    .map(String.init) ?? "missing"
+                let reason = expectedCleanupTarget == nil
+                    ? "whose complete cleanup behavior is not reviewed by this app"
+                    : "which no longer matches the exact reviewed predecessor selected for replacement"
                 throw NSError(domain: "Lidless", code: 11, userInfo: [
-                    NSLocalizedDescriptionKey: "The registered helper did not report the exact protocol and safety revision this app requires. Lidless did not request cleanup or deregistration. Automatic replacement is not proven safe; keep the helper registered. If normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand), then verify it before manually replacing or removing the helper.",
+                    HelperRemovalFailureInfo.didNotStartKey: true,
+                    NSLocalizedDescriptionKey: "The registered helper reports protocol v\(cleanupPreparation.status.helperVersion), safety revision \(revision), \(reason). Lidless did not request cleanup or deregistration. Keep the helper registered. Emergency sleep recovery only: run \(LidlessIDs.manualFallbackCommand) and verify normal sleep. That command does not complete helper removal. Contact Lidless support for a separately reviewed, revision-specific removal procedure.",
                 ])
             }
             guard cleanupPreparation.ok,
@@ -210,16 +455,19 @@ final class HelperClient: HelperControlling {
                 // usable installation or a completed cleanup preparation.
                 installState = .unknown
                 throw NSError(domain: "Lidless", code: 13, userInfo: [
+                    HelperRemovalFailureInfo.didNotStartKey: true,
                     NSLocalizedDescriptionKey: "The registered helper refused cleanup preparation (\(reason)). Lidless did not request cleanup or deregistration. Keep the helper registered and verify normal sleep before retrying.",
                 ])
             }
-            // The preparation await creates a reentrancy window. A changed
-            // launchd classification invalidates it before any helper cleanup
-            // mutation, just as a later change invalidates deregistration.
+            // Bind the authorization and reviewed responder classification to
+            // the same enabled registration immediately before committing the
+            // destructive remote cleanup fence. Executable identity/ABA remains
+            // a separately documented runtime gate.
             guard removalRegistrationState() == registrationState else {
                 installState = .unknown
                 invalidateConnection()
                 throw NSError(domain: "Lidless", code: 12, userInfo: [
+                    HelperRemovalFailureInfo.didNotStartKey: true,
                     NSLocalizedDescriptionKey: "The helper registration changed during cleanup verification. Lidless did not request cleanup or deregistration; try again from a fresh state.",
                 ])
             }
@@ -239,7 +487,7 @@ final class HelperClient: HelperControlling {
                 }
             } catch {
                 throw NSError(domain: "Lidless", code: 3, userInfo: [
-                    NSLocalizedDescriptionKey: "The helper cleanup outcome is unresolved (\(error.localizedDescription)). Lidless will not start risk-increasing privileged work. If normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand), then check registration before retrying.",
+                    NSLocalizedDescriptionKey: "The helper cleanup outcome is unresolved (\(error.localizedDescription)). Lidless will not start risk-increasing privileged work. Emergency sleep recovery only: if normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand) and verify it. That command does not determine registration or finish removal; check registration before retrying.",
                 ])
             }
 
@@ -250,7 +498,7 @@ final class HelperClient: HelperControlling {
                 independentlyObserved: independentlyObserved
             ) else {
                 throw NSError(domain: "Lidless", code: 4, userInfo: [
-                    NSLocalizedDescriptionKey: "Normal sleep was not independently verified after helper cleanup (\(reply.error ?? "incomplete proof")). The helper remains installed. Run \(LidlessIDs.manualFallbackCommand), then try again.",
+                    NSLocalizedDescriptionKey: "Normal sleep was not independently verified after helper cleanup (\(reply.error ?? "incomplete proof")). The helper remains installed. Emergency sleep recovery only: run \(LidlessIDs.manualFallbackCommand) and verify normal sleep. That command does not remove the helper; retry removal from Setup only after normal sleep is verified.",
                 ])
             }
             removalAction = authorized
@@ -262,12 +510,14 @@ final class HelperClient: HelperControlling {
                 independentlyObserved: independentlyObserved
             ) else {
                 throw NSError(domain: "Lidless", code: 5, userInfo: [
-                    NSLocalizedDescriptionKey: "Normal sleep could not be verified while the helper registration is inactive. Run \(LidlessIDs.manualFallbackCommand), then try again.",
+                    HelperRemovalFailureInfo.didNotStartKey: true,
+                    NSLocalizedDescriptionKey: "Normal sleep could not be verified while the helper registration is inactive. Emergency sleep recovery only: run \(LidlessIDs.manualFallbackCommand) and verify normal sleep, then retry verification. The command does not establish registration state.",
                 ])
             }
             removalAction = authorized
         case .unknown:
             throw NSError(domain: "Lidless", code: 6, userInfo: [
+                    HelperRemovalFailureInfo.didNotStartKey: true,
                 NSLocalizedDescriptionKey: "The helper registration state is unknown. Lidless will not remove supervision until the state can be classified.",
             ])
         }
@@ -277,6 +527,7 @@ final class HelperClient: HelperControlling {
         // unregistering a service different from the one just verified.
         guard removalRegistrationState() == registrationState else {
             throw NSError(domain: "Lidless", code: 7, userInfo: [
+                    HelperRemovalFailureInfo.didNotStartKey: true,
                 NSLocalizedDescriptionKey: "The helper registration changed during removal. Lidless did not request deregistration; try again.",
             ])
         }
@@ -290,7 +541,7 @@ final class HelperClient: HelperControlling {
                 invalidateConnection()
                 installState = .unknown
                 throw NSError(domain: "Lidless", code: 8, userInfo: [
-                    NSLocalizedDescriptionKey: "Helper deregistration returned an error (\(error.localizedDescription)), so its final state is unknown. The helper may already be unregistered. If normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand), then try again.",
+                    NSLocalizedDescriptionKey: "Helper deregistration returned an error (\(error.localizedDescription)), so its final state is unknown. The helper may already be unregistered. Emergency sleep recovery only: if normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand) and verify it. That command does not establish registration state; check registration before retrying.",
                 ])
             }
         }
@@ -308,7 +559,7 @@ final class HelperClient: HelperControlling {
         guard completionProven else {
             installState = .unknown
             throw NSError(domain: "Lidless", code: 9, userInfo: [
-                NSLocalizedDescriptionKey: "Helper removal could not be fully verified. The helper may already be unregistered, but Lidless could not prove both inactive registration and normal sleep. If normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand), then try again.",
+                NSLocalizedDescriptionKey: "Helper removal could not be fully verified. The helper may already be unregistered, but Lidless could not prove both inactive registration and normal sleep. Emergency sleep recovery only: if normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand) and verify it. That command does not establish registration state; check registration before retrying.",
             ])
         }
         removalFence = HelperRemovalClientSafety.resolve(
@@ -317,6 +568,7 @@ final class HelperClient: HelperControlling {
             independentlyObserved: finalSleepDisabled
         )
         installState = .notInstalled
+        return .removed
     }
 
     private func removalRegistrationState() -> HelperRemovalSafety.RegistrationState {
@@ -385,12 +637,21 @@ final class HelperClient: HelperControlling {
         let reply = try await callForReply { proxy, done in
             proxy.scheduleWake(epoch, reply: done)
         }
-        guard reply.ok,
-              SleepOverrideSafety.isCurrentHelper(reply.status)
-        else {
+        recordRecoveryOnlyStatus(reply.status)
+        guard reply.ok else {
             throw HelperClientError.rejected(
                 reply.error
-                    ?? "The helper rejected scheduled-wake reconciliation or no longer matches this app's safety revision."
+                    ?? "The helper rejected scheduled-wake reconciliation."
+            )
+        }
+        // The responder reported success but is not the exact current safety
+        // revision, so this app refuses its evidence. It may still have applied
+        // the RTC wake, which is an indeterminate remote outcome rather than an
+        // explicit negative reply: only that classification records the
+        // ordering hazard that prevents a later false confirmation.
+        guard SleepOverrideSafety.isCurrentHelper(reply.status) else {
+            throw HelperClientError.outcomeUnknown(
+                "The scheduled-wake responder no longer matches this app's safety revision, so its remote effect is unknown."
             )
         }
     }

@@ -226,11 +226,26 @@ struct ScheduledWakeReconciliationTests {
         #expect(wakeMaintenance.contains("scheduledWakeReconciliation.complete("))
         #expect(!wakeMaintenance.contains("lastScheduledWakeSent = .some(desired)"))
         #expect(wakeMaintenance.contains("catch HelperClientError.rejected(_)"))
-        #expect(scheduleCall.contains("guard reply.ok,"))
+        #expect(wakeMaintenance.contains("!launchReconciliationInFlight"))
+        #expect(wakeMaintenance.contains("helperLifecycleOperationsInFlight == 0"))
+        #expect(wakeMaintenance.contains("pendingRestore == nil"))
+        #expect(wakeMaintenance.contains("sleepTerminationGeneration == nil"))
+        #expect(wakeMaintenance.contains("!terminationPending"))
+        #expect(wakeMaintenance.contains("phase != .disarming"))
+        #expect(scheduleCall.contains("recordRecoveryOnlyStatus(reply.status)"))
+        // Success requires BOTH a positive reply and an exact-current
+        // responder. They are checked separately so the two failures can be
+        // classified differently — an explicit negative reply did not mutate,
+        // while a refused-but-delivered request may have — but neither
+        // condition may be accepted on its own, so each guard must throw.
+        #expect(scheduleCall.contains("guard reply.ok else"))
         #expect(scheduleCall.contains(
-            "SleepOverrideSafety.isCurrentHelper(reply.status)"
+            "guard SleepOverrideSafety.isCurrentHelper(reply.status) else"
         ))
-        #expect(!scheduleCall.contains("guard reply.ok else"))
+        #expect(!scheduleCall.contains("guard reply.ok else { return }"))
+        #expect(!scheduleCall.contains(
+            "guard SleepOverrideSafety.isCurrentHelper(reply.status) else { return }"
+        ))
         #expect(finalize.contains("scheduledWakeReconciliation.invalidate()"))
         #expect(interruption.contains("scheduledWakeReconciliation.invalidate()"))
 
@@ -258,15 +273,27 @@ struct ScheduledWakeReconciliationTests {
         #expect(success.lowerBound < rejection.lowerBound)
         #expect(rejection.lowerBound < uncertainty.lowerBound)
 
-        let replyGuard = try #require(scheduleCall.range(of: "guard reply.ok,"))
-        let revisionGuard = try #require(scheduleCall.range(
-            of: "SleepOverrideSafety.isCurrentHelper(reply.status)"
+        let decodedReply = try #require(scheduleCall.range(
+            of: "let reply = try await callForReply"
         ))
+        let helperDemotion = try #require(scheduleCall.range(
+            of: "recordRecoveryOnlyStatus(reply.status)"
+        ))
+        let replyGuard = try #require(scheduleCall.range(of: "guard reply.ok else"))
         let rejectionThrow = try #require(scheduleCall.range(
             of: "throw HelperClientError.rejected"
         ))
-        #expect(replyGuard.lowerBound < revisionGuard.lowerBound)
-        #expect(revisionGuard.lowerBound < rejectionThrow.lowerBound)
+        let revisionGuard = try #require(scheduleCall.range(
+            of: "guard SleepOverrideSafety.isCurrentHelper(reply.status) else"
+        ))
+        let indeterminateThrow = try #require(scheduleCall.range(
+            of: "throw HelperClientError.outcomeUnknown"
+        ))
+        #expect(decodedReply.lowerBound < helperDemotion.lowerBound)
+        #expect(helperDemotion.lowerBound < replyGuard.lowerBound)
+        #expect(replyGuard.lowerBound < rejectionThrow.lowerBound)
+        #expect(rejectionThrow.lowerBound < revisionGuard.lowerBound)
+        #expect(revisionGuard.lowerBound < indeterminateThrow.lowerBound)
     }
 
     private func repositoryFile(_ relativePath: String) throws -> String {

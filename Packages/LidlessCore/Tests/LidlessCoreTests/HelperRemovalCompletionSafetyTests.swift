@@ -153,8 +153,20 @@ struct HelperRemovalCompletionSafetyTests {
             from: "private var uninstallSection",
             through: "private var aboutSection"
         )
-        #expect(setupUninstall.contains("Do not assume the helper is still installed"))
-        #expect(setupUninstall.contains("LidlessIDs.manualFallbackCommand"))
+        // The failure guidance moved into `AppState.uninstall()` so it can match
+        // what the failing code path actually proved. An unresolved remote
+        // outcome must still refuse to assume removal happened and must still
+        // offer the emergency command; a failure that provably requested no
+        // cleanup or deregistration must not contradict its own message.
+        #expect(appUninstall.contains("do not assume the helper is still installed"))
+        #expect(appUninstall.contains("LidlessIDs.manualFallbackCommand"))
+        #expect(appUninstall.contains(
+            "HelperRemovalFailureInfo.didNotStartKey"
+        ))
+        #expect(appUninstall.contains(
+            "still installed and still supervised. Do not remove it manually."
+        ))
+        #expect(setupUninstall.contains("message: Text(message)"))
         #expect(setupUninstall.contains("Helper registration inactive"))
         #expect(setupUninstall.contains("the helper is not registered"))
         #expect(!setupUninstall.contains("Helper removed"))

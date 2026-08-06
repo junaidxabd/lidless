@@ -265,6 +265,120 @@ struct NonSleepRestoreCoordinatorTests {
         ) == .complete)
     }
 
+    @Test func revisionMismatchCanRestoreButCannotAuthorizeForceSleep() {
+        for revision: Int? in [nil, 6, 8] {
+            let staleReply = HelperReply(
+                ok: true,
+                status: HelperStatus(
+                    helperVersion: LidlessIDs.helperVersion,
+                    helperSafetyRevision: revision,
+                    armed: false,
+                    sleepDisabled: false,
+                    sleepStateVerified: true,
+                    restorePending: false
+                )
+            )
+            var gate = NonSleepRestoreGate()
+            let generation = gate.begin(forceSleepRequested: true)
+
+            #expect(SleepOverrideSafety.isRestoreProven(
+                staleReply,
+                independentlyObserved: false
+            ))
+            #expect(!SleepOverrideSafety.isCurrentHelper(staleReply.status))
+            #expect(gate.evaluateBaseProof(
+                generation: generation,
+                helperReply: staleReply,
+                independentlyObserved: false,
+                armRequestsInFlight: 0
+            ) == .complete)
+            #expect(gate.isCompleted(generation))
+        }
+    }
+
+    @Test func differentWireStopsAutomaticRecoveryInsteadOfRetryingForever() {
+        let incompatibleReply = HelperReply(
+            ok: true,
+            status: HelperStatus(
+                helperVersion: LidlessIDs.helperVersion + 1,
+                helperSafetyRevision: LidlessIDs.helperSafetyRevision,
+                armed: false,
+                sleepDisabled: false,
+                sleepStateVerified: true,
+                restorePending: false
+            )
+        )
+
+        var baseGate = NonSleepRestoreGate()
+        let base = baseGate.begin()
+        #expect(baseGate.evaluateBaseProof(
+            generation: base,
+            helperReply: incompatibleReply,
+            independentlyObserved: false,
+            armRequestsInFlight: 1
+        ) == .retry)
+        #expect(baseGate.owns(base))
+        #expect(baseGate.evaluateBaseProof(
+            generation: base,
+            helperReply: incompatibleReply,
+            independentlyObserved: false,
+            armRequestsInFlight: 0
+        ) == .manualRecoveryRequired)
+        #expect(!baseGate.owns(base))
+
+        var followUpGate = NonSleepRestoreGate()
+        let followUp = followUpGate.begin(forceSleepRequested: true)
+        #expect(followUpGate.evaluateBaseProof(
+            generation: followUp,
+            helperReply: restoredReply,
+            independentlyObserved: false,
+            armRequestsInFlight: 0
+        ) == .dispatchForceSleep)
+        #expect(followUpGate.evaluateFollowUpProof(
+            generation: followUp,
+            helperReply: incompatibleReply,
+            independentlyObserved: false,
+            armRequestsInFlight: 1
+        ) == .retry)
+        #expect(followUpGate.owns(followUp))
+        #expect(followUpGate.evaluateFollowUpProof(
+            generation: followUp,
+            helperReply: incompatibleReply,
+            independentlyObserved: false,
+            armRequestsInFlight: 0
+        ) == .manualRecoveryRequired)
+        #expect(!followUpGate.owns(followUp))
+
+        var finalGate = NonSleepRestoreGate()
+        let final = finalGate.begin(requiresFinalProof: true)
+        #expect(finalGate.evaluateBaseProof(
+            generation: final,
+            helperReply: restoredReply,
+            independentlyObserved: false,
+            armRequestsInFlight: 0
+        ) == .awaitFinalProof)
+        #expect(finalGate.evaluateFinalProof(
+            generation: final,
+            helperReply: incompatibleReply,
+            independentlyObserved: false,
+            armRequestsInFlight: 1
+        ) == .retry)
+        #expect(finalGate.owns(final))
+        #expect(finalGate.evaluateBaseProof(
+            generation: final,
+            helperReply: restoredReply,
+            independentlyObserved: false,
+            armRequestsInFlight: 0
+        ) == .awaitFinalProof)
+        #expect(finalGate.evaluateFinalProof(
+            generation: final,
+            helperReply: incompatibleReply,
+            independentlyObserved: false,
+            armRequestsInFlight: 0
+        ) == .manualRecoveryRequired)
+        #expect(!finalGate.owns(final))
+    }
+
     @Test func quitCompletionNeedsASecondFreshProofAndStaysLatchedByGeneration() {
         var gate = NonSleepRestoreGate()
         let quit = gate.begin(requiresFinalProof: true)
@@ -397,11 +511,23 @@ struct NonSleepRestoreCoordinatorTests {
             from: "private func scheduleAutomationTick()",
             through: "private func maintainScheduledWake()"
         )
+        let skippedFollowUp = try section(
+            of: app,
+            from: "private func markForceSleepFollowUpSkipped(",
+            through: "private func markForceSleepFollowUpUnverified("
+        )
+        let ambiguousFollowUp = try section(
+            of: app,
+            from: "private func markForceSleepFollowUpUnverified(",
+            through: "private func abandonRestoreWait("
+        )
 
         #expect(app.contains("private var restoreGate = NonSleepRestoreGate()"))
         #expect(app.contains("restoreGate.evaluateBaseProof("))
         #expect(app.contains("restoreGate.evaluateFollowUpProof("))
         #expect(app.contains("restoreGate.evaluateFinalProof("))
+        #expect(app.contains("markForceSleepFollowUpSkipped("))
+        #expect(app.contains("The follow-up sleep request was skipped"))
         #expect(app.contains("NonSleepRestoreGate.allowsImmediateTermination("))
         #expect(app.contains("return await waitForRestore(restoreID: restoreID)"))
         #expect(occurrenceCount(
@@ -417,6 +543,23 @@ struct NonSleepRestoreCoordinatorTests {
         #expect(!app.contains("? \"Going to sleep\" : \"Keep-awake ended\""))
         #expect(app.contains("pending.notificationTitle = \"Keep-awake ended\""))
         #expect(app.contains("pending.playChime = false"))
+        let notificationOptIn = try #require(skippedFollowUp.range(
+            of: "if pending.notificationTitle != nil"
+        ))
+        let notificationRewrite = try #require(skippedFollowUp.range(
+            of: "pending.notificationTitle = \"Keep-awake ended\""
+        ))
+        #expect(notificationOptIn.lowerBound < notificationRewrite.lowerBound)
+        let ambiguousNotificationOptIn = try #require(ambiguousFollowUp.range(
+            of: "if pending.notificationTitle != nil"
+        ))
+        let ambiguousNotificationRewrite = try #require(ambiguousFollowUp.range(
+            of: "pending.notificationTitle = \"Keep-awake ended\""
+        ))
+        #expect(
+            ambiguousNotificationOptIn.lowerBound
+                < ambiguousNotificationRewrite.lowerBound
+        )
         #expect(delegate.contains("Normal macOS sleep behavior will be restored before Lidless quits."))
         #expect(!delegate.contains("your Mac will go to sleep shortly after"))
         #expect(delegate.contains("guard let state = Self.stateProvider?() else {\n            return .terminateCancel"))
@@ -480,7 +623,8 @@ struct NonSleepRestoreCoordinatorTests {
         #expect(repair.contains("pendingRestore == nil"))
         #expect(repair.contains("armRequestsInFlight == 0"))
         #expect(repair.contains("!uninstallInProgress"))
-        #expect(repair.contains("helperState.isUsable"))
+        #expect(repair.contains("await refreshHelperInstallState()"))
+        #expect(repair.contains("helperState.isRecoveryUsable"))
         #expect(repair.contains("refreshedSleepOverride() == true"))
         #expect(repair.contains("forceSleepFollowUp: nil"))
         #expect(repair.contains("allowsUnownedExternalOverrideCompletion: false"))
@@ -499,13 +643,11 @@ struct NonSleepRestoreCoordinatorTests {
             of: "cancelPendingRestoreForSleepTransition()"
         ))
         #expect(sleepActuationSnapshot.lowerBound < pendingRestoreCancellation.lowerBound)
-        #expect(sleepTransition.contains(
-            "if sleepTerminationGeneration == nil {\n"
-                + "                sleepTerminationGeneration = sleepGeneration\n"
-                + "                sleepTerminationActuation = pendingRestore?.actuation ?? .disarm\n"
-                + "            }\n"
-                + "            cancelPendingRestoreForSleepTransition()"
+        let incompatibleLatchReset = try #require(sleepTransition.range(
+            of: "sleepTerminationIncompatibleWireStatus = nil"
         ))
+        #expect(sleepActuationSnapshot.lowerBound < incompatibleLatchReset.lowerBound)
+        #expect(incompatibleLatchReset.lowerBound < pendingRestoreCancellation.lowerBound)
         #expect(transitionRestore.contains("switch terminalActuation"))
         #expect(transitionRestore.contains("case .repairOverride:"))
         #expect(transitionRestore.contains("reply = try await helper.repairOverride()"))

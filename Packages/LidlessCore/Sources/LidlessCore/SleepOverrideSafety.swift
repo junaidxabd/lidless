@@ -53,6 +53,44 @@ public enum SleepOverrideSafety {
             && status.helperSafetyRevision == LidlessIDs.helperSafetyRevision
     }
 
+    /// Normal-sleep recovery is de-risking rather than risk-increasing. A
+    /// responder with the current wire protocol can therefore participate in
+    /// restoration even when its behavior revision is missing, older, or
+    /// newer — but only through the two-source proof overloads below. Arming,
+    /// one-source helper decisions, and destructive cleanup/removal use their
+    /// stricter revision-specific gates.
+    public static func isRecoveryCompatibleHelper(_ status: HelperStatus) -> Bool {
+        isRecoveryCompatibleHelperVersion(status.helperVersion)
+    }
+
+    public static func isRecoveryCompatibleHelperVersion(_ version: Int) -> Bool {
+        version == LidlessIDs.helperVersion
+    }
+
+    /// Cleanup can restore optional settings, cancel persisted wakes, delete
+    /// helper data, and authorize deregistration. Those effects require a
+    /// reviewed behavior revision in addition to wire compatibility. The
+    /// current revision supports ordinary removal; the explicitly pinned
+    /// predecessor supports this one bounded replacement path.
+    public static func isReviewedCleanupCompatibleHelper(
+        _ status: HelperStatus
+    ) -> Bool {
+        guard isRecoveryCompatibleHelper(status),
+              let revision = status.helperSafetyRevision
+        else { return false }
+        return revision == LidlessIDs.helperSafetyRevision
+            || revision == LidlessIDs.reviewedStaleReplacementSafetyRevision
+    }
+
+    public static func isReviewedStaleReplacementCompatible(
+        helperVersion: Int,
+        helperSafetyRevision: Int?
+    ) -> Bool {
+        isRecoveryCompatibleHelperVersion(helperVersion)
+            && helperSafetyRevision
+                == LidlessIDs.reviewedStaleReplacementSafetyRevision
+    }
+
     /// The app may expose an armed session only when the helper confirms it
     /// owns a live session and a readable registry shows the override on.
     public static func isArmProven(_ reply: HelperReply) -> Bool {
@@ -85,7 +123,9 @@ public enum SleepOverrideSafety {
         _ reply: HelperReply,
         independentlyObserved: Bool?
     ) -> Bool {
-        isRestoreProven(reply)
+        reply.ok
+            && isRecoveryCompatibleHelper(reply.status)
+            && isStructurallyRestored(reply.status)
             && isVerified(expected: false, observed: independentlyObserved)
     }
 
@@ -94,10 +134,7 @@ public enum SleepOverrideSafety {
     /// retry remains pending. Missing fields from an older helper are unknown.
     public static func isRestoreProven(_ status: HelperStatus) -> Bool {
         isCurrentHelper(status)
-            && !status.armed
-            && status.sleepStateVerified == true
-            && status.sleepDisabled == false
-            && status.restorePending == false
+            && isStructurallyRestored(status)
     }
 
     /// Status polling follows the same two-source completion rule as an
@@ -107,8 +144,16 @@ public enum SleepOverrideSafety {
         _ status: HelperStatus,
         independentlyObserved: Bool?
     ) -> Bool {
-        isRestoreProven(status)
+        isRecoveryCompatibleHelper(status)
+            && isStructurallyRestored(status)
             && isVerified(expected: false, observed: independentlyObserved)
+    }
+
+    private static func isStructurallyRestored(_ status: HelperStatus) -> Bool {
+        !status.armed
+            && status.sleepStateVerified == true
+            && status.sleepDisabled == false
+            && status.restorePending == false
     }
 
     /// Proves that the current helper owns no live or recovering Lidless

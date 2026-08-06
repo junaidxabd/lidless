@@ -146,6 +146,8 @@ final class SimulatedHelper: HelperControlling {
 
     func refreshInstallState() async {}
 
+    func recordRecoveryOnlyStatus(_ status: HelperStatus) {}
+
     func install() async throws {}
 
     func openApprovalSettings() {}

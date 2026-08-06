@@ -38,7 +38,7 @@ struct HelperSafetyRevisionTests {
         return try #require(IPCCoding.decode(HelperReply.self, from: data))
     }
 
-    @Test func exactRevisionIsRequiredThroughEveryProofAndRecoveryWrapper() throws {
+    @Test func exactRevisionIsRequiredForArmAndOneSourceProof() throws {
         let incompatible: [RevisionField] = [
             .missing,
             .value(0),
@@ -80,13 +80,22 @@ struct HelperSafetyRevisionTests {
             #expect(!SleepOverrideSafety.isArmProven(armed))
             #expect(!SleepOverrideSafety.isRestoreProven(restored.status))
             #expect(!SleepOverrideSafety.isRestoreProven(restored))
-            #expect(!SleepOverrideSafety.isRestoreProven(
+            #expect(SleepOverrideSafety.isRecoveryCompatibleHelper(restored.status))
+            #expect(SleepOverrideSafety.isRestoreProven(
                 restored.status,
+                independentlyObserved: false
+            ))
+            #expect(SleepOverrideSafety.isRestoreProven(
+                restored,
                 independentlyObserved: false
             ))
             #expect(!SleepOverrideSafety.isRestoreProven(
                 restored,
-                independentlyObserved: false
+                independentlyObserved: nil
+            ))
+            #expect(!SleepOverrideSafety.isRestoreProven(
+                restored,
+                independentlyObserved: true
             ))
             #expect(!SleepOverrideSafety.isUnownedExternalOverride(
                 outsideOverride.status,
@@ -108,11 +117,16 @@ struct HelperSafetyRevisionTests {
             ) == .retry)
             #expect(gate.owns(generation))
 
+            let expectedRemoval: HelperRemovalSafety.RegistrationRemovalAction? =
+                restored.status.helperSafetyRevision
+                    == LidlessIDs.reviewedStaleReplacementSafetyRevision
+                    ? .unregister
+                    : nil
             #expect(HelperRemovalSafety.removalAction(
                 .enabled,
                 helperReply: restored,
                 independentlyObserved: false
-            ) == nil)
+            ) == expectedRemoval)
         }
     }
 
@@ -247,10 +261,17 @@ struct HelperSafetyRevisionTests {
         let normalizedRefresh = normalize(refresh)
         #expect(normalizedRefresh.contains(
             "case .enabled: do { let status = try await status() "
-                + "installState = SleepOverrideSafety.isCurrentHelper(status) "
-                + "? .ready(helperVersion: status.helperVersion) "
-                + ": .stale(helperVersion: status.helperVersion)"
+                + "guard epoch == installStateEpoch else { return } "
+                + "installState = classifiedInstallState(for: status)"
         ))
+        let exactClassification =
+            "private func classifiedInstallState( for status: HelperStatus ) "
+            + "-> HelperInstallState { "
+            + "SleepOverrideSafety.isCurrentHelper(status) "
+            + "? .ready(helperVersion: status.helperVersion) "
+            + ": .stale( helperVersion: status.helperVersion, "
+            + "helperSafetyRevision: status.helperSafetyRevision )"
+        #expect(normalizedRefresh.contains(exactClassification))
         #expect(!refresh.contains(
             "installState = status.helperVersion == LidlessIDs.helperVersion"
         ))
