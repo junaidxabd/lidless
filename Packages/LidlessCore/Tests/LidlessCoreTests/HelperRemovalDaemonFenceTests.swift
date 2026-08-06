@@ -177,17 +177,257 @@ struct HelperRemovalDaemonFenceTests {
 
         let commit = try #require(cleanup.range(of: "helperRemovalFence = .cleanupStarted"))
         let restore = try #require(cleanup.range(of: "performRestore(record"))
-        let wakeCancellation = try #require(cleanup.range(of: "PMSet.cancelWake"))
+        let wakeCancellation = try #require(cleanup.range(
+            of: "try PMSet.cancelWake(rendered: existing.rendered)"
+        ))
+        let wakeCancellationFailure = try #require(cleanup.range(
+            of: "scheduled wake cleanup failed; helper cleanup remains incomplete"
+        ))
+        let wakeFailureStatus = try #require(cleanup.range(
+            of: "let failureStatus = currentStatus()",
+            range: wakeCancellation.upperBound..<wakeCancellationFailure.lowerBound
+        ))
+        let wakeFailureReply = try #require(cleanup.range(
+            of: "reply(IPCCoding.encode(HelperReply(",
+            range: wakeFailureStatus.upperBound..<wakeCancellationFailure.lowerBound
+        ))
+        let wakeFailureOK = try #require(cleanup.range(
+            of: "ok: false",
+            range: wakeFailureReply.upperBound..<wakeCancellationFailure.lowerBound
+        ))
+        let wakeClear = try #require(cleanup.range(of: "scheduledWake = nil"))
+        let wakeReplyStatus = try #require(cleanup.range(
+            of: "status: failureStatus",
+            range: wakeCancellationFailure.lowerBound..<wakeClear.lowerBound
+        ))
+        let wakeFailureReturn = try #require(cleanup.range(
+            of: "return",
+            range: wakeCancellationFailure.upperBound..<wakeClear.lowerBound
+        ))
         let dataRemoval = try #require(cleanup.range(of: "FileManager.default.removeItem"))
         let success = try #require(cleanup.range(
             of: "reply(IPCCoding.encode(HelperReply(ok: true"
         ))
         #expect(commit.lowerBound < restore.lowerBound)
         #expect(commit.lowerBound < wakeCancellation.lowerBound)
+        #expect(wakeCancellation.lowerBound < wakeFailureStatus.lowerBound)
+        #expect(wakeFailureStatus.lowerBound < wakeCancellationFailure.lowerBound)
+        #expect(wakeFailureStatus.lowerBound < wakeFailureReply.lowerBound)
+        #expect(wakeFailureReply.lowerBound < wakeFailureOK.lowerBound)
+        #expect(wakeFailureOK.lowerBound < wakeCancellationFailure.lowerBound)
+        #expect(wakeCancellation.lowerBound < wakeCancellationFailure.lowerBound)
+        #expect(wakeCancellationFailure.lowerBound < wakeReplyStatus.lowerBound)
+        #expect(wakeReplyStatus.lowerBound < wakeFailureReturn.lowerBound)
+        #expect(wakeCancellationFailure.lowerBound < wakeFailureReturn.lowerBound)
+        #expect(wakeCancellationFailure.lowerBound < wakeClear.lowerBound)
+        #expect(wakeFailureReturn.lowerBound < dataRemoval.lowerBound)
+        #expect(wakeClear.lowerBound < dataRemoval.lowerBound)
         #expect(commit.lowerBound < dataRemoval.lowerBound)
         #expect(commit.lowerBound < success.lowerBound)
+        #expect(!cleanup.contains("try? PMSet.cancelWake"))
+        #expect(!cleanup.contains("try? FileManager.default.removeItem"))
+        #expect(String(cleanup).components(
+            separatedBy: "try PMSet.cancelWake(rendered: existing.rendered)"
+        ).count == 2)
+        #expect(String(cleanup).components(
+            separatedBy: "reply(IPCCoding.encode(HelperReply(ok: true"
+        ).count == 2)
+        let wakeFailureBranch = cleanup[
+            wakeCancellation.lowerBound..<wakeClear.lowerBound
+        ]
+        #expect(String(wakeFailureBranch).components(
+            separatedBy: "ok: false"
+        ).count == 2)
         #expect(!cleanup.contains(
             "HelperRemovalDaemonSafety.allows(.retryCleanup"
         ))
+    }
+
+    @Test func failedDataRemovalRestoresTheFileAuditSinkBeforeReplying() throws {
+        let helper = try repositoryFile("Helper/HelperDaemon.swift")
+        let helperLog = try repositoryFile("Helper/HelperLog.swift")
+        let cleanup = try section(
+            of: helper,
+            from: "fileprivate func handleUninstall(",
+            through: "private func currentStatus()"
+        )
+        let disableLogControl = try section(
+            of: helperLog,
+            from: "func disableFileSink()",
+            through: "func enableFileSink()"
+        )
+        let enableLogControl = try section(
+            of: helperLog,
+            from: "func enableFileSink()",
+            through: "private func append("
+        )
+        let dataCleanup = try section(
+            of: String(cleanup),
+            from: "log.disableFileSink()",
+            through: "reply(IPCCoding.encode(HelperReply(ok: true, status: finalStatus)))"
+        )
+        let disable = try #require(dataCleanup.range(of: "log.disableFileSink()"))
+        let removal = try #require(dataCleanup.range(
+            of: "try FileManager.default.removeItem(atPath: HelperPaths.workDirectory)"
+        ))
+        let reenable = try #require(dataCleanup.range(of: "log.enableFileSink()"))
+        let generalCatchInSource = try #require(dataCleanup.range(
+            of: "} catch {",
+            range: removal.upperBound..<reenable.lowerBound
+        ))
+        let failureLog = try #require(dataCleanup.range(
+            of: "log.error(\"helper data cleanup failed during uninstall:"
+        ))
+        let failureStatus = try #require(dataCleanup.range(
+            of: "let failureStatus = currentStatus()"
+        ))
+        let failureReply = try #require(dataCleanup.range(
+            of: "reply(IPCCoding.encode(HelperReply(",
+            range: failureStatus.upperBound..<dataCleanup.endIndex
+        ))
+        let failureOK = try #require(dataCleanup.range(
+            of: "ok: false",
+            range: failureReply.upperBound..<dataCleanup.endIndex
+        ))
+        let failure = try #require(dataCleanup.range(
+            of: "helper data cleanup failed; deregistration is not authorized"
+        ))
+        let replyStatus = try #require(dataCleanup.range(
+            of: "status: failureStatus",
+            range: failure.lowerBound..<dataCleanup.endIndex
+        ))
+        let finalStatus = try #require(dataCleanup.range(
+            of: "let finalStatus = currentStatus()"
+        ))
+        let failureReturn = try #require(dataCleanup.range(
+            of: "return",
+            range: replyStatus.upperBound..<finalStatus.lowerBound
+        ))
+        let success = try #require(dataCleanup.range(
+            of: "reply(IPCCoding.encode(HelperReply(ok: true, status: finalStatus)))"
+        ))
+
+        #expect(disable.lowerBound < removal.lowerBound)
+        #expect(removal.lowerBound < reenable.lowerBound)
+        #expect(generalCatchInSource.lowerBound < reenable.lowerBound)
+        #expect(reenable.lowerBound < failureLog.lowerBound)
+        #expect(failureLog.lowerBound < failureStatus.lowerBound)
+        #expect(failureStatus.lowerBound < failureReply.lowerBound)
+        #expect(failureReply.lowerBound < failureOK.lowerBound)
+        #expect(failureOK.lowerBound < failure.lowerBound)
+        #expect(failureStatus.lowerBound < failure.lowerBound)
+        #expect(failure.lowerBound < replyStatus.lowerBound)
+        #expect(replyStatus.lowerBound < failureReturn.lowerBound)
+        #expect(failureReturn.lowerBound < finalStatus.lowerBound)
+        #expect(failure.lowerBound < success.lowerBound)
+        #expect(!dataCleanup.contains("fileExists(atPath:"))
+        let normalizedDataCleanup = dataCleanup.replacingOccurrences(
+            of: #"\s+"#,
+            with: " ",
+            options: .regularExpression
+        )
+        let exactAbsentCatch = "catch let error as CocoaError where "
+            + "error.code == .fileNoSuchFile && "
+            + "error.filePath == HelperPaths.workDirectory {"
+        let absentCatch = try #require(normalizedDataCleanup.range(
+            of: exactAbsentCatch
+        ))
+        let normalizedGeneralCatch = try #require(normalizedDataCleanup.range(
+            of: "} catch {",
+            range: absentCatch.upperBound..<normalizedDataCleanup.endIndex
+        ))
+        #expect(absentCatch.lowerBound < normalizedGeneralCatch.lowerBound)
+        #expect(normalizedDataCleanup.components(
+            separatedBy: exactAbsentCatch
+        ).count == 2)
+        let dataFailureBranch = dataCleanup[
+            reenable.lowerBound..<finalStatus.lowerBound
+        ]
+        #expect(String(dataFailureBranch).components(
+            separatedBy: "ok: false"
+        ).count == 2)
+        #expect(String(dataCleanup).components(
+            separatedBy: "try FileManager.default.removeItem(atPath: HelperPaths.workDirectory)"
+        ).count == 2)
+        #expect(String(disableLogControl).components(
+            separatedBy: "queue.sync { self.fileSinkEnabled = false }"
+        ).count == 2)
+        #expect(!disableLogControl.contains("self.fileSinkEnabled = true"))
+        #expect(String(enableLogControl).components(
+            separatedBy: "queue.sync { self.fileSinkEnabled = true }"
+        ).count == 2)
+        #expect(!enableLogControl.contains("self.fileSinkEnabled = false"))
+    }
+
+    @Test func cleanupCompletionRechecksNormalSleepAndReturnsFreshStatus() throws {
+        let helper = try repositoryFile("Helper/HelperDaemon.swift")
+        let cleanup = try section(
+            of: helper,
+            from: "fileprivate func handleUninstall(",
+            through: "private func currentStatus()"
+        )
+
+        let dataRemoval = try #require(cleanup.range(
+            of: "try FileManager.default.removeItem(atPath: HelperPaths.workDirectory)"
+        ))
+        let wakeClear = try #require(cleanup.range(of: "scheduledWake = nil"))
+        let finalStatus = try #require(cleanup.range(
+            of: "let finalStatus = currentStatus()"
+        ))
+        let finalProof = try #require(cleanup.range(
+            of: "guard SleepOverrideSafety.isRestoreProven(finalStatus) else"
+        ))
+        let reenable = try #require(cleanup.range(
+            of: "log.enableFileSink()",
+            range: finalProof.upperBound..<cleanup.endIndex
+        ))
+        let failureLog = try #require(cleanup.range(
+            of: "log.error(\"normal sleep could not be reverified after helper cleanup\")"
+        ))
+        let rejected = try #require(cleanup.range(
+            of: "error: \"normal sleep could not be reverified after helper cleanup; not authorizing deregistration\""
+        ))
+        let rejectedReply = try #require(cleanup.range(
+            of: "reply(IPCCoding.encode(HelperReply(",
+            range: failureLog.upperBound..<rejected.lowerBound
+        ))
+        let rejectedOK = try #require(cleanup.range(
+            of: "ok: false",
+            range: rejectedReply.upperBound..<rejected.lowerBound
+        ))
+        let rejectedStatus = try #require(cleanup.range(
+            of: "status: finalStatus",
+            range: rejected.upperBound..<cleanup.endIndex
+        ))
+        let success = try #require(cleanup.range(
+            of: "reply(IPCCoding.encode(HelperReply(ok: true, status: finalStatus)))"
+        ))
+        let rejectedReturn = try #require(cleanup.range(
+            of: "return",
+            range: rejectedStatus.upperBound..<success.lowerBound
+        ))
+
+        #expect(wakeClear.lowerBound < finalStatus.lowerBound)
+        #expect(dataRemoval.lowerBound < finalStatus.lowerBound)
+        #expect(finalStatus.lowerBound < finalProof.lowerBound)
+        #expect(finalProof.lowerBound < reenable.lowerBound)
+        #expect(reenable.lowerBound < failureLog.lowerBound)
+        #expect(failureLog.lowerBound < rejectedReply.lowerBound)
+        #expect(rejectedReply.lowerBound < rejectedOK.lowerBound)
+        #expect(rejectedOK.lowerBound < rejected.lowerBound)
+        #expect(failureLog.lowerBound < rejected.lowerBound)
+        #expect(rejected.lowerBound < rejectedStatus.lowerBound)
+        #expect(rejectedStatus.lowerBound < rejectedReturn.lowerBound)
+        #expect(rejectedReturn.lowerBound < success.lowerBound)
+        #expect(finalProof.lowerBound < success.lowerBound)
+        #expect(String(cleanup).components(
+            separatedBy: "let finalStatus = currentStatus()"
+        ).count == 2)
+        let finalFailureBranch = cleanup[
+            finalProof.lowerBound..<success.lowerBound
+        ]
+        #expect(String(finalFailureBranch).components(
+            separatedBy: "ok: false"
+        ).count == 2)
     }
 }

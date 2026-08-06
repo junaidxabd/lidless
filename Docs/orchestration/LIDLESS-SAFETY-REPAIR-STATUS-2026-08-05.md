@@ -1512,3 +1512,285 @@ source-order evidence rather than an executable daemon integration test.
   changing source or index (`final-staged-review-twentieth-pre-final-entry.log`,
   SHA-256 `64261f1b35ccb8ab3feb992f757b42c1ad3b6b6db24cdbbc428e37dd255a2690`);
   it is not counted. Only this final evidence entry is appended afterward.
+
+## Twenty-first recovery audit — authenticated final remainder
+
+- E-310 — 2026-08-06T03:12:03+0200 — Read the canonical handoff, immutable
+  starting-state manifest, authenticated rolling remainder manifest and its
+  adjacent sidecar, progress log, decision log, architecture, design-reset
+  brief, CONTRIBUTING guidance, and this complete 1,514-line append-only
+  ledger. The canonical handoff SHA-256
+  `95bdacdde663c642c2f97d532c1ec2b931e94a7dfcda47b8031e011ab3944831`
+  and immutable-manifest SHA-256
+  `d84065171a261e24ae574b98164132472ff1e8bb635647403d814b9fcf58c36a`
+  matched their supplied values. The sidecar-recorded rolling-manifest
+  SHA-256
+  `78e697c6983da56198a0de54436bc795c3f9531c59aa2af348ac7659798a7e62`
+  matched the manifest bytes. A repository-wide hidden-file scan found no
+  `AGENTS.md`, `CLAUDE.md`, `CODEX.md`, `GEMINI.md`, `.cursorrules`,
+  `copilot-instructions.md`, or matching agent instruction file. Before this
+  append, the ledger working copy matched its HEAD blob byte-for-byte at
+  SHA-256
+  `f7930e99cba0064b56414371ab93e81a941908ca5aec266ce3dc8e36874925dc`;
+  its required top-level `State: IN_PROGRESS`, branch, and starting HEAD were
+  already exact.
+- E-311 — 2026-08-06T03:12:03+0200 — Applied only the authenticated rolling
+  manifest as recovery authority. The feature canonical path, exact
+  two-worktree linked topology, branch, HEAD
+  `19a593ebacdaa9c6aac50bf98495672bc360db91`, linked Git admin/common
+  directories, clean index, complete seven-path dirty inventory, every
+  recorded status/type/mode/size/raw SHA-256, NUL-status digest
+  `b776d916f5d2a7b21364484ee4ede9d5194dcc1be1fcb313fd526bc803890183`,
+  and tracked binary-diff digest
+  `be639c056a93fa174e21b8e5011f3621276e06d344268b274d8f375191a2657b`
+  matched exactly before editing. Starting HEAD
+  `7f17aaca11bc6228bed48b9265d63b9e576cdea7` remains an ancestor of the
+  authenticated checkpoint HEAD. A second independent read-only audit
+  reproduced the same fields and bytes.
+- E-312 — 2026-08-06T03:12:03+0200 — Independently reverified the rolling
+  manifest's main-checkout record without editing it: canonical path and
+  linked topology, `main` at
+  `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, clean index, complete
+  three-path `.playwright-mcp` inventory, every recorded
+  status/type/mode/size/raw SHA-256, NUL-status digest
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked binary-diff digest
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`
+  matched exactly. The main checkout remains untouched.
+- E-313 — 2026-08-06T03:12:03+0200 — Discarded two preliminary read-only
+  recovery presentations before accepting the verdict. A newline-delimited
+  status digest differed because the rolling authority uses NUL-delimited
+  porcelain bytes. A later zsh inventory loop shadowed the shell's special
+  `path` parameter and then compared full status lines rather than their
+  two-character status fields. Both probes changed no file and supplied no
+  recovery verdict; corrected task-specific-variable checks reproduced every
+  field recorded in E-311 and E-312. Recovery passed before this append and
+  `State: IN_PROGRESS` remains correct.
+
+## Twenty-first checkpoint — fail-closed helper cleanup completion
+
+Complete remainder review rejected the broad package as one checkpoint. The
+new `HelperRemovalSafety` Boolean APIs are unused duplicates of the committed
+app-removal admission and action policies, and one erases the intentional
+`unregister` versus `alreadyInactive` result. The broad untracked removal suite
+tests those dead APIs and mixes duplicate policy, copy, and source-shape
+claims. The smoke additions duplicate an existing protocol-version assertion
+and test widget Codable preservation rather than removal safety. The progress
+and decision edits plus the untracked design brief are stale, founder-gated,
+or unrelated. All of those bytes remain preserved and excluded.
+
+The selected root cause is narrower: uninstall previously suppressed both
+scheduled-wake cancellation and helper-data deletion errors, then returned
+success with status captured before those cleanup attempts. The correction
+fails closed on either required cleanup error, treats only an exact-target
+`fileNoSuchFile` as already absent, restores the local file-audit sink when the
+daemon must remain registered, obtains fresh status after cleanup, and grants
+success only after that fresh status still proves normal sleep. Failure text
+is deliberately neutral because the fresh status can report an unverified or
+non-normal state.
+
+This is offline, source-bounded evidence. The regression reads exact source
+ordering; Swift Package Manager does not compile or execute `HelperDaemon` or
+`HelperLog`. Strict direct all-product compilation is therefore required in
+addition to package tests, and neither form of evidence exercises a daemon,
+XPC connection, filesystem fault, `pmset`, ServiceManagement, or hardware.
+
+### Twenty-first-checkpoint finding and verification matrix
+
+| ID | Invariant | Exact checkpoint evidence | Remaining boundary | Ruling |
+| --- | --- | --- | --- | --- |
+| S-51 | A required scheduled-wake cancellation error cannot be converted into uninstall success | The uninstall branch uses throwing cancellation; its catch captures fresh status, replies `ok: false`, and returns before clearing the in-memory record or attempting data removal | Cancellation timeout is outcome-unknown; persisted wake cleanup and later directory deletion are not transactional | CHECKPOINT VERIFIED OFFLINE — PMSET/TRANSACTION GATES OPEN |
+| S-52 | Helper-data cleanup succeeds only after removal or proof that the exact target was already absent | Cleanup performs unconditional removal and ignores only Cocoa `fileNoSuchFile` whose reported path exactly equals the configured work directory; every missing-descendant or other error fails closed | Foundation/filesystem behavior and fault races were not executed; removal is unbounded | CHECKPOINT VERIFIED OFFLINE — FILESYSTEM/FAULT GATES OPEN |
+| S-53 | A failed removal attempt preserves diagnostic admission and reports contemporaneous state without asserting safety | Both post-disable failure branches synchronously re-enable the file sink before logging/replying; wake and data errors use fresh status and neutral text | Re-enabling admission does not prove a file write succeeded, and logging can recreate a successfully deleted work directory after final-proof loss | CHECKPOINT VERIFIED OFFLINE — DURABILITY/FAULT GATES OPEN |
+| S-54 | Cleanup success uses a post-cleanup normal-sleep proof | Status is read after wake clearing and data removal, guarded by `SleepOverrideSafety.isRestoreProven`, and the exact guarded status is returned on success; failed proof returns false first | The read is point-in-time, not atomic through the app's later unregister/readback sequence | CHECKPOINT VERIFIED OFFLINE — RUNTIME/ATOMICITY GATES OPEN |
+| V-33 | Focused RED/GREEN and broad package evidence discriminate the selected source-order defect | Exact-HEAD-plus-test and preserved-tree REDs failed before implementation; hardened review RED failed on neutral text and exact-target classification; five focused tests, 25 related working-tree tests, and all 270 working-tree tests then passed | Working-tree related/full runs include excluded broad remainder; exact-index evidence is still required | PASS FOR WORKING TREE — EXACT INDEX/PRODUCT COMPILE PENDING |
+
+- E-314 — 2026-08-06T03:24:26+0200 — Reviewed the complete authenticated
+  seven-path remainder against HEAD before selecting any byte. Three
+  independent read-only audits rejected a broad commit for duplicate/dead
+  policy APIs, confounded source-shape tests, duplicate smoke coverage, stale
+  orchestration claims, unrelated design material, and concrete uninstall
+  defects. No reviewer edited a file. Exactly `HelperDaemon.swift`,
+  `HelperLog.swift`, focused additions to the committed
+  `HelperRemovalDaemonFenceTests.swift`, and this append-only ledger are
+  candidates; every other authenticated remainder path stays excluded.
+- E-315 — 2026-08-06T03:24:26+0200 — Before the selected tests or
+  implementation changed, stable Xcode 26.5 Swift 6.3.2 passed the complete
+  preserved dirty package's 268 tests in 25 suites in
+  `swift-test-twenty-first-baseline.log` (SHA-256
+  `f660e7eb269537ffc360061ec3e160ab759c9a643a0e022d928a8f222c4c47f8`).
+  This is only a baseline because it includes excluded dirty/untracked bytes
+  and does not compile the daemon product.
+- E-316 — 2026-08-06T03:24:26+0200 — The focused regression was first run
+  against an exact HEAD snapshot plus only the new test bytes: 3 of 5 tests
+  failed because HEAD suppressed wake and data cleanup errors and lacked the
+  final proof (`swift-test-helper-cleanup-head-red.log`, SHA-256
+  `b1fb88a9d3a93b28f69442b480330d4157a9232afcd2fa619f87308b830bc370`).
+  Against the preserved candidate implementation, 2 of 5 failed on file-sink
+  recovery and fresh final status
+  (`swift-test-helper-cleanup-red.log`, SHA-256
+  `132e306647d827b0db9f8962a854238eef47628ed7abca09dce7cceb990732ca`).
+  The first focused correction passed all 5 tests in
+  `swift-test-helper-cleanup-green.log` (SHA-256
+  `b0a73b46751cf6ed00118bce98244dc94554640c60154a383a5a366b79c944a3`).
+- E-317 — 2026-08-06T03:24:26+0200 — Adversarial re-review identified that
+  two failure messages falsely asserted restored sleep and that blanket Cocoa
+  `fileNoSuchFile` handling could misclassify a missing descendant. The
+  tightened test produced a 2-issue RED in
+  `swift-test-helper-cleanup-review-red.log` (SHA-256
+  `e37a8b89d397fc7bf5c10ba0b9ce014bc95d29cb9f7f5422b8ba47977daff798`),
+  then neutral text and exact error-path classification passed all 5 focused
+  tests in `swift-test-helper-cleanup-review-green.log` (SHA-256
+  `7ebbf919b13bb16e7a73ee135c3ec0111ca36c2e3c11f73aaeb09ccf7a3db634`).
+  The working tree then passed 25 related tests in 6 suites
+  (`swift-test-helper-removal-related-working.log`, SHA-256
+  `0dceb60644378ac55e4353ea8fd3e18011e182562db70581d60dc21527579deb`)
+  and all 270 tests in 25 suites
+  (`swift-test-twenty-first-working-green.log`, SHA-256
+  `07d92d50008b02a65218e648c616a783bd4711ed29304530f70b37e5e521244e`).
+  Those two broad passes include the excluded untracked suite and are not
+  substituted for an exact-index run.
+
+### Twenty-first checkpoint boundary correction and exact completion
+
+The earlier root-cause paragraph and S-53 phrase “A failed removal attempt
+preserves diagnostic admission” are too broad and are superseded, not erased,
+by this correction: file-sink admission is restored only for a
+**daemon-detected post-disable data-cleanup or final-proof failure**. If the
+helper returns `ok: true` but the app later fails its independent restore
+proof, unregister call, or final registration proof, the helper can remain
+registered in the same process with its file sink intentionally disabled.
+That app-side post-reply case remains an open diagnostic-recovery gate.
+
+| ID | Invariant | Exact checkpoint evidence | Remaining boundary | Ruling |
+| --- | --- | --- | --- | --- |
+| S-55 | A daemon-detected post-disable cleanup or final-proof failure restores file-sink admission before the daemon reports failure | The two bounded daemon branches synchronously call `enableFileSink`, log, reply `ok: false`, and return; the disable/enable methods are separately pinned to one synchronous false/true assignment | App-side failure after helper success can leave a still-registered helper with its sink disabled; admission does not prove a write succeeds | CHECKPOINT VERIFIED OFFLINE — APP-HANDOFF/DURABILITY GATES OPEN |
+| V-34 | Exact selected code and hardened tests pass focused, related, complete, strict compile, and unsigned Debug/Release checks | Pre-final-ledger index tree `47dfd000ccc90aed9a6fc70f5a7568adfe5fe283` passed 5 focused, 20 related, and all 263 exact tests; unchanged exact product inputs passed Debug/Release core builds, direct App/helper/widget links, and complete-concurrency typechecking with warnings-as-errors | Source-order tests do not execute daemon branches; project-native Xcode build/analyze was not retried under the established nested-sandbox and automatic LaunchServices side-effect constraint | PASS FOR EXACT OFFLINE CODE — EXECUTABLE-INTEGRATION/XCODE GRAPH OPEN |
+| V-35 | Loose output and source-configuration inspection stays bounded to observed facts | Six direct arm64 outputs target macOS 15 / SDK 26.5, lack `LC_CODE_SIGNATURE`, fail `codesign` inspection as unsigned, and the Debug helper contains the corrected failure text; source plists, entitlements, project syntax, and relevant bindings linted | Outputs are not bundles and prove no embedded entitlement, identity, installed-helper freshness, XPC trust, registration, notarization, or runtime behavior | PARTIAL — BUNDLE/SIGNING/RUNTIME GATES OPEN |
+
+The remaining safety gates are explicit. Wake cancellation and removal of its
+disk ledger are not atomic, so cancellation followed by deletion failure or a
+crash can leave a stale record that restart retries. A `pmset` timeout remains
+outcome-unknown and no external readback proves wake cancellation. App/client
+and daemon fences are process-local; restart, replacement, and
+ServiceManagement ABA can reopen risk-increasing work. Optional low-power and
+TCP keepalive restoration remains best-effort and partially silent. Protocol
+v6 is not binary-freshness attestation and no safe replacement flow is proved.
+Filesystem/log operations are unbounded. Final status is point-in-time rather
+than atomic through app readback and unregister. No live daemon, XPC,
+filesystem fault, `pmset`, ServiceManagement, restart, signing, sleep/wake, or
+hardware behavior was exercised.
+
+- E-318 — 2026-08-06T03:37:43+0200 — Curated exactly four staged paths. The
+  pre-final-ledger index tree is
+  `47dfd000ccc90aed9a6fc70f5a7568adfe5fe283`; its full staged binary-diff
+  SHA-256 is
+  `4477dfebf4414842f0c3e70978860dc9c8b3607321886991a239d0afef964d0d`,
+  and its three-file code/test diff SHA-256 is
+  `8e3278ab06674449aea28d3a0d12a03675f0df0145bbffb3873ecdd8576852b4`.
+  Exact staged blob SHA-256 values are
+  `27c87d1e716bf2054e83060fb9754ac4a2f510002f40a85a2e3cb11e8c65b94e`
+  for `HelperDaemon.swift`,
+  `99c55c66d52a6a83153760aaae9d3e04a0cbc69931abac2871dfdf578fe78b93`
+  for `HelperLog.swift`, and
+  `0c657ec12dcc9a05cfafa023bc3331e9c3860cf06e5ac39952e10842f315e01b`
+  for the hardened regression. Independent index exports matched all three
+  blobs byte-for-byte; `git diff --cached --check` passed.
+- E-319 — 2026-08-06T03:37:43+0200 — Final adversarial review first found
+  that the source test did not bind `ok: false` to three failure replies, the
+  exact absent-target conjunction to one catch, general-catch ordering to
+  re-enable, wake return/clear to later deletion, or the true assignment to
+  `enableFileSink`. The hardened test now binds all of those relations. A
+  temporary exact-index mutation changing all three selected failure replies
+  to `ok: true` produced exactly 3 focused issues
+  (`swift-test-helper-cleanup-false-success-mutation-red.log`, SHA-256
+  `85c4201fe41e3d152ced3972cc45323585739949a2b3bc9d72cc5fb8bfb72024`).
+  The corrected working source passed all 5 focused tests in
+  `swift-test-helper-cleanup-hardened2-working-green.log` (SHA-256
+  `650e2e32f9cafc4781840f2c95c3f410fe9c5ced45e292c299444f012bdf52e1`).
+  Independent final test review then reported no remaining blocker within the
+  narrow source-order claim.
+- E-320 — 2026-08-06T03:37:43+0200 — Stable Xcode 26.5 Swift 6.3.2 passed
+  all 5 focused exact-index tests in
+  `swift-test-helper-cleanup-exact-final2.log` (SHA-256
+  `9384c09cd92c2a22a2b165ddfe98116a24006aa0ffe32cc3fe3e288fd6469b58`),
+  all 20 related exact tests in 5 suites in
+  `swift-test-helper-removal-related-exact-final.log` (SHA-256
+  `63c04426a9bb93cb765e0f254db008d01b01e1f06ef6b3b2ffaebe5a47edbe45`),
+  and all 263 exact tests in 24 suites in
+  `swift-test-twenty-first-exact-final2.log` (SHA-256
+  `a53a180462c5ddf3322db765604f1f12e18716b802d34df02d26a7198f4ad0a5`).
+  A preceding exact-focused invocation used a mistyped, unwritable cache path
+  and failed before manifest compilation; it supplied no source verdict and
+  is preserved but not counted at SHA-256
+  `8eade618649dce1cb3c9ca909ee87023451bd53f2f55529eec9fb8364a43c500`.
+- E-321 — 2026-08-06T03:37:43+0200 — From the independently exported exact
+  index, stable Xcode 26.5 Swift 6.3.2 built `LidlessCore` and strictly
+  compiled and directly linked all 25 App, 4 helper, and 1 widget sources in
+  Debug (`direct-all-products-debug-twenty-first-exact.log`, SHA-256
+  `ec93a85ddb428bd8016a8f96cc816688dbe2ead62e9a0d32eb9cd1ed9de1a29c`)
+  and optimized Release
+  (`direct-all-products-release-twenty-first-exact.log`, SHA-256
+  `eefc65069ff70a9d9c1749682acac549615e512064d73acbe8060c26765e734f`).
+  `CODE_SIGNING_ALLOWED=NO`, `CODE_SIGNING_REQUIRED=NO`, Swift 6 complete
+  concurrency, warnings-as-errors, compiler sandbox disabling, and linker
+  ad-hoc-signature disabling were explicit. A separate strict all-product
+  typecheck passed in
+  `static-typecheck-all-products-twenty-first-exact.log` (SHA-256
+  `81f8e0161254e58dfdfb5834a3496902be74474aac3a387d2590764a4723c63f`).
+  The later hardened-test snapshot's complete product/config input digest
+  exactly matched the build snapshot at
+  `5605b9bbba6b43b306e56ffcd67432be50714bd0563e544ebde420b36ad6d128`,
+  so only test/ledger evidence changed afterward.
+- E-322 — 2026-08-06T03:37:43+0200 —
+  `artifact-config-inspection-twenty-first-exact.log` (SHA-256
+  `ebb271cc5bf6c28a41c4ee00dd5fd40cae0ed014f59bb36f1588aa89205a7248`)
+  preserves file type, exact architecture, build-version commands, absence of
+  signature load commands, and `codesign`'s unsigned verdict for all six loose
+  products. It also binds the three corrected failure strings into the Debug
+  helper and preserves lint/decoded values for the source App, helper, and
+  widget plist/entitlement files, project-file syntax, and relevant project
+  bindings. These are loose compile artifacts, not application bundles.
+- E-323 — 2026-08-06T03:37:43+0200 — Independent daemon, scope, and
+  adversarial-test reviews found no production or evidence blocker within the
+  corrected in-process/source-order claim. They retained every gate listed
+  above, including the app-side post-success sink state. The duplicate policy
+  APIs, broad untracked removal test, smoke edits, progress/decision edits,
+  and design brief remain excluded and unstaged.
+- E-324 — 2026-08-06T03:37:43+0200 — Post-build main-checkout preservation
+  passed in `main-preservation-twenty-first-precommit.log` (SHA-256
+  `748dc001b321220e3d6061bf5e30566ad3d724fbd1134b988f59eeea5a057f67`):
+  canonical paths, exact two-worktree topology, shared Git common directory,
+  main branch/starting HEAD, clean index and tracked diff, complete three-path
+  `.playwright-mcp` inventory, every status/type/mode/size/raw SHA-256,
+  NUL-status digest
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked binary-diff digest matched the rolling authority exactly.
+  No App/helper/widget process, helper install/activation/registration/
+  approval/unregister, live XPC, `pmset`, sleep-setting mutation, sleep/wake,
+  hardware, authentication, plugin/provider/connector, Figma, network
+  publication, release, notarization, merge, push, or main-checkout mutation
+  was performed. Project-native Xcode build/analyze was not retried after the
+  established nested-sandbox failure and automatic LaunchServices side-effect
+  constraint. The checkpoint is prepared under subject
+  `safety: fail closed on helper cleanup errors`; `State: IN_PROGRESS` is
+  intentionally retained. After this single local commit, the supervisor must
+  authenticate the exact remaining tree in a fresh rolling manifest before
+  another invocation.
+- E-325 — 2026-08-06T03:39:59+0200 — Reviewed the complete corrected
+  four-path staged diff. `final-staged-review-twenty-first-pre-final-entry.log`
+  (SHA-256
+  `06364e00023b0851693fcac488f72e4ad9c9f51fabc2654287597876599bc88c`)
+  records the full patch and confirms the exact curated path set, sole
+  top-level `State: IN_PROGRESS`, a 265-addition/zero-deletion ledger append,
+  pre-entry index tree `b14960aa9b6028767db9b4b8f99db43cf2a2f19b`, full
+  staged binary-diff SHA-256
+  `d6d674d0922e48cbdf07e38a5f34f83380809ee1c16e98a1e7a12a65257460f1`,
+  unchanged tested code/test diff SHA-256
+  `8e3278ab06674449aea28d3a0d12a03675f0df0145bbffb3873ecdd8576852b4`,
+  byte equality between all three selected code/test index blobs and the final
+  tested snapshot, and both complete working-tree and staged-diff whitespace
+  checks. The final independent scope review passed after the sink-boundary
+  correction; the final adversarial test review passed after the source-order
+  hardening. Only this terminal evidence entry is appended afterward; no
+  code/test byte or accepted verification result changed.

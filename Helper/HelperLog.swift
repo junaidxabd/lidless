@@ -47,6 +47,14 @@ final class HelperLog: @unchecked Sendable {
         queue.sync { self.fileSinkEnabled = false }
     }
 
+    /// A failed removal attempt leaves the daemon installed and able to
+    /// retry. Restore its file audit sink before reporting failure so later
+    /// recovery work remains locally inspectable. Synchronous for the same
+    /// ordering reason as `disableFileSink()`.
+    func enableFileSink() {
+        queue.sync { self.fileSinkEnabled = true }
+    }
+
     private func append(_ line: String) {
         let stamped = Date()
         queue.async { [self] in

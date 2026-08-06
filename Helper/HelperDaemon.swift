@@ -856,15 +856,52 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                 return
             }
             if let existing = scheduledWake {
-                try? PMSet.cancelWake(rendered: existing.rendered)
+                do {
+                    try PMSet.cancelWake(rendered: existing.rendered)
+                } catch {
+                    let failureStatus = currentStatus()
+                    reply(IPCCoding.encode(HelperReply(
+                        ok: false,
+                        error: "scheduled wake cleanup failed; helper cleanup remains incomplete: \(error)",
+                        status: failureStatus
+                    )))
+                    return
+                }
                 scheduledWake = nil
             }
             log.info("uninstalling: removing \(HelperPaths.workDirectory)")
             // Any later log line would recreate the directory we just
             // removed; from here on, log to the unified log only.
             log.disableFileSink()
-            try? FileManager.default.removeItem(atPath: HelperPaths.workDirectory)
-            reply(IPCCoding.encode(HelperReply(ok: true, status: restoredStatus)))
+            do {
+                try FileManager.default.removeItem(atPath: HelperPaths.workDirectory)
+            } catch let error as CocoaError where error.code == .fileNoSuchFile &&
+                                                   error.filePath == HelperPaths.workDirectory {
+                // An exact-target "not found" proves this cleanup step was
+                // already complete. A missing descendant is still a failure.
+            } catch {
+                log.enableFileSink()
+                log.error("helper data cleanup failed during uninstall: \(error.localizedDescription)")
+                let failureStatus = currentStatus()
+                reply(IPCCoding.encode(HelperReply(
+                    ok: false,
+                    error: "helper data cleanup failed; deregistration is not authorized: \(error.localizedDescription)",
+                    status: failureStatus
+                )))
+                return
+            }
+            let finalStatus = currentStatus()
+            guard SleepOverrideSafety.isRestoreProven(finalStatus) else {
+                log.enableFileSink()
+                log.error("normal sleep could not be reverified after helper cleanup")
+                reply(IPCCoding.encode(HelperReply(
+                    ok: false,
+                    error: "normal sleep could not be reverified after helper cleanup; not authorizing deregistration",
+                    status: finalStatus
+                )))
+                return
+            }
+            reply(IPCCoding.encode(HelperReply(ok: true, status: finalStatus)))
         }
     }
 
