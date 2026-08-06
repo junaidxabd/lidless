@@ -106,10 +106,12 @@ struct HelperRemovalDaemonFenceTests {
         let armFence = try #require(arm.range(
             of: "HelperRemovalDaemonSafety.allows(.arm, while: helperRemovalFence)"
         ))
-        let rearmMutation = try #require(arm.range(of: "if var current = sentinel"))
+        let activeArmAdmission = try #require(arm.range(
+            of: "HelperSessionOwnershipSafety.armDisposition("
+        ))
         let freshSentinel = try #require(arm.range(of: "try writeSentinel(record)"))
         let armMutation = try #require(arm.range(of: "try PMSet.setSleepDisabled(true)"))
-        #expect(armFence.lowerBound < rearmMutation.lowerBound)
+        #expect(armFence.lowerBound < activeArmAdmission.lowerBound)
         #expect(armFence.lowerBound < freshSentinel.lowerBound)
         #expect(armFence.lowerBound < armMutation.lowerBound)
 

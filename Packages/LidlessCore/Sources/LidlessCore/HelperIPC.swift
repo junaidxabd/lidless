@@ -14,7 +14,8 @@ public protocol LidlessHelperXPC {
     func ping(_ reply: @escaping @Sendable (Data) -> Void)
 
     /// Enable the sleep override. Reply: `HelperReply` JSON.
-    /// Idempotent: arming while armed refreshes options and the watchdog.
+    /// Arming while a session is already active is rejected. An established
+    /// session is renewed only by owner-bound heartbeats.
     func arm(_ optionsJSON: Data, reply: @escaping @Sendable (Data) -> Void)
 
     /// Push the watchdog deadline out. Reply: `HelperReply` JSON; `ok` is

@@ -102,10 +102,13 @@ Mechanisms, layered so no single failure strands the override:
    state can still restore normal sleep. Protocol v5 and later
    refuse to arm over a measured external override and always restore ordinary
    sleep (`disablesleep 0`). The disk record is immutable while active;
-   heartbeat and re-arm deadlines live only in queue-owned memory because
+   heartbeat deadlines live only in queue-owned memory because
    filesystem latency is not bounded.
-2. **Connection supervision.** The helper tracks the arming connection's
-   identity; XPC invalidation (app quit or crash) restores immediately.
+2. **Connection supervision.** The helper tracks the fresh arming connection's
+   identity. A second arm is rejected while that session is active, only the
+   exact owner connection may renew the watchdog, and owner XPC invalidation
+   (app quit or crash) restores immediately. Other authenticated connections
+   retain de-risking restore and repair access but cannot prolong the override.
 3. **Watchdog.** The app heartbeats every 10 s; the helper restores if no
    beat arrives within the TTL (45 s), with a 30 s grace period after system
    wake so a just-woken app isn't raced.
@@ -198,7 +201,7 @@ encoding for XPC, sentinel, and logs); malformed input produces an error
 reply, never a crash. Every reply carries a fresh `HelperStatus` including
 the *read-back* override value. Readiness and every app-side arm, restore,
 outside-ownership, enabled-registration removal, and scheduled-wake acceptance
-boundary require both protocol v6 and the exact safety behavior revision 5.
+boundary require both protocol v6 and the exact safety behavior revision 6.
 A missing, older, or future revision is stale and cannot supply proof. The
 revision is self-reported compatibility metadata, not executable attestation
 or an installation receipt; safely replacing an already registered stale

@@ -37,7 +37,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     /// Producer-owned declaration of the behavior actually implemented by
     /// this daemon. Keep this independent from the app's required revision so
     /// an app-side bump cannot silently make an unchanged helper compatible.
-    private static let implementedSafetyRevision = 5
+    private static let implementedSafetyRevision = 6
     private static let maximumSentinelBytes = 64 * 1024
 
     private struct StorageError: LocalizedError {
@@ -762,7 +762,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         }
     }
 
-    fileprivate func handleArm(_ options: HelperArmOptions, connectionID: ObjectIdentifier?, reply: @escaping @Sendable (Data) -> Void) {
+    fileprivate func handleArm(_ options: HelperArmOptions, connectionID: ObjectIdentifier, reply: @escaping @Sendable (Data) -> Void) {
         advanceLifecycle()
         guard HelperTerminationSafety.allows(.arm, whileTerminationRequested: terminationRequested) else {
             reply(replyData(ok: false, error: "helper termination is pending; refusing to arm"))
@@ -777,7 +777,19 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             return
         }
 
-        let now = Date()
+        switch HelperSessionOwnershipSafety.armDisposition(
+            hasActiveSession: sentinel != nil
+        ) {
+        case .beginFreshSession:
+            break
+        case .rejectActiveSession:
+            reply(replyData(
+                ok: false,
+                error: "an active session already has a supervising connection; refusing another arm"
+            ))
+            return
+        }
+
         let ttl = min(max(options.watchdogTTL, HelperArmOptions.watchdogTTLRange.lowerBound),
                       HelperArmOptions.watchdogTTLRange.upperBound)
 
@@ -794,29 +806,6 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             watchdogTTL: ttl
         ) else {
             reply(replyData(ok: false, error: "helper command timing exceeds the watchdog safety budget"))
-            return
-        }
-
-        if var current = sentinel {
-            // Re-arm: refresh supervision, keep the original priors — they
-            // describe the pre-session world we'll eventually restore. Do
-            // not rewrite the disk sentinel while armed: filesystem latency
-            // is unbounded and must not starve the watchdog queue.
-            current.watchdogTTL = ttl
-            current.watchdogDeadline = now.addingTimeInterval(ttl)
-            sentinel = current
-            watchdogDeadline = .now() + ttl
-            armedConnectionID = connectionID
-            let status = currentStatus()
-            let result = HelperReply(ok: true, status: status)
-            guard SleepOverrideSafety.isArmProven(result) else {
-                log.critical("re-arm could not prove the live override — restoring")
-                performRestore(current, reason: "re-arm proof failed")
-                reply(replyData(ok: false, error: "could not verify the re-armed override; normal sleep recovery started"))
-                return
-            }
-            log.info("re-armed with verified override (ttl \(Int(ttl))s)")
-            reply(IPCCoding.encode(result))
             return
         }
 
@@ -1150,7 +1139,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         }
     }
 
-    fileprivate func enqueueArm(_ optionsJSON: Data, connectionID: ObjectIdentifier?, reply: @escaping @Sendable (Data) -> Void) {
+    fileprivate func enqueueArm(_ optionsJSON: Data, connectionID: ObjectIdentifier, reply: @escaping @Sendable (Data) -> Void) {
         queue.async { [self] in
             lastActivity = Date()
             guard let options = IPCCoding.decode(HelperArmOptions.self, from: optionsJSON) else {
@@ -1161,11 +1150,25 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         }
     }
 
-    fileprivate func handleHeartbeat(reply: @escaping @Sendable (Data) -> Void) {
+    fileprivate func handleHeartbeat(connectionID: ObjectIdentifier, reply: @escaping @Sendable (Data) -> Void) {
         queue.async { [self] in
             lastActivity = Date()
             guard HelperRemovalDaemonSafety.allows(.heartbeat, while: helperRemovalFence) else {
                 reply(replyData(ok: false, error: "helper cleanup has started; refusing heartbeat"))
+                return
+            }
+            switch HelperSessionOwnershipSafety.heartbeatDisposition(
+                hasActiveSession: sentinel != nil,
+                owner: armedConnectionID,
+                requester: connectionID
+            ) {
+            case .renew:
+                break
+            case .rejectNoSession:
+                reply(replyData(ok: false, error: "no active session"))
+                return
+            case .rejectNonOwner:
+                reply(replyData(ok: false, error: "heartbeat connection does not own the active session"))
                 return
             }
             guard var current = sentinel else {
@@ -1610,7 +1613,7 @@ final class HelperXPCBridge: NSObject, LidlessHelperXPC {
     }
 
     func heartbeat(_ reply: @escaping @Sendable (Data) -> Void) {
-        daemon.handleHeartbeat(reply: reply)
+        daemon.handleHeartbeat(connectionID: connectionID, reply: reply)
     }
 
     func disarm(_ optionsJSON: Data, reply: @escaping @Sendable (Data) -> Void) {

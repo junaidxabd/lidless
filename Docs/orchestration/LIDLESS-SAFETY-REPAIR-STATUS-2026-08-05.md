@@ -3801,3 +3801,191 @@ The three authenticated design-remainder paths are not part of this checkpoint.
   plugin, connector, Figma, network, merge, push, or main-checkout mutation was
   performed. After this single commit, the supervisor must authenticate a new
   rolling remainder before any later invocation.
+
+## Thirty-first invocation — authenticated recovery
+
+| ID | Recovery or review surface | Independently reproduced evidence | Verdict |
+|---|---|---|---|
+| R31-01 | Checkpoint-aware recovery authority | The adjacent rolling-manifest sidecar names the manifest and verifies SHA-256 `5c74d08d1b9ed376d90496f63b92d239750bcb5b95d47cab5b1cd6365619f820`. The historical manifest was read but was not used as a post-checkpoint authority. | PASS |
+| R31-02 | Feature worktree identity and exact remainder | Canonical path, registered linked-worktree topology, common Git directory `/Users/junaid/Xcode-Projects/Lidless/.git`, branch `codex/lidless-safety-repair-2026-08-04`, HEAD `f03e50c63798ac6897fcc5850357bb31545f8cc5`, and clean index all match. The exact three regular-file entries reproduce status, mode `0644`, byte count, and raw SHA-256; the NUL-status digest is `3a4984484500650d6b8866b3dfd45bc02ad0ff2888084f86deda5506c36e03dc` and the tracked binary-diff digest is `5bfed6a6f1b1f3578736cce1d9ae66138f0f9e0614ffc8e93d0aa80c4d6e3b82`. | PASS |
+| R31-03 | Main-checkout preservation | Canonical main path, topology, branch `main`, HEAD `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, and clean index/tracked diff match. Exactly the three recorded `.playwright-mcp` regular files reproduce status/mode/size/hash; the NUL-status digest is `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18` and the tracked binary-diff digest is the empty SHA-256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`. | PASS |
+| R31-04 | Mandatory source and instruction recovery | The canonical handoff and original manifest reproduce their required SHA-256 values and were read in full with the rolling manifest, sidecar, progress log, decision log, architecture, and design-reset brief. No repository-local `AGENTS.md`, `CLAUDE.md`, or equivalent instruction file exists. | PASS |
+| R31-05 | Authenticated design-history remainder | `Docs/orchestration/decisions.md`, `Docs/orchestration/progress.md`, and the untracked design-reset brief remain preserved evidence rather than safety implementation authority. They are excluded from product-source selection unless an independently justified documentation checkpoint requires them. | PRESERVED / EXCLUDED |
+| A31-01 | Next coherent safety root cause | The complete committed package and the previously named scheduled-wake, session/re-arm, stale-helper, privileged-storage, and removal/release surfaces are being independently re-audited. A previous verdict is not accepted without current code/test reproduction. | IN PROGRESS |
+| V31-01 | Exact checkpoint verification | Focused RED/GREEN, complete SwiftPM output, unsigned Debug/Release evidence, static/config/artifact inspection, staged-diff review, and final preservation checks depend on selecting and repairing one confirmed root cause. | PENDING |
+
+- E-459 — 2026-08-06T10:04:21+0200 — Recovery used exactly the authenticated
+  rolling manifest. Every feature and main-checkout field required by the
+  recovery gate was independently reproduced before this first edit; no extra,
+  missing, or changed path or byte was found. The ledger already began with the
+  required `State: IN_PROGRESS`, branch, and starting-HEAD lines, so they were
+  preserved without rewrite. This append resumes its evidence log. No product
+  or helper was launched; no install, activation, registration, approval,
+  `pmset`, sleep-setting, sleep/wake, hardware, design, Figma, plugin,
+  connector, network, merge, push, or main-checkout mutation was performed.
+- E-460 — 2026-08-06T09:37:48+0200 — Timestamp correction: E-459's heading
+  was composed with an unverified future wall-clock value. The first subsequent
+  local `date` read was `2026-08-06T09:37:48+0200`; E-459's recovery facts are
+  retained, but its timestamp is not accepted as evidence. This correction is
+  appended rather than rewriting the earlier entry.
+
+## Helper-session ownership checkpoint matrix — 2026-08-06
+
+| ID | Safety invariant or verification | Independently reproduced evidence and bounded result | Verdict |
+|---|---|---|---|
+| S31-01 | An active sleep-override session cannot be re-armed to transfer supervision or extend its deadline | `handleArm` requires a concrete bridge connection identity and rejects whenever the queue-owned sentinel is active, before TTL processing, snapshots, sentinel writes, owner/deadline assignment, or `pmset`. The former active-session mutation/success path is absent. | FIXED OFFLINE / LIVE-XPC GATE |
+| S31-02 | Only the exact connection that established a fresh session may renew its watchdog | The bridge passes its captured `ObjectIdentifier` into heartbeat handling. A pure ownership policy rejects no-session, missing-owner, and different-owner requests before either diagnostic or monotonic deadline mutation; exact-owner renewal alone proceeds. | FIXED OFFLINE / IDENTITY-LIFETIME GATE |
+| S31-03 | Ownership hardening must retain de-risking recovery and owner-loss restoration | Disarm and repair remain available to any authenticated connection. The existing connection-end path still compares the invalidated identity with the active owner before restoring, while abort, restore, and parked-recovery paths clear ownership. | SOURCE-VERIFIED / INVALIDATION-RUNTIME GATE |
+| S31-04 | An older helper must not be accepted as implementing the new ownership behavior | The producer literal and app-required helper safety revision independently advance from 5 to 6. Revision tests reject missing, 0...5, and future 7 while accepting 6 through the existing arm/restore/ownership proof wrappers. This remains self-reported compatibility metadata, not binary attestation. | FIXED OFFLINE / INSTALL-RECEIPT GATE |
+| V31-02 | The focused defect must be discriminating, then pass with related and complete coverage | The pre-production source regression failed against the old implementation with ten issues. Exact-index verification later passed 35 focused tests in six suites and all 325 package tests in 32 suites. | PASS FOR EXACT STAGED CODE |
+| V31-03 | Exact Debug/Release compilation and bounded static analysis | Core built in Debug and optimized Release with signing disabled. All 25 App, four helper, and one widget sources passed Swift 6 complete-concurrency typechecking with warnings-as-errors; each product linked in Debug and optimized Release with linker ad-hoc signing disabled. | PASS FOR OFFLINE SOURCES / XCODE GRAPH OPEN |
+| V31-04 | Actual loose artifacts and source configuration must match only the claims made | Six exact outputs are arm64 Mach-O executables targeting macOS 15.0 / SDK 26.5, contain no `LC_CODE_SIGNATURE`, and report unsigned. Ownership/heartbeat symbols are linked in both helper outputs. Six source plist/entitlement files and `project.pbxproj` linted and their decoded values/bindings were inspected. | PARTIAL — NOT BUNDLES OR ATTESTATION |
+| V31-05 | Selected bytes, authenticated remainder, and main checkout remain isolated | Pre-ledger exact index tree `67b15dd13c55bb33ab3ffdacdbdef78c774fa6e9` contains only nine selected 100644 code/test/doc paths. The three rolling-remainder design paths remain unstaged and byte-exact; the main checkout reproduces every recorded field and byte. | PASS BEFORE LOCAL CHECKPOINT |
+
+This checkpoint is limited to active helper-session connection ownership,
+watchdog-renewal admission, the associated behavior-revision boundary, tests,
+and architecture wording. Scheduled-wake transaction durability, crash-session
+journal timing, automatic-confirm intent fencing, stale-helper replacement,
+Homebrew removal/upgrade safety, privileged child storage, and every live gate
+remain separate work. `State: IN_PROGRESS` therefore remains authoritative.
+
+### Helper-session ownership append-only evidence log (continued)
+
+- E-461 — 2026-08-06T09:58:24+0200 — Before production edits, the literal
+  required `swift test --package-path Packages/LidlessCore` reached the default
+  Xcode-beta toolchain but failed at its unwritable
+  `/Users/junaid/.cache/clang/ModuleCache`; the complete output is
+  `verification-2026-08-06-thirty-first/swift-test-literal-baseline.log` (six
+  lines / 2,347 bytes, SHA-256
+  `03608d31562dac315f97125d584653485eeb4599ab5f4db3e334a001cb818214`).
+  The established stable toolchain with workspace-local caches and SwiftPM's
+  sandbox disabled passed the unchanged baseline's 320 tests in 31 suites;
+  `swift-test-stable-baseline-final.log` is 812 lines / 63,496 bytes, SHA-256
+  `57f1f8e8de9a1f8d9756e1bed02d872c776edc045edfc0dbd363b943ac0437ac`.
+- E-462 — 2026-08-06T09:58:24+0200 — Current source tracing confirmed the
+  selected root cause: any accepted connection could successfully re-arm an
+  active session, replace `armedConnectionID`, and renew its deadline, while
+  heartbeat carried no connection identity. Owner invalidation restored only
+  while that original identity remained owner. The focused source regression
+  was added before production changes and failed on the old implementation as
+  one test / one suite with ten issues;
+  `helper-session-ownership-red.log` is 1,346 lines / 63,024 bytes, SHA-256
+  `7c7798d9e6a45ae5fc84aeb3a1ed026430f01f27c856e33b81e98a2a698c948c`.
+- E-463 — 2026-08-06T09:58:24+0200 — The bounded repair adds a pure arm and
+  heartbeat ownership policy, rejects every active-session arm before any
+  risk-increasing work, threads the bridge identity into heartbeat, gates both
+  deadline writes on exact ownership, updates the XPC contract wording, and
+  advances independent producer/consumer safety revisions to 6. Recovery-only
+  disarm/repair access is intentionally unchanged. Structural regressions pin
+  rejection before sentinel, owner, deadline, and `pmset` mutations; fresh
+  ownership before enable/success; non-owner return before both renewals; and
+  owner comparison before invalidation restore.
+- E-464 — 2026-08-06T09:58:24+0200 — Initial working-tree GREEN passed ten
+  ownership/source tests (`helper-session-ownership-focused-green.log`, 83
+  lines / 5,598 bytes, SHA-256
+  `42d33fb9cc029292587a66ea01fcfa722a8cd420ea2303be6d85b224bd6c268b`),
+  25 related revision/removal/recovery/presentation tests
+  (`helper-session-ownership-related-green.log`, 75 lines / 5,816 bytes,
+  SHA-256
+  `6f33072ea8b2bead498d5e72b04d37d9551b2f247d1181cb8bfd4741b7c63d62`),
+  and all 325 tests in 32 suites (`swift-test-full-working-green.log`, 754
+  lines / 60,097 bytes, SHA-256
+  `50094182f09979a3885a6c09276622338a9242ada731e55678286b56e0310f05`).
+  Strengthening two source assertions first produced a test-only `Substring`
+  compile error; `helper-session-ownership-tightened-green.log` is retained as
+  non-evidence. Converting those helper inputs to `String` fixed the harness,
+  and the final ten-test focused run passed in
+  `helper-session-ownership-tightened-green-final.log` (51 lines / 3,510
+  bytes, SHA-256
+  `ec7fbb0096bfa17e8e6cf659d52236a2aad5de8b9169a7dc304d54a4b74d968e`).
+- E-465 — 2026-08-06T09:58:24+0200 — Three independent read-only reviews found
+  no concrete Blocker/High regression after the strengthened ordering tests.
+  They independently confirmed active-arm rejection, exact-owner heartbeat,
+  bridge identity propagation, owner invalidation recovery, cleanup of owner
+  state, revision-6 consistency, and preserved de-risking operations. Their
+  bounded artifact caveat is accepted: release scripts and a signed artifact
+  do not prove the embedded helper's revision semantics or source-to-binary
+  provenance, so no such claim is made here.
+- E-466 — 2026-08-06T09:58:24+0200 — The nine selected non-ledger paths were
+  staged alone and exported as exact index tree
+  `67b15dd13c55bb33ab3ffdacdbdef78c774fa6e9`. The exact literal command again
+  reproduced only the default Xcode-beta unwritable-cache failure
+  (`exact-index-literal-swift-test.log`, six lines / 2,419 bytes, SHA-256
+  `fb66ede62613d5aa0efa9a15ab8b1b39671bdf342ea92f9309319cef48e2c5c6`).
+  Under the stable workspace-cached invocation, 35 focused tests in six suites
+  passed (`exact-index-ownership-focused.log`, 171 lines / 12,077 bytes,
+  SHA-256
+  `664954424b446b4882519bd59db9539676459ef58d24cd831caedd3f4e08c5ff`),
+  followed by all 325 tests in 32 suites
+  (`exact-index-full-swift-test.log`, 826 lines / 64,537 bytes, SHA-256
+  `9e2074d2e343eb821072b4216ad3bd875813f534f84bd53cef4c3c27aba189ac`).
+- E-467 — 2026-08-06T09:58:24+0200 — Exact Core Debug and optimized Release
+  builds passed with both signing controls disabled; their logs are 41 lines /
+  2,433 bytes / SHA-256
+  `da63518dfd39eaed39d90073e26c7c5458d203e81e4cd7bbf70cc1e99f0b6dcc`
+  and nine lines / 682 bytes / SHA-256
+  `f6c4a966804833fe434728c1a8dfe2fe08a7f878e823c144c303f38c0d6c545b`.
+  Exact Swift 6 complete-concurrency typechecking with warnings-as-errors passed
+  25 App, four helper, and one widget sources
+  (`exact-index-all-products-typecheck.log`, four lines / 112 bytes, SHA-256
+  `671c1b6b19345fba7395b3602ea039ec152e947de2c5bc3ae1effc6f31d36f71`).
+  Direct Debug and optimized Release links of all three products passed with
+  `CODE_SIGNING_ALLOWED=NO`, `CODE_SIGNING_REQUIRED=NO`, and linker ad-hoc
+  signing disabled; their logs are four lines / 168 bytes / SHA-256
+  `0c113b49443fbefd8b6d78f40bc3c0de1da24f2751c0c91699693bb42d767f91`
+  and four lines / 170 bytes / SHA-256
+  `74d85f7dbfbb286b825f95e8cd3a7df2acbbd76a5f8e51c2699630f019775a07`.
+  Project-native `xcodebuild`/analyze was not invoked because live automatic
+  registration is outside authorization; direct strict compiler analysis is
+  the bounded static substitute.
+- E-468 — 2026-08-06T09:58:24+0200 — Exact artifact inspection is preserved in
+  `exact-index-artifact-inspection.log` (96 lines / 8,592 bytes, SHA-256
+  `86791ce47c4ba830938451f50e1f34d2fec4113abd64f9df06e8d4e6504e87a7`).
+  All six loose outputs are arm64 Mach-O executables with minimum macOS 15.0 /
+  SDK 26.5, zero `LC_CODE_SIGNATURE` commands, and expected unsigned
+  `codesign` results. Both helper configurations expose the ownership-policy,
+  identity-bearing heartbeat handler, and bridge-heartbeat symbols. Six exact
+  source plist/entitlement files and `project.pbxproj` passed `plutil -lint`;
+  decoded values, selected bindings, and revision/ownership source bindings
+  are in `exact-index-configuration-inspection.log` (163 lines / 7,816 bytes,
+  SHA-256
+  `3261053d606dda4755a27a5f30f997f5bf075910878ab0bc0154a0936f6fd251`).
+  These are loose products and source configuration, not bundle, entitlement,
+  signature, XPC-trust, ServiceManagement, runtime, notarization, or release
+  proof.
+- E-469 — 2026-08-06T09:58:24+0200 — Every staged source/test/doc hunk was
+  reviewed; `git diff --cached --check` passed. Before this ledger append, the
+  exact non-ledger binary-diff digest was
+  `90fe7bb6b0199746188ee11f6e8ec45c6819763f24b24402e6f4bd8db602e1f9`
+  and its NUL name-list digest was
+  `c81dd726374653d7eeb82d91a1aaae72a53da2229449ae8c45b48c103d0e0cf2`.
+  A first preservation command collapsed the main checkout's untracked
+  directory and is retained in `precommit-preservation.log` as non-evidence.
+  The corrected canonical `--untracked-files=all` run passed in
+  `precommit-preservation-final.log` (49 lines / 2,999 bytes, SHA-256
+  `49e873a794f3b34ccdb29da9b0fb65391d9c6aedb4e2a05f1e48af89771642a7`).
+  Feature topology/branch/HEAD remained exact; all three design paths retained
+  their recorded status, 0644 mode, byte count, hash, NUL-status digest
+  `3a4984484500650d6b8866b3dfd45bc02ad0ff2888084f86deda5506c36e03dc`,
+  and tracked binary-diff digest
+  `5bfed6a6f1b1f3578736cce1d9ae66138f0f9e0614ffc8e93d0aa80c4d6e3b82`.
+  The main checkout remained `main` at
+  `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, with clean index/tracked diff
+  and its exact three `.playwright-mcp` records, NUL-status digest
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked binary-diff digest.
+- E-470 — 2026-08-06T09:58:24+0200 — `State: IN_PROGRESS` is retained because
+  separately confirmed scheduled-wake persistence, crash-session journaling,
+  auto-confirm intent, stale-helper replacement, Homebrew removal/upgrade, and
+  privileged child-storage groups remain open. Real NSXPC identity and
+  invalidation ordering, `ObjectIdentifier` lifetime/reuse, duplicate app
+  processes, watchdog timing, helper replacement, signed XPC trust,
+  ServiceManagement, actual `pmset` arm/restore, sleep/wake, closed-lid
+  hardware, notarization, and release readiness remain unproved. The intended
+  single local checkpoint subject is
+  `safety: bind helper supervision to session owner`. No app/helper was
+  launched; no install, activation, registration, approval, live XPC, `pmset`,
+  sleep-setting mutation, sleep/wake, hardware, plugin, connector, Figma,
+  network, merge, push, or main-checkout mutation was performed. After this
+  commit, the supervisor must authenticate a fresh rolling remainder before a
+  later invocation.

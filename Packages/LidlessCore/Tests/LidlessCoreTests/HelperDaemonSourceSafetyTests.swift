@@ -33,9 +33,9 @@ struct HelperDaemonSourceSafetyTests {
 
     @Test func activeSessionPathsNeverRewriteTheRecoverySentinel() throws {
         let source = try repositoryFile("Helper/HelperDaemon.swift")
-        let rearm = try section(
+        let activeArmAdmission = try section(
             of: source,
-            from: "if var current = sentinel {",
+            from: "HelperSessionOwnershipSafety.armDisposition(",
             through: "// Snapshot optional settings"
         )
         let verifiedArm = try section(
@@ -49,7 +49,8 @@ struct HelperDaemonSourceSafetyTests {
             through: "fileprivate func handleDisarm"
         )
 
-        #expect(!rearm.contains("writeSentinel"))
+        #expect(!activeArmAdmission.contains("writeSentinel"))
+        #expect(!activeArmAdmission.contains("watchdogDeadline ="))
         #expect(!verifiedArm.contains("writeSentinel"))
         #expect(!heartbeat.contains("writeSentinel"))
     }
@@ -102,6 +103,105 @@ struct HelperDaemonSourceSafetyTests {
         let commandPosition = try #require(schedule.range(of: "PMSet.scheduleWake"))
 
         #expect(guardPosition.lowerBound < commandPosition.lowerBound)
+    }
+
+    @Test func activeSessionSupervisionIsBoundToTheOriginalConnection() throws {
+        let source = try repositoryFile("Helper/HelperDaemon.swift")
+        let ipc = try repositoryFile(
+            "Packages/LidlessCore/Sources/LidlessCore/HelperIPC.swift"
+        )
+        let arm = try section(
+            of: source,
+            from: "fileprivate func handleArm(",
+            through: "private func rejectPreparedArm("
+        )
+        let heartbeat = try section(
+            of: source,
+            from: "fileprivate func handleHeartbeat(",
+            through: "fileprivate func handleDisarm("
+        )
+        let bridge = try section(
+            of: source,
+            from: "final class HelperXPCBridge",
+            through: "func disarm("
+        )
+
+        #expect(arm.contains("HelperSessionOwnershipSafety.armDisposition("))
+        #expect(arm.contains("hasActiveSession: sentinel != nil"))
+        #expect(arm.contains("case .rejectActiveSession:"))
+        #expect(!arm.contains("if var current = sentinel"))
+        #expect(!arm.contains("re-armed"))
+        let armAdmission = try #require(arm.range(
+            of: "HelperSessionOwnershipSafety.armDisposition("
+        ))
+        let sentinelWrite = try #require(arm.range(of: "try writeSentinel(record)"))
+        let ownerAssignment = try #require(arm.range(of: "armedConnectionID = connectionID"))
+        let overrideMutation = try #require(arm.range(of: "try PMSet.setSleepDisabled(true)"))
+        let successfulArmReply = try #require(arm.range(
+            of: "let result = HelperReply(ok: true, status: status)"
+        ))
+        #expect(armAdmission.lowerBound < sentinelWrite.lowerBound)
+        #expect(armAdmission.lowerBound < ownerAssignment.lowerBound)
+        #expect(armAdmission.lowerBound < overrideMutation.lowerBound)
+        #expect(ownerAssignment.lowerBound < overrideMutation.lowerBound)
+        #expect(ownerAssignment.lowerBound < successfulArmReply.lowerBound)
+        let activeArmRejection = try section(
+            of: String(arm),
+            from: "case .rejectActiveSession:",
+            through: "let ttl ="
+        )
+        #expect(activeArmRejection.contains("return"))
+
+        #expect(heartbeat.contains("connectionID: ObjectIdentifier"))
+        #expect(heartbeat.contains(
+            "HelperSessionOwnershipSafety.heartbeatDisposition("
+        ))
+        #expect(heartbeat.contains("requester: connectionID"))
+        let ownershipCheck = heartbeat.range(
+            of: "HelperSessionOwnershipSafety.heartbeatDisposition("
+        )
+        let deadlineMutation = heartbeat.range(
+            of: "watchdogDeadline = .now() + current.watchdogTTL"
+        )
+        #expect(ownershipCheck != nil)
+        #expect(deadlineMutation != nil)
+        if let ownershipCheck, let deadlineMutation {
+            #expect(ownershipCheck.lowerBound < deadlineMutation.lowerBound)
+        }
+        let nonOwnerRejection = try section(
+            of: String(heartbeat),
+            from: "case .rejectNonOwner:",
+            through: "guard var current = sentinel"
+        )
+        #expect(nonOwnerRejection.contains("return"))
+        let diagnosticDeadlineMutation = try #require(heartbeat.range(
+            of: "current.watchdogDeadline = Date().addingTimeInterval(current.watchdogTTL)"
+        ))
+        let monotonicDeadlineMutation = try #require(heartbeat.range(
+            of: "watchdogDeadline = .now() + current.watchdogTTL"
+        ))
+        let nonOwnerBranch = try #require(heartbeat.range(of: "case .rejectNonOwner:"))
+        #expect(nonOwnerBranch.lowerBound < diagnosticDeadlineMutation.lowerBound)
+        #expect(nonOwnerBranch.lowerBound < monotonicDeadlineMutation.lowerBound)
+
+        #expect(bridge.contains(
+            "daemon.handleHeartbeat(connectionID: connectionID, reply: reply)"
+        ))
+        let connectionEnd = try section(
+            of: source,
+            from: "private func connectionEnded(",
+            through: "// MARK: - Per-connection XPC facade"
+        )
+        let ownerIdentityCheck = try #require(connectionEnd.range(
+            of: "connectionID == armedConnectionID"
+        ))
+        let invalidationRestore = try #require(connectionEnd.range(
+            of: "performRestore(sentinel, reason: \"app connection invalidated\")"
+        ))
+        #expect(ownerIdentityCheck.lowerBound < invalidationRestore.lowerBound)
+        #expect(ipc.contains(
+            "Arming while a session is already active is rejected."
+        ))
     }
 
     @Test func recoverySentinelStorageIsDescriptorBoundAndFailClosed() throws {
