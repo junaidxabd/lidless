@@ -35,19 +35,11 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "com.lidless.helper.state")
     private let log = HelperLog()
-    /// Constructed once from the dynamically validated running helper before
-    /// the listener is exposed. A missing value means every peer is rejected.
-    private let peerCodeSigningRequirement: String?
+    /// Computed once after queue-owned recovery and before the listener is
+    /// exposed. A missing value means every peer is rejected.
+    private var peerCodeSigningRequirement: String?
 
     private var listener: NSXPCListener?
-
-    override init() {
-        peerCodeSigningRequirement = XPCPeerPolicy.validatedRequirementForCurrentProcess(
-            appBundleID: LidlessIDs.appBundleID,
-            helperBundleID: LidlessIDs.helperLabel
-        )
-        super.init()
-    }
 
     // Session state (queue-only).
     private var sentinel: OverrideSentinel?
@@ -75,6 +67,9 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     /// Watchdog forbearance right after wake, so the app has time to resume
     /// heartbeats before a deadline that expired during sleep fires.
     private var graceUntil = DispatchTime.now()
+    /// A signal requests termination; it does not authorize abandoning an
+    /// unverified restore. This remains latched for the process lifetime.
+    private var terminationRequested = false
 
     private var tickTimer: DispatchSourceTimer?
     private var signalSources: [DispatchSourceSignal] = []
@@ -102,15 +97,27 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     // MARK: - Lifecycle
 
     func start() {
-        queue.async { [self] in
+        // Finish queue-owned recovery setup before the XPC listener is exposed.
+        // Signal sources are installed first: a signal delivered during a
+        // blocking recovery pass queues behind that pass instead of taking the
+        // default process-termination path or observing uninitialized state.
+        queue.sync { [self] in
+            installSignalHandlers()
+            recoveryPass()
             log.info("LidlessHelper v\(LidlessIDs.helperVersion) started (pid \(ProcessInfo.processInfo.processIdentifier), uid \(getuid()))")
             ensureWorkDirectory()
             loadScheduledWake()
-            recoveryPass()
-            installSignalHandlers()
             registerForSleepWake()
             startTick()
         }
+
+        // Identity validation can touch the filesystem/Security framework.
+        // Run it only after recovery and signal supervision are live, but still
+        // before any XPC peer can observe the result.
+        peerCodeSigningRequirement = XPCPeerPolicy.validatedRequirementForCurrentProcess(
+            appBundleID: LidlessIDs.appBundleID,
+            helperBundleID: LidlessIDs.helperLabel
+        )
 
         let listener = NSXPCListener(machServiceName: LidlessIDs.helperMachService)
         listener.delegate = self
@@ -158,20 +165,39 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     }
 
     private func installSignalHandlers() {
-        for sig in [SIGTERM, SIGINT] {
+        let terminationSignals = [SIGTERM, SIGINT]
+        // Minimize the default-termination window by setting both managed
+        // dispositions before constructing either dispatch source.
+        for sig in terminationSignals {
             signal(sig, SIG_IGN)
+        }
+        for sig in terminationSignals {
             let source = DispatchSource.makeSignalSource(signal: sig, queue: queue)
-            source.setEventHandler { [weak self] in
-                guard let self else { exit(0) }
-                self.log.info("received signal \(sig)")
-                if let sentinel = self.sentinel ?? self.restorePending {
-                    self.performRestore(sentinel, reason: "helper terminating (signal \(sig))")
+            // The daemon and its signal sources intentionally live for the
+            // process lifetime; a strong capture removes any nil-self path
+            // that could silently discard a termination request.
+            source.setEventHandler { [self] in
+                log.info("received signal \(sig)")
+                terminationRequested = true
+                advanceLifecycle()
+                if let sentinel = sentinel ?? restorePending {
+                    performRestore(sentinel, reason: "helper terminating (signal \(sig))")
                 }
-                exit(0)
+                finishTerminationIfSafe()
             }
             source.resume()
             signalSources.append(source)
         }
+    }
+
+    private func finishTerminationIfSafe() {
+        guard HelperTerminationSafety.canVoluntarilyExit(
+            terminationRequested: terminationRequested,
+            hasSentinel: sentinel != nil,
+            hasPendingRestore: restorePending != nil
+        ) else { return }
+        log.info("termination requested with no helper-owned restore remaining — exiting")
+        exit(0)
     }
 
     private func startTick() {
@@ -194,6 +220,10 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         if let sentinel, mono > watchdogDeadline, mono > graceUntil {
             log.critical("watchdog expired (armed \(sentinel.armedAt), ttl \(Int(sentinel.watchdogTTL))s) — restoring normal sleep")
             performRestore(sentinel, reason: "watchdog expired")
+        }
+
+        if terminationRequested {
+            finishTerminationIfSafe()
         }
 
         // Idle exit: nothing armed, nothing pending, nobody connected.
@@ -272,6 +302,10 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
     fileprivate func handleArm(_ options: HelperArmOptions, connectionID: ObjectIdentifier?, reply: @escaping @Sendable (Data) -> Void) {
         advanceLifecycle()
+        guard HelperTerminationSafety.allows(.arm, whileTerminationRequested: terminationRequested) else {
+            reply(replyData(ok: false, error: "helper termination is pending; refusing to arm"))
+            return
+        }
         guard restorePending == nil else {
             reply(replyData(ok: false, error: "helper is recovering from a failed restore; cannot arm"))
             return
@@ -504,12 +538,12 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             } catch {
                 log.error("aborted arm restored sleep but sentinel cleanup failed — retrying")
                 restorePending = record
-                nextRestoreAttempt = .now() + 30
+                scheduleRestoreRetry()
             }
         } else {
             log.critical("aborted arm but the override state is unverified — keeping sentinel and retrying restore")
             restorePending = record
-            nextRestoreAttempt = .now() + 30
+            scheduleRestoreRetry()
         }
         reply(replyData(ok: false, error: error))
     }
@@ -528,7 +562,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             armedConnectionID = nil
             watchdogDeadline = .distantFuture
             restorePending = record
-            nextRestoreAttempt = .now() + 30
+            scheduleRestoreRetry()
             return
         }
 
@@ -542,7 +576,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             armedConnectionID = nil
             watchdogDeadline = .distantFuture
             restorePending = record
-            nextRestoreAttempt = .now() + 30
+            scheduleRestoreRetry()
             return
         }
 
@@ -564,7 +598,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             armedConnectionID = nil
             watchdogDeadline = .distantFuture
             restorePending = record
-            nextRestoreAttempt = .now() + 30
+            scheduleRestoreRetry()
             return
         }
         sentinel = nil
@@ -572,6 +606,10 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         watchdogDeadline = .distantFuture
         restorePending = nil
         log.info("restored normal sleep (\(reason))")
+    }
+
+    private func scheduleRestoreRetry() {
+        nextRestoreAttempt = .now() + HelperTerminationSafety.restoreRetryDelay(terminationRequested: terminationRequested)
     }
 
     // MARK: - XPC entry points (hop to queue; every path must reply)
@@ -658,7 +696,9 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                         powerObservationAvailable: powerObservationAvailable,
                         observedClamshellClosed: observedClamshellClosed,
                         observedSleepDisabled: observedSleepDisabled
-                    ) else { return }
+                    ),
+                    HelperTerminationSafety.allows(.forceSleep, whileTerminationRequested: terminationRequested)
+                    else { return }
                     log.info("forcing sleep (\(options.reason))")
                     do { try PMSet.sleepNow() }
                     catch { log.error("sleepnow failed: \(error)") }
@@ -671,6 +711,10 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         queue.async { [self] in
             lastActivity = Date()
             advanceLifecycle()
+            guard HelperTerminationSafety.allows(.repairOverride, whileTerminationRequested: terminationRequested) else {
+                reply(replyData(ok: false, error: "helper termination is pending; refusing override repair"))
+                return
+            }
 
             let record: OverrideSentinel
             if let existing = sentinel ?? restorePending {
@@ -707,6 +751,10 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     fileprivate func handleScheduleWake(_ epoch: Double, reply: @escaping @Sendable (Data) -> Void) {
         queue.async { [self] in
             lastActivity = Date()
+            guard HelperTerminationSafety.allows(.scheduleWake, whileTerminationRequested: terminationRequested) else {
+                reply(replyData(ok: false, error: "helper termination is pending; refusing wake work"))
+                return
+            }
             // Wake scheduling is not safety-critical and may require two
             // blocking pmset calls. Never let it sit ahead of watchdog or
             // connection-invalidation work for an active/recovering override;

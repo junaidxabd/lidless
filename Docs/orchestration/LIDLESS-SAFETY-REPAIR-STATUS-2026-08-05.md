@@ -1186,3 +1186,114 @@ notarization, or release conclusion follows from this checkpoint.
 - E-275 — 2026-08-06T02:03:33+0200 — No App/helper/widget process, helper install/activation/registration/approval/unregister, live XPC, `pmset`, sleep setting, sleep/wake, hardware, authentication, plugin/provider/connector, Figma, network publication, release, notarization, merge, push, or main-checkout mutation was performed. Project-native Xcode build/analyze was not retried after the established nested-sandbox failure and automatic LaunchServices side effect. All accepted evidence is offline, explicitly unsigned, and non-runtime.
 - E-276 — 2026-08-06T02:03:33+0200 — The checkpoint is prepared under subject `safety: fence ambiguous helper cleanup outcomes`. Exactly the client fence policy/wiring, focused regression, scheduled-wake source-anchor adaptation, and this append-only ledger are selected. Every daemon, broad removal policy/test, protocol/version, smoke, orchestration, and design remainder stays unstaged. `State: IN_PROGRESS` is intentionally retained; after this single local commit, the supervisor must authenticate the exact remaining tree in a fresh rolling manifest before another invocation.
 - E-277 — 2026-08-06T02:05:30+0200 — Reviewed the complete five-path staged diff. `final-staged-review-eighteenth.log` (SHA-256 `bc28a63b1c9e853095afb9784371c05c6426e1bd362171288c01c58daf9259b6`) confirmed the exact curated stage, verified every selected code/test index blob byte-for-byte against the independently tested snapshot, preserved the four-file code-diff digest `61858a566d6218f13902cc0466b385bf6d9a74fdc474f1af3d6641d0beeebb59`, confirmed `State: IN_PROGRESS`, and passed complete working-tree and staged-diff whitespace checks. Its pre-final-evidence index tree was `669e19cb866cb8d7717ceed6190753324cdd279b`; only this final evidence entry is appended afterward.
+
+## Nineteenth recovery audit — authenticated daemon cleanup remainder
+
+- E-278 — 2026-08-06T02:11:29+0200 — Read the canonical handoff,
+  immutable starting-state manifest, authenticated rolling remainder manifest
+  and adjacent sidecar, progress log, decision log, architecture, and
+  design-reset brief in full. The canonical handoff SHA-256
+  `95bdacdde663c642c2f97d532c1ec2b931e94a7dfcda47b8031e011ab3944831`
+  and immutable-manifest SHA-256
+  `d84065171a261e24ae574b98164132472ff1e8bb635647403d814b9fcf58c36a`
+  matched their supplied values. The sidecar-recorded rolling-manifest SHA-256
+  `3837fa6f8b7cb4ebd71f6afb5efd9fb2dae3f002a076dfac7b0c99c7dc61be4e`
+  matched the manifest bytes. A repository-wide hidden-file scan found no
+  `AGENTS.md`, `CLAUDE.md`, `CODEX.md`, `GEMINI.md`, `.cursorrules`,
+  `copilot-instructions.md`, or matching instruction file.
+- E-279 — 2026-08-06T02:11:29+0200 — Applied only the authenticated rolling
+  manifest as recovery authority. The feature canonical path, exact
+  two-worktree linked topology, branch, HEAD
+  `1fbcb9e1ac55e7ebbfde8757eacef35e87847f6e`, Git admin/common directories,
+  clean index, complete seven-path dirty inventory, every recorded
+  status/type/mode/size/raw SHA-256, NUL-status digest
+  `b776d916f5d2a7b21364484ee4ede9d5194dcc1be1fcb313fd526bc803890183`,
+  and tracked binary-diff digest
+  `982d7e3380b85a7cdaceff7d733307cb6862c06d6dd661ffa62c3d372c853bd4`
+  matched exactly before editing. One preliminary presentation of the mode
+  field incorrectly converted `stat`'s octal digit string as decimal and
+  printed `01204`; direct string-preserving reproduction immediately proved
+  every actual mode was the required `0644`. This was an audit-harness
+  formatting error, not a filesystem mismatch, and changed no file.
+- E-280 — 2026-08-06T02:11:29+0200 — Independently reverified the rolling
+  manifest's main-checkout record without editing it: canonical path and
+  linked topology, `main` at
+  `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, clean index, complete
+  three-path `.playwright-mcp` inventory, every recorded
+  status/type/mode/size/raw SHA-256, NUL-status digest
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked binary-diff digest
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`
+  matched exactly. The main checkout remains untouched.
+- E-281 — 2026-08-06T02:11:29+0200 — The first post-gate ledger patch
+  incorrectly treated this clean tracked file as absent and temporarily
+  replaced its working copy. The deletion-heavy diff was detected before any
+  product-source edit, test, build, staging, commit, or live action. The exact
+  1,188-line, 256,764-byte `1fbcb9e` ledger was reconstructed from bounded
+  read-only Git-object slices through `apply_patch` and verified byte-for-byte
+  at SHA-256
+  `e3736d3b9337c9877116b75e749f01d8b12430963646aaa60084c9ab625c875b`
+  before this append. No prior evidence entry was discarded or rewritten, and
+  no product source, index, main-checkout file, app/helper process,
+  registration, or system setting was affected.
+
+## Nineteenth-checkpoint ruling — retain helper-owned recovery through termination
+
+The authenticated seven-path remainder is not coherent enough to accept as a
+single package. Complete diff review and three independent read-only audits
+confirmed stale uninstall status, non-transactional scheduled-wake persistence
+and cancellation, permanently disabled file logging after failed cleanup,
+process-lifetime-only uninstall fencing, duplicate/dead removal policy,
+source-shape-heavy broad tests, stale orchestration claims, and unrelated
+design/Figma material. None of those daemon-uninstall, broad removal-policy,
+smoke, orchestration, or design bytes is selected.
+
+The selected defect is narrower. The prior SIGTERM/SIGINT handler made one
+restore attempt and then called `exit(0)` unconditionally, even when exact
+normal-sleep readback failed or sentinel deletion left recovery pending. The
+selected implementation establishes both managed signal dispositions and
+sources before synchronous launch recovery, validates XPC peer identity only
+after recovery is live and still before listener exposure, latches termination
+on the serial state queue, invalidates delayed lifecycle work, and attempts an
+owned restore. A voluntary exit is permitted only when both the sentinel and
+pending-restore record are absent. Restore failures retain recovery state and
+become eligible at the next five-second supervision tick. New arm, repair,
+wake, and delayed force-sleep work are refused after the latch, while ordinary
+disarm/restoration and observation remain available.
+
+This is an offline source checkpoint, not runtime signal proof. A queued signal
+waits behind work already executing on the serial queue; process startup before
+handler installation and the small disposition-to-source construction interval
+remain unproved; the OS can forcibly terminate the daemon; and no test executes
+a real signal, launchd escalation, timer, XPC call, `pmset`, sleep/wake, or
+shutdown. The protocol value deliberately remains v6 because the XPC schema and
+app-visible proof semantics did not change. Equality with v6 does not attest
+that an installed helper contains these bytes. The current app has no safe
+already-registered executable-replacement transaction, so this checkpoint is
+not deployable, independently review-ready, or release-ready until replacement
+and build-freshness evidence are implemented and tested.
+
+### Nineteenth-checkpoint finding and verification matrix
+
+| ID | Invariant | Exact checkpoint evidence | Remaining boundary | Ruling |
+| --- | --- | --- | --- | --- |
+| S-45 | A failed signal-triggered restore cannot authorize voluntary helper exit | The pure exit truth table requires a latched request plus no sentinel and no pending restore; all five restore-failure sites retain recovery and use the termination-aware retry scheduler; the handler and tick share the final exit gate | Tests do not deliver a signal, fault `pmset`, delete a real sentinel, run the timer, or control OS termination | CHECKPOINT VERIFIED OFFLINE — SIGNAL/FAULT/LIVE GATES OPEN |
+| S-46 | Once termination is observed, new risk-increasing helper work cannot extend the recovery interval | Pure operation policy rejects arm, repair, all wake work, and delayed force sleep; exact source wiring guards each operation, advances lifecycle in the handler, and leaves ordinary disarm wired to `performRestore` | Already-running serial work precedes the handler; no live concurrent XPC/signal execution or forced-kill behavior was exercised | CHECKPOINT VERIFIED OFFLINE — QUEUE/RUNTIME GATES OPEN |
+| S-47 | Launch recovery and peer validation cannot be deferred until after XPC listener exposure | Exact startup source ordering is synchronous: both signal dispositions/sources, recovery, remaining setup, peer validation, listener construction, then resume | Pre-handler process lifetime and disposition/source capture windows remain; source ordering is not launchd execution evidence | CHECKPOINT VERIFIED OFFLINE — STARTUP/LIVE GATES OPEN |
+| V-28 | Exact selected bytes pass focused, complete, strict compile, and unsigned Debug/Release checks | Pre-ledger tree `b470694bbf67ddf27b6833996f932b84bd6626d7` passed 6 focused tests, all 258 exact tests, Debug/Release core builds, Swift 6 complete-concurrency typechecking with warnings-as-errors, and direct Debug/Release App/helper/widget links | Project-native Xcode graph build/analyze was not retried under the established nested-sandbox and automatic LaunchServices side-effect constraints | PASS FOR EXACT OFFLINE CODE — XCODE GRAPH OPEN |
+| V-29 | Artifact/configuration evidence is bounded to observed loose products and source files | Six thin arm64 macOS 15 / SDK 27.0 outputs have no `LC_CODE_SIGNATURE` and fail code-sign inspection as unsigned; the Debug helper contains the selected policy symbols; six plist/entitlement sources linted and decoded, and project bindings were inspected | Outputs are not bundles and prove no bound entitlement, identity, installed executable, XPC trust, registration, notarization, or runtime behavior | PARTIAL — BUNDLE/SIGNING/RUNTIME GATES OPEN |
+| V-30 | Helper compatibility equality is not represented as executable-freshness proof | `helperVersion` stays 6 and its comment explicitly rejects freshness inference; local SDK and exact client-source inspection prove changed daemon bytes require a separate safe replacement lifecycle | `install()` calls register on stale/already-registered states; no unregister/re-register transaction or installed-build identity exists | DEFERRED — REPLACEMENT/FRESHNESS GATE BLOCKS DEPLOYMENT |
+
+- E-282 — 2026-08-06T02:35:19+0200 — Reproduced the complete authenticated dirty-package baseline before accepting any remainder claim. Xcode-beta 27.0 Swift 6.4 passed 259 tests in 23 suites in `swift-test-nineteenth-dirty-baseline-corrected.log` (SHA-256 `b593f9f4844c2c45a9e341144808acac3a2d573d48b9b052cd8a631cb8bb0de5`). The first attempt lacked writable module-cache routing and failed before manifest evaluation (`swift-test-nineteenth-dirty-baseline.log`, SHA-256 `2db66ecf938c89661c95e9952656f35cc9c3bf9fca8039b94a08df50067a5ec7`); it is environment evidence only. Complete diff review and three independent read-only audits rejected the broad remainder for the uninstall transaction, persistence, logging, protocol/replacement, timeout, stale-callback, optional-restoration, test-scope, documentation, and design defects described above.
+- E-283 — 2026-08-06T02:35:19+0200 — Established RED incrementally against the unsafe handler. The initial structural regression recorded four failures because the old handler neither latched termination nor gated exit/retry (`swift-test-helper-termination-nineteenth-red.log`, SHA-256 `fe12796319a502ee37e8579e5be52acdf6ceb20a73095a94b4e80009b76ff9af`). The pure-policy RED failed because `HelperTerminationSafety` did not exist (`swift-test-helper-termination-policy-nineteenth-red.log`, SHA-256 `7b0a5f97b3013ae5460aac6958ac07a0caff7d688ff119dc04a7c243167d641d`). Startup ordering and peer-validation REDs are preserved at SHA-256 `7f7b01d6e3c086eb6b9b93947f1631fb9dcfd4fdf34cd41e5e9026c0e483d1cf` and `c6859be93b6879c4e78f5ee88775439473825b87043e0ccc8a89c10ab4b29f7f`. A final focused RED proved the one-loop signal setup left the second signal at default disposition while the first source was constructed (`swift-test-helper-termination-signal-dispositions-nineteenth-red-corrected2.log`, SHA-256 `6c99f4fde6d587914d26e9ad1ed60b174c4c156f3ba6a8f60e1c5f5a5e29c9c8`); the two preceding attempts failed only on module-cache and nested-sandbox constraints and are not counted.
+- E-284 — 2026-08-06T02:35:19+0200 — Implemented only the signal latch, owned-recovery exit gate, next-tick retry eligibility, risk-increasing operation guards, synchronous recovery-first startup, two-pass signal setup, deferred-but-pre-listener peer validation, pure policy, bounded architecture wording, and focused regression. The final working-tree signal suite passed all 6 tests in `swift-test-helper-termination-signal-dispositions-nineteenth-green.log` (SHA-256 `5f1e8eb062647f21541c25e7478a72eb1344876efa6f436eb441fce3f27d9d28`). An intermediate proposed wake-cancellation allowance was rejected because cancellation cannot be safely admitted while owned recovery is pending; its RED is preserved at SHA-256 `8ec836cac5c643a956f07628403fa62d2e6d22ac099d9daac6fbafa4c5d8b688` and none of that proposal is selected.
+- E-285 — 2026-08-06T02:35:19+0200 — Adversarial review caught that a provisional v6-to-v7 bump would strand an already registered v6 helper: exact source inspection shows stale/not-responding UI routes to `install()`, which only calls `register()`, while exact-version proof would reject old status. The provisional bump and every v7 assertion were reverted. `same-version-helper-freshness-gate-signal-nineteenth.log` (SHA-256 `59b7eff6f3068cc590ec29e7acc386753fc0696915d6a93fd0e8d68bbe3a85bf`) records the final v6 declaration, client, UI, and proof-policy bytes. The local SDK 27.0 `SMAppService.h` (SHA-256 `859ec2a7c4471dc1ac1e36b4de67e76d0a62ce4e4d145c942fd80cc4c2d8f8ff`) says changed daemon executables must be re-registered, recommends unregister-before-register, reports already-registered as `kSMErrorAlreadyRegistered`, and defines asynchronous unregister completion as the safe re-registration point; the bounded extract is `smappservice-replacement-contract-signal-nineteenth.log` (SHA-256 `7a9828d7b5a74ae4baf3be056f1e84c825fbf72bd356f9d5d5d32d433c60b877`). No ServiceManagement call occurred.
+- E-286 — 2026-08-06T02:35:19+0200 — Curated exactly five pre-ledger paths and synthesized the HelperDaemon index blob from HEAD plus only reviewed signal hunks, excluding every overlapping `uninstallCommitted` and cleanup hunk. The immutable pre-ledger Git-index tree is `b470694bbf67ddf27b6833996f932b84bd6626d7`; its staged binary-diff SHA-256 is `ea8f57e2f9b873dba12d3a255524f8288277b965e44cdfc3e47a70e4f8c484e8`. Every index blob/mode matched the exported snapshot byte-for-byte, and both complete working-tree and staged diff checks passed in `exact-index-snapshot-compare-signal-nineteenth.log` (SHA-256 `b7b0064234af8d9635a8bbcb5ec26869eb9b09efbfef45c77d89067ba9e677ff`).
+- E-287 — 2026-08-06T02:35:19+0200 — The exact index export passed all 6 termination tests in `swift-test-helper-termination-nineteenth-exact-final.log` (SHA-256 `34ece7a5dafddf2fed5b8672bf8f1cfe0584eeaa35adf91c197c7f38f05c1492`) and all 258 tests in 23 suites in `swift-test-full-signal-nineteenth-exact-final.log` (SHA-256 `b100d88789a862614b9a3d81d9bb2e796c632ab53397f6dd4530d715b22f8d3a`). These pure/source tests did not run the app, helper, widget, signals, launchd, XPC, `pmset`, or sleep hardware.
+- E-288 — 2026-08-06T02:35:19+0200 — Exact Debug and Release `LidlessCore` builds passed with `CODE_SIGNING_ALLOWED=NO` (`swift-build-core-debug-signal-nineteenth-exact-final.log`, SHA-256 `b82334418c2dbdd27896e506c3b1660a7d896fc4e75ddbe2c8f7a46cf67ad784`; Release SHA-256 `c6772db40902e12c3b57336404a16c30eff91ac28584b6a07e277892b423d434`). All 25 App, 4 helper, and 1 widget sources passed macOS 15 Swift 6 complete-concurrency typechecking with warnings-as-errors and compiler-plugin sandboxing disabled (`swiftc-strict-typecheck-signal-nineteenth-exact-final.log`, SHA-256 `29378f4b438ae885f257df2beeacba05f3ae3931e670e2b9071c309519a7798b`). With signing disabled and linker ad-hoc signing suppressed, all three exact source sets compiled and linked in Debug (`swiftc-link-debug-signal-nineteenth-exact-final.log`, SHA-256 `477cc1d603b1dff1ac7d2ebd04626aff2275d76dd86849e04b9c83c61e55ccee`) and optimized Release (SHA-256 `5c804908ec04d852b65a1080228b4ce49f4a23e35390e63340af96bdcbbbf178`). No product was launched.
+- E-289 — 2026-08-06T02:35:19+0200 — `artifact-config-inspection-signal-nineteenth-exact-final.log` (SHA-256 `6e7776cd933e923d1e4c221fb36d2ba38e945501b7f90164b075cafe689110c0`) records modes, sizes, hashes, thin arm64 architecture, macOS 15 / SDK 27.0 build-version commands, absence of `LC_CODE_SIGNATURE`, and `codesign`'s unsigned verdict for all six loose products; the Debug helper exports the selected policy symbols. It also records lint and decoded values for all six exact source plist/entitlement files plus central IDs and project bindings. No actual App/helper/widget bundle, bound entitlement, signed identity, or embedded launchd artifact was produced.
+- E-290 — 2026-08-06T02:35:19+0200 — A first direct all-product typecheck used a stale Swift 6.3 module with Swift 6.4 and lacked fail-fast handling, so its apparent trailing pass was invalid (`swiftc-all-products-typecheck-nineteenth-dirty.log`, SHA-256 `b2c6e688465628db89f4658c2c38f8d201ccac2890c6e35c3542a0654031218d`). Correct dirty-tree helper/all-product checks subsequently passed but were superseded by the immutable exact checks in E-288. Likewise, a 265-test dirty-tree pass preceded the final startup/signal-disposition hardening and is not used as final checkpoint evidence. Every invalid, superseded, or broad-tree log remains preserved rather than silently promoted.
+- E-291 — 2026-08-06T02:35:19+0200 — Three independent read-only adversarial reviews approved the exact five-file stage only as `IN_PROGRESS`. They confirmed the restore/exit trace, operation fences, startup/XPC order, v6 compatibility wording, and exclusion of broad removal/version bytes. They retained same-version executable ambiguity, safe replacement, queue latency, process-start and disposition/source windows, OS force-kill, real timer/signal/launchd, `pmset`, XPC, sleep/wake, signed bundle, and hardware behavior as open gates. No reviewer edited a file or performed a live action.
+- E-292 — 2026-08-06T02:35:19+0200 — Final pre-commit main-checkout preservation passed in `main-preservation-signal-nineteenth-precommit-corrected.log` (SHA-256 `4b3136d461b222d9323c3d711d99c8e8a5b30c561813cd9728738a62000fa74c`): canonical path, exact two-worktree topology, shared Git common directory, main `main` branch/starting HEAD, clean index and tracked diff, complete three-path `.playwright-mcp` inventory, every type/mode/size/raw SHA-256, NUL-status digest `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`, and empty tracked binary-diff digest matched the authenticated rolling manifest exactly. The first harness resolved main's relative `.git` against the feature directory and stopped on the resulting false common-directory mismatch before file comparison (`main-preservation-signal-nineteenth-precommit.log`, SHA-256 `5d64630d66ee580605930ebd7936fe524723bc4f4127e84769066fe7afbe40a3`); it changed nothing and is not counted.
+- E-293 — 2026-08-06T02:35:19+0200 — No App/helper/widget process, helper install/activation/registration/approval/unregister, live XPC, `pmset`, sleep-setting mutation, sleep/wake, hardware, authentication, plugin/provider/connector, Figma, network publication, release, notarization, merge, push, or main-checkout mutation was performed. Project-native Xcode build/analyze was not retried after the established nested-sandbox failure and automatic LaunchServices side-effect constraint. The checkpoint is prepared under subject `safety: retain helper recovery on termination`. Exactly the five reviewed signal code/test/documentation paths plus this append-only ledger are selected; all uninstall, broad removal, smoke, orchestration, and design remainder stays unstaged. `State: IN_PROGRESS` is intentionally retained. After this single local commit, the supervisor must authenticate the exact remaining tree in a fresh rolling manifest before another invocation.
+- E-294 — 2026-08-06T02:38:28+0200 — Reviewed the complete six-path staged diff. `final-staged-review-signal-nineteenth.log` (SHA-256 `f411901ba39394a94650ecd1ad30b9d5f9d1834152d144fd10b119479f60a477`) records the full patch and confirmed the exact path set, `State: IN_PROGRESS`, a 110-addition/zero-deletion ledger append, staged tree `0c83815f70f5664a666476799845f43ad53371a2`, full staged binary-diff SHA-256 `45ae367d8331771de072f04f6bfa2eba12aefabb6defc152cb0cc64ab7d6ad19`, unchanged five-file code-diff SHA-256 `ea8f57e2f9b873dba12d3a255524f8288277b965e44cdfc3e47a70e4f8c484e8`, byte equality between every selected code/test index blob and the independently tested export, exclusion of uninstall/version/remainder bytes, and both complete working-tree and staged-diff whitespace checks. Only this final append is added afterward.

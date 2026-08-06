@@ -11,8 +11,9 @@ public enum LidlessIDs {
     public static let helperPlistName = "com.lidless.helper.plist"
     public static let helperMachService = "com.lidless.helper"
 
-    /// Bumped whenever the XPC surface or helper behavior changes; the app
-    /// re-registers the daemon when the running helper reports an older value.
+    /// Gates app-visible helper/XPC compatibility. This is not an attestation
+    /// of executable freshness: backward-compatible internal fixes may retain
+    /// the value, so callers must not infer which helper build is running.
     public static let helperVersion = 6
 
     public static let appGroupID = "group.com.lidless.shared"

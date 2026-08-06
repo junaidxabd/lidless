@@ -87,7 +87,15 @@ Mechanisms, layered so no single failure strands the override:
    the state machine parks in `restorePending`, and the tick retries every
    30 s (launchd keeps the process alive because the sentinel exists).
    Arming is refused while a restore is pending.
-7. **SIGTERM** (system shutdown, unregistration) restores before exit.
+7. **SIGTERM/SIGINT fail closed.** A signal latches termination and restores on
+   the serial state queue. It voluntarily exits only after no helper-owned
+   recovery remains; an owned sentinel or pending restore clears only after
+   exact normal-sleep proof and sentinel deletion. A no-record exit does not
+   prove the external sleep state. Failures retry on the next supervision tick;
+   new arm, repair, all wake work, and delayed force-sleep work are refused,
+   while ordinary restore stays available. The OS can
+   still force-kill the process, so launchd escalation and shutdown timing
+   remain live validation gates rather than offline guarantees.
 8. **Bounded state-queue work while armed.** Each `pmset` child gets 3 s,
    followed by at most 1 s to observe forced termination. No more than two
    such calls may precede queued supervision at the 15 s minimum TTL, and
