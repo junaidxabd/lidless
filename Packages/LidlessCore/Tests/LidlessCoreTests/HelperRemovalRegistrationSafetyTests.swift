@@ -85,6 +85,21 @@ struct HelperRemovalRegistrationSafetyTests {
         ) == nil)
     }
 
+    @Test func registrationPolicyKeepsTypedActionsSeparateFromAppAdmission() throws {
+        let registrationPolicy = try repositoryFile(
+            "Packages/LidlessCore/Sources/LidlessCore/HelperRemovalSafety.swift"
+        )
+        let appPolicy = try repositoryFile(
+            "Packages/LidlessCore/Sources/LidlessCore/HelperRemovalAppSafety.swift"
+        )
+
+        #expect(registrationPolicy.contains("func removalAction("))
+        #expect(!registrationPolicy.contains("func canRemoveRegistration("))
+        #expect(!registrationPolicy.contains("func canBeginAppRemoval("))
+        #expect(appPolicy.contains("func canStartRemoval("))
+        #expect(appPolicy.contains("func canProceedRemoval("))
+    }
+
     @Test func clientClassifiesAndRechecksRegistrationBeforeDeregistration() throws {
         let client = try repositoryFile("App/Sources/Helper/HelperClient.swift")
         let uninstall = try section(

@@ -2860,3 +2860,154 @@ blockers; this checkpoint is not upgrade-complete and must remain
   was `06b77c55f580b27e3bdf5ff56e604af066a1aaeefcb5a0b1177a2d3feb28cf7a`.
   This E-399 append is the sole subsequent selected-byte change before the
   final index check and one local commit.
+- E-400 — 2026-08-06T06:30:18+0200 — Resumed only after the checkpoint-aware
+  recovery gate passed exactly and before any edit. The canonical handoff and
+  immutable starting manifest retained their required SHA-256 values; the
+  rolling manifest's adjacent sidecar verified it at SHA-256
+  `d5451aa122a6bb0d39c9b8bb482faf901e45ff8165ba7c6dbfd41c9c419ea9e9`.
+  The feature worktree resolved to the recorded canonical path, linked-worktree
+  admin directory, common Git directory, branch, and HEAD
+  `dc6dea161292f46814046f0a061d882665d82b0d`; its index and unmerged list were
+  empty. All six dirty paths exactly matched status/type/mode/size/raw hash,
+  with no extra or missing path; its NUL-delimited complete-status SHA-256 was
+  `5cf63a070dfe49313ecf75b3b2b7c3995af41ba5f22a8c4c39523108c7863b09`
+  and tracked binary-diff SHA-256 was
+  `9246b662e27202b4da57f7adb476aae9ab0133cae5176c50d3a8a115cc34ea6f`.
+  The main checkout remained `main` at starting HEAD with an empty index and
+  tracked diff; all three recorded `.playwright-mcp` files matched exactly,
+  its NUL-delimited status SHA-256 was
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and its tracked binary-diff SHA-256 was the empty-input
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+  The handoff, both manifests, rolling sidecar, progress, decisions,
+  architecture, design-reset brief, and repository `CONTRIBUTING.md` were read
+  completely; no repository `AGENTS.md`, `CLAUDE.md`, or other governing
+  instruction file was found. `State: IN_PROGRESS` is retained while the
+  authenticated six-file remainder is independently re-audited.
+
+## Typed helper-removal policy checkpoint matrix — 2026-08-06
+
+| ID | Invariant or boundary | Exact offline evidence | Ruling |
+|---|---|---|---|
+| R26-01 | Registration authorization must preserve the typed `.unregister` versus `.alreadyInactive` decision | The production client switches `HelperRemovalSafety.removalAction`; the focused regression rejects a Boolean convenience that would erase the action, and the exact three-test policy suite passes | CHECKPOINT VERIFIED OFFLINE |
+| R26-02 | App removal admission must remain in the two-stage app policy rather than acquire a misleading registration-policy alias | Production calls `HelperRemovalAppSafety.canStartRemoval` and then `canProceedRemoval`; the regression rejects `canBeginAppRemoval` on the registration policy and confirms both app-policy entry points remain present | CHECKPOINT VERIFIED OFFLINE |
+| R26-03 | The inherited aggregate tests and smoke additions cannot substitute for stronger focused suites | The 262-line aggregate suite and two smoke tests duplicated weaker subsets of eight committed suites; they were excluded, the two tracked files match checkpoint HEAD, and the final exact suite is 285 tests in 28 suites | REJECTED REMAINDER; FOCUSED GUARD SELECTED |
+| R26-04 | Offline source/build evidence does not establish ServiceManagement, XPC, signing, or helper-runtime behavior | No product was launched; the six direct outputs are loose unsigned executables, not bundles; project-native Xcode build/analyze was avoided because prior runs invoke LaunchServices registration | LIVE / SIGNED-RUNTIME GATES OPEN |
+| V26-01 | Selected policy bytes pass RED/GREEN, related, complete, strict static, and Debug/Release compilation checks | RED produced exactly two issues; GREEN passed 3 focused tests, 32 related tests in 8 suites, and 285 complete tests in 28 suites; Core and all three product source sets compile in Debug and optimized Release; strict Swift 6 typechecking passes | PASS FOR EXACT OFFLINE CHECKPOINT |
+
+- E-401 — 2026-08-06T06:37:52+0200 — Independently reviewed every authenticated
+  remainder byte and traced both added APIs through production. Neither
+  `canBeginAppRemoval` nor `canRemoveRegistration` had a production caller.
+  The former duplicated `HelperRemovalAppSafety.canProceedRemoval` under a
+  misleading begin-stage name while omitting the separate simulation,
+  removal, termination, and lifecycle-operation start gates. The latter
+  reduced `removalAction(...)` to a Boolean, returned true for an inactive
+  registration, and erased the distinction that tells production not to call
+  `SMAppService.unregister()` for `.alreadyInactive`. Three independent
+  read-only audits reached the same result. The inherited broad test suite was
+  a weaker aggregate of the existing app, registration, completion, client,
+  handshake, daemon, and revision suites; its two smoke additions duplicated
+  stronger protocol/revision and widget-proof tests. The progress, decisions,
+  and design-brief changes are unrelated design work; some progress claims are
+  stale or broader than current evidence, and prohibited Figma claims were not
+  reverified. Those three files remain byte-identical to the rolling authority
+  and are excluded from this checkpoint.
+- E-402 — 2026-08-06T06:37:52+0200 — Added one focused source-contract
+  regression to the existing registration-authorization suite before changing
+  the authenticated wrapper-bearing source. RED failed exactly the two new
+  negative expectations in `swift-test-typed-removal-red.log` (249 lines,
+  12,044 bytes, SHA-256
+  `9427ab7340c682a4a5a59596145a79fe70820b36c5a2e6f774fccde2f6f88ad1`).
+  The root fix removed both uncommitted policy wrappers, excluded the untracked
+  aggregate suite, and removed the two redundant smoke tests. The policy source
+  and smoke file then matched checkpoint HEAD byte-for-byte; no App, helper,
+  widget, or other product source changed. Focused GREEN passed 3 tests in one
+  suite in `swift-test-typed-removal-green.log` (90 lines, 5,895 bytes,
+  SHA-256
+  `331ae2c2432ba0e1b9d3e7668f13d4241c2f35286846e7af207509c6e7e4ee52`).
+  Eight related suites passed 32 tests in
+  `swift-test-removal-related-green.log` (98 lines, 7,816 bytes, SHA-256
+  `2afc599324de5c9925d699000e03001ca92f17d46df47ceb1ac5b14674694dfe`).
+- E-403 — 2026-08-06T06:37:52+0200 — The literal required command
+  `swift test --package-path Packages/LidlessCore` was attempted on the final
+  tree and its complete environment-only failure is preserved in
+  `swift-test-literal-final.log` (6 lines, 2,347 bytes, SHA-256
+  `accfc1c8fe1103fea4285f3fdb183cad707f2eca41b9599182d660d27e51ae2f`):
+  the selected beta toolchain tried to write a sandbox-denied user clang cache.
+  Pinned stable Xcode with task-local caches and the SwiftPM sandbox disabled
+  passed all 285 tests in 28 suites; complete output is
+  `swift-test-full-final.log` (731 lines, 56,979 bytes, SHA-256
+  `f389c0e2a114fd51d2f5d813c886d8d81396b8c1f6aafab82fb78c2ef2e5004b`).
+  For comparison only, the authenticated wrapper-bearing tree passed 291 tests
+  in 29 suites in `swift-test-stable-baseline.log` (746 lines, 58,089 bytes,
+  SHA-256
+  `381ec575ab19643d8bfc19ca16434e7183df52c58e64514d8ad37203010ecdd9`),
+  demonstrating auto-discovery rather than validating those inherited tests.
+- E-404 — 2026-08-06T06:37:52+0200 — With
+  `CODE_SIGNING_ALLOWED=NO` and `CODE_SIGNING_REQUIRED=NO`, stable Swift built
+  LidlessCore in Debug and Release; complete logs are
+  `swift-build-core-debug.log` (37 lines, SHA-256
+  `843fa0d289cee91d286311a75cbfd2162e49fc57f82eec09b1cc3d44a8090950`)
+  and `swift-build-core-release.log` (9 lines, SHA-256
+  `909ac506f2f673ab534764f178e670001840eb82e0000d441476571419fc8477`).
+  All 25 App, 4 helper, and 1 widget sources compiled and linked against the 28
+  Core objects in both configurations with `-no_adhoc_codesign`; complete
+  command/output logs are `direct-all-products-debug.log` (47 lines, SHA-256
+  `dbc8d7949f2172c4be3d5bed3b07f294576a5697c62faff8a3e41088bff9416a`)
+  and `direct-all-products-release.log` (47 lines, SHA-256
+  `b496a679b7614b6acba492cc1607a2b6c36996c58b5cb91669201cb3850ee36d`).
+  Swift 6 complete-concurrency typechecking with warnings-as-errors passed all
+  three source sets in `static-typecheck-all-products.log` (21 lines, SHA-256
+  `1c56f9c5a65395abc6dac0d36b58068b8f7ef4bce1a5c324dd0fa8befe2465cb`).
+  `artifact-config-inspection.log` (457 lines, SHA-256
+  `bfbca6c9787d9cce452b4a31580e96332da305fcf89900c9db478fb7a80b8f80`)
+  records six arm64 Mach-O executables with macOS 15 minimum, no
+  `LC_CODE_SIGNATURE`, and expected code-sign inspection failure, plus syntax
+  and decoded contents for all six source plist/entitlement files and matching
+  project identifier/team/deployment bindings. These loose outputs are not app
+  bundles, carry no bound identity or entitlements, and prove no signed XPC,
+  SMAppService, install, notarization, sleep-setting, or hardware behavior.
+  Project-native Xcode build/analyze was not run because preserved prior logs
+  prove that path invokes automatic LaunchServices registration. No product or
+  helper was launched, installed, activated, registered, approved, or invoked.
+- E-405 — 2026-08-06T06:40:42+0200 — Exported the complete selected index tree
+  `284e53327d343bf3d09b8e2185a23fb7a1825c98` to an isolated temporary
+  directory and independently verified both exported file hashes against their
+  index blobs. From that exact export, the focused registration-policy run
+  passed 3 tests in one suite; complete output is
+  `swift-test-exact-index-focused.log` (90 lines, 5,818 bytes, SHA-256
+  `e80bdd49091026c6c97dba6a51774044c6ecefdd82258106a847c7f2aa52198a`).
+  The complete exact-index run passed 285 tests in 28 suites; complete output
+  is `swift-test-exact-index-full.log` (667 lines, 53,010 bytes, SHA-256
+  `1e12ed5f626635f743c5f85bfc9166c5fd2f6071cff14aa7a50453cae2ae611d`).
+  The precommit preservation audit confirms branch
+  `codex/lidless-safety-repair-2026-08-04`, HEAD
+  `dc6dea161292f46814046f0a061d882665d82b0d`, the recorded linked-worktree
+  topology/common directory, an empty unmerged list, and exactly two selected
+  paths: this ledger and the 15-line focused regression. The sole unstaged
+  remainder is the three unrelated design files: `decisions.md` (4,591 bytes,
+  SHA-256 `cdf6a032f24dc9421f5bbf3e1b696dca7fd37da8bc4d28cf978a302cea03ccd1`),
+  `progress.md` (5,774 bytes, SHA-256
+  `375b445d73847e60c11f321efe97b2ac636c11f4b962118c14b02d22caacf2d0`),
+  and the untracked design-reset brief (7,188 bytes, SHA-256
+  `4835b0dc2fa44257d2e4aca6429e5bd5ad1cf93989686c709311d91b9659e7f7`);
+  all retain mode `0644` and exactly match the rolling authority. The main
+  checkout remains `main` at starting HEAD with clean index/tracked diff and
+  its exact three recorded untracked artifacts; complete NUL-status SHA-256 is
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`
+  and tracked binary-diff SHA-256 is
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+- E-406 — 2026-08-06T06:41:09+0200 — Reviewed the complete staged binary diff.
+  It contains only this append-only ledger and the focused 15-line regression,
+  with no product-source, configuration, design, binary, rename, mode, or
+  deletion change. Staged and unstaged whitespace checks pass and the unmerged
+  list is empty. The pre-terminal-ledger index tree was
+  `0ee13777f0c03412ef323951b575598d80052bd6`; its staged binary-diff
+  SHA-256 was
+  `b5f2691a2b3cd1d81522044f66897ac44333a2a9c9c5095b49e51164f8f51e7d`.
+  This E-406 append is the sole subsequent selected-byte change before the
+  final index check and exactly one local commit with subject
+  `safety: preserve typed helper removal decisions`. `State: IN_PROGRESS` is
+  intentionally retained because the supervisor must bind the exact remaining
+  three-file design tree into a fresh rolling manifest before any later
+  invocation; all signed/runtime/hardware gates remain open.
