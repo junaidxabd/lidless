@@ -58,9 +58,9 @@ signed-runtime, crash, reboot, sleep/wake, or hardware validation:
 | Helper crash while armed | The sentinel configures `KeepAlive.PathState`; actual launchd relaunch behavior remains a live gate |
 | Power loss or reboot | The sentinel and `RunAtLoad` provide a recovery path; reboot recovery remains a hardware gate |
 | Sleep transition while armed | The helper's sleep observer requests restoration; sleep/wake behavior remains a hardware gate |
-| `pmset` failure | The sentinel and retry state remain pending; live command-failure recovery is not established offline |
+| `pmset` failure | With trusted storage, the sentinel remains on disk and in-process retry state stays active; the storage-invalid fallback can be memory-only, and live compounded-failure recovery is not established offline |
 
-The keystone is a **sentinel file** (`/var/db/lidless/override-active`) written *before* the override is enabled and deleted only *after* a verified restore. It records the prior power-mode and `tcpkeepalive` values. A legacy `disablesleep` field remains decodable, but current recovery deliberately restores ordinary sleep (`disablesleep 0`) rather than preserving an outside override.
+The keystone is a **sentinel file** (`/var/db/lidless/override-active`) written *before* the override is enabled. After Lidless mutates the system it is deleted only after a verified restore; an unused prepared marker may be removed after a proven pre-mutation rejection. It records the prior power-mode and `tcpkeepalive` values. A legacy `disablesleep` field remains decodable, but current recovery deliberately restores ordinary sleep (`disablesleep 0`) rather than preserving an outside override.
 
 ### Verify it's off
 

@@ -266,7 +266,7 @@ struct ManagedSettingRestorationSafetyTests {
         )
         let recovery = try section(
             of: helper,
-            from: "private func recoveryPass()",
+            from: "private func recoveryPass(storageFailure: Error?)",
             through: "private func installSignalHandlers()"
         )
         let applyImplementation = try section(
@@ -296,7 +296,7 @@ struct ManagedSettingRestorationSafetyTests {
         ))
         let corruptVersion = try #require(recovery.range(of: "version: 0"))
         let corruptRestore = try #require(recovery.range(
-            of: "performRestore(fallback, reason: \"corrupt sentinel recovery\")"
+            of: "performRestore(fallback, reason: reason)"
         ))
         #expect(corruptVersion.lowerBound < corruptRestore.lowerBound)
 

@@ -90,12 +90,16 @@ struct HelperTerminationSafetyTests {
         let start = try section(
             of: source,
             from: "func start()",
-            through: "private func ensureWorkDirectory()"
+            through: "private func recoveryPass(storageFailure: Error?)"
         )
         let synchronousStartup = try #require(start.range(of: "queue.sync"))
         let signalSetup = try #require(start.range(of: "installSignalHandlers()"))
-        let recovery = try #require(start.range(of: "recoveryPass()"))
-        let workDirectory = try #require(start.range(of: "ensureWorkDirectory()"))
+        let workDirectory = try #require(start.range(
+            of: "try ensureSecureWorkDirectory()"
+        ))
+        let recovery = try #require(start.range(
+            of: "recoveryPass(storageFailure: storageFailure)"
+        ))
         let wakeLedger = try #require(start.range(of: "loadScheduledWake()"))
         let peerValidation = try #require(start.range(
             of: "XPCPeerPolicy.validatedRequirementForCurrentProcess("
@@ -106,9 +110,9 @@ struct HelperTerminationSafetyTests {
 
         #expect(!start.contains("queue.async"))
         #expect(synchronousStartup.lowerBound < signalSetup.lowerBound)
-        #expect(signalSetup.lowerBound < recovery.lowerBound)
-        #expect(recovery.lowerBound < workDirectory.lowerBound)
-        #expect(workDirectory.lowerBound < wakeLedger.lowerBound)
+        #expect(signalSetup.lowerBound < workDirectory.lowerBound)
+        #expect(workDirectory.lowerBound < recovery.lowerBound)
+        #expect(recovery.lowerBound < wakeLedger.lowerBound)
         #expect(wakeLedger.lowerBound < peerValidation.lowerBound)
         #expect(recovery.lowerBound < listener.lowerBound)
         #expect(peerValidation.lowerBound < listener.lowerBound)

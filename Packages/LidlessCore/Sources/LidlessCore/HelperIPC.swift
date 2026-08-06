@@ -193,13 +193,22 @@ public enum HelperCleanupHandshakeSafety {
 
 // MARK: - Sentinel
 
-/// Written atomically to `HelperPaths.sentinel` the instant before the
-/// override is enabled; deleted the instant after it is restored. Its
-/// existence means "the system may be in a modified state", and it carries
-/// everything needed to undo that state with no other information:
+/// Created exclusively at `HelperPaths.sentinel`, metadata-checked, fully
+/// written, and accepted only after successful file/directory F_FULLFSYNC
+/// requests and checked closes. After a Lidless mutation, deletion requires
+/// verified restoration plus the same directory barrier; an unused prepared
+/// marker may instead be removed after a proven pre-mutation rejection. Its
+/// existence means "the system may be in a modified state". A crash during the
+/// direct write may leave a partial/corrupt marker; when present, it forces
+/// normal-sleep recovery rather than being decoded as trusted state. No
+/// risk-increasing enable mutation occurs until every barrier succeeds. These
+/// barriers fail closed but cannot prove that every physical device honors
+/// cache-flush requests. A complete record carries everything needed to undo
+/// the helper's optional changes with no other information:
 ///
-/// - Helper launch (crash restart via `KeepAlive.PathState`, or boot via
-///   `RunAtLoad`): sentinel present → restore prior state, delete sentinel.
+/// - Helper launch (requested crash restart via `KeepAlive.PathState`, or boot
+///   via `RunAtLoad`): trusted/restorable sentinel → restore prior state and
+///   delete; corrupt/untrusted evidence → force ordinary sleep and stay pending.
 /// - Watchdog expiry: same.
 /// - Version 2 scopes optional mutations exactly to the numeric prior values
 ///   below, making restore idempotent and non-destructive even when the user

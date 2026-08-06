@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import IOKit
 import IOKit.pwr_mgt
 import LidlessCore
@@ -21,12 +22,13 @@ private let kIOMessageSystemHasPoweredOn: UInt32 = 0xE000_0300
 ///  2. Connection supervision: the arming app connection invalidating (quit,
 ///     crash) restores immediately.
 ///  3. Watchdog: no heartbeat within TTL restores (app alive but wedged).
-///  4. launchd: `KeepAlive.PathState` on the sentinel relaunches a crashed
-///     helper while the override is on; `RunAtLoad` runs a restore pass at
-///     boot. Every helper launch restores if a sentinel exists.
+///  4. launchd configuration: `KeepAlive.PathState` on the sentinel requests
+///     relaunch while the override may be on; `RunAtLoad` requests a boot
+///     recovery pass. Actual launchd/crash behavior remains a live gate.
 ///  5. Forced-sleep detection: if the system sleeps anyway (user forced it),
 ///     the override is released before sleep completes.
-///  6. Restore failure never gives up: the sentinel stays, retries continue.
+///  6. Restore failure remains pending and the tick retries while this process
+///     lives; a trusted retained marker requests launchd relaunch.
 ///
 /// Threading: all state lives on `queue`. XPC entry points and IOKit
 /// callbacks hop onto it; nothing touches state anywhere else. That
@@ -35,7 +37,18 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     /// Producer-owned declaration of the behavior actually implemented by
     /// this daemon. Keep this independent from the app's required revision so
     /// an app-side bump cannot silently make an unchanged helper compatible.
-    private static let implementedSafetyRevision = 4
+    private static let implementedSafetyRevision = 5
+    private static let maximumSentinelBytes = 64 * 1024
+
+    private struct StorageError: LocalizedError {
+        let operation: String
+        let code: Int32?
+
+        var errorDescription: String? {
+            guard let code else { return operation }
+            return "\(operation): \(String(cString: strerror(code)))"
+        }
+    }
 
     private let queue = DispatchQueue(label: "com.lidless.helper.state")
     private let log = HelperLog()
@@ -116,10 +129,22 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         // default process-termination path or observing uninitialized state.
         queue.sync { [self] in
             installSignalHandlers()
-            recoveryPass()
+            let storageFailure: Error?
+            do {
+                try ensureSecureWorkDirectory()
+                storageFailure = nil
+            } catch {
+                // Never append through an untrusted root path. Unified logging
+                // remains available while recovery fails closed in memory.
+                log.disableFileSink()
+                storageFailure = error
+                log.critical("helper storage is not trusted: \(error.localizedDescription)")
+            }
+            recoveryPass(storageFailure: storageFailure)
             log.info("LidlessHelper v\(LidlessIDs.helperVersion) started (pid \(ProcessInfo.processInfo.processIdentifier), uid \(getuid()))")
-            ensureWorkDirectory()
-            loadScheduledWake()
+            if storageFailure == nil {
+                loadScheduledWake()
+            }
             registerForSleepWake()
             startTick()
         }
@@ -138,44 +163,48 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         listener.resume()
     }
 
-    private func ensureWorkDirectory() {
-        try? FileManager.default.createDirectory(
-            atPath: HelperPaths.workDirectory,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o755]
-        )
-    }
-
-    /// First act of every launch — boot, crash relaunch, on-demand start:
+    /// First act of every actual launch — boot, crash relaunch, on-demand:
     /// if a sentinel exists, the system may be overridden with nobody
     /// supervising. Restore first, ask questions never. If the app is alive,
     /// its connection-interruption handler terminally ends that request; a
     /// later keep-awake session always requires a fresh arm decision.
-    private func recoveryPass() {
-        let url = URL(fileURLWithPath: HelperPaths.sentinel)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            if PMSet.readSleepDisabled() == true {
-                log.info("sleep override is active but no sentinel exists — not ours; leaving untouched (repair available from the app)")
-            }
+    private func recoveryPass(storageFailure: Error?) {
+        if let storageFailure {
+            recoverUntrustedSentinel(
+                reason: "helper storage validation failed: \(storageFailure.localizedDescription)"
+            )
             return
         }
 
-        if let data = try? Data(contentsOf: url),
-           let found = IPCCoding.decode(OverrideSentinel.self, from: data) {
+        do {
+            guard let found = try readTrustedSentinel() else {
+                if PMSet.readSleepDisabled() == true {
+                    log.info("sleep override is active but no sentinel exists — not ours; leaving untouched (repair available from the app)")
+                }
+                return
+            }
             log.critical("launch found active sentinel (armed \(found.armedAt)) — restoring normal sleep")
             performRestore(found, reason: "helper launch with sentinel present")
-        } else {
-            // Unreadable sentinel: prior state unknown. Fail safe: sleep on.
-            log.critical("launch found corrupt sentinel — forcing disablesleep 0")
-            let fallback = OverrideSentinel(
-                version: 0,
-                armedAt: Date(),
-                watchdogTTL: HelperArmOptions.defaultWatchdogTTL,
-                watchdogDeadline: Date(),
-                priorSleepDisabled: false
+        } catch {
+            recoverUntrustedSentinel(
+                reason: "sentinel metadata or contents are untrusted: \(error.localizedDescription)"
             )
-            performRestore(fallback, reason: "corrupt sentinel recovery")
         }
+    }
+
+    /// Unknown/corrupt storage can prove no optional prior. Force ordinary
+    /// sleep, retain in-process recovery pending, never delete untrusted marker
+    /// evidence, and never claim that managed settings were restored.
+    private func recoverUntrustedSentinel(reason: String) {
+        log.critical("\(reason) — forcing disablesleep 0 and retaining recovery")
+        let fallback = OverrideSentinel(
+            version: 0,
+            armedAt: Date(),
+            watchdogTTL: HelperArmOptions.defaultWatchdogTTL,
+            watchdogDeadline: Date(),
+            priorSleepDisabled: false
+        )
+        performRestore(fallback, reason: reason)
     }
 
     private func installSignalHandlers() {
@@ -244,7 +273,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         // launchd restarts us on the next XPC lookup or at boot.
         if sentinel == nil, restorePending == nil, activeConnections == 0,
            Date().timeIntervalSince(lastActivity) > 180 {
-            log.info("idle — exiting (launchd relaunches on demand)")
+            log.info("idle — exiting (launchd is configured for on-demand launch)")
             exit(0)
         }
     }
@@ -302,16 +331,435 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         lifecycleGeneration = UUID()
     }
 
+    private func ensureSecureWorkDirectory() throws {
+        var directoryDescriptor = try openSecureWorkDirectory()
+        try closeStorageDescriptor(
+            &directoryDescriptor,
+            operation: "close verified helper work directory"
+        )
+    }
+
+    /// Opens the exact root-owned work directory relative to a separately
+    /// proven parent descriptor. Existing directory metadata is never silently
+    /// chmod/chowned into trust, and the sentinel receives its own proof below;
+    /// other child-path hardening is a separate review surface.
+    private func openSecureWorkDirectory() throws -> Int32 {
+        var parentDescriptor = open(
+            HelperPaths.workDirectoryParent,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard parentDescriptor >= 0 else {
+            throw StorageError(
+                operation: "open helper storage parent without following links",
+                code: errno
+            )
+        }
+        defer {
+            if parentDescriptor >= 0 {
+                _ = Darwin.close(parentDescriptor)
+            }
+        }
+
+        let parentMetadata = try storageMetadata(for: parentDescriptor)
+        guard HelperStorageSafety.isSecureStorageDirectory(parentMetadata) else {
+            throw StorageError(
+                operation: "helper storage parent is not exact root:wheel mode 0755 without an ACL",
+                code: nil
+            )
+        }
+
+        let createResult = mkdirat(
+            parentDescriptor,
+            HelperPaths.workDirectoryName,
+            mode_t(0o755)
+        )
+        let created = createResult == 0
+        if !created {
+            let createErrno = errno
+            guard createErrno == EEXIST else {
+                throw StorageError(
+                    operation: "create helper work directory",
+                    code: createErrno
+                )
+            }
+        }
+
+        var directoryDescriptor = openat(
+            parentDescriptor,
+            HelperPaths.workDirectoryName,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard directoryDescriptor >= 0 else {
+            throw StorageError(
+                operation: "open helper work directory without following links",
+                code: errno
+            )
+        }
+        defer {
+            if directoryDescriptor >= 0 {
+                _ = Darwin.close(directoryDescriptor)
+            }
+        }
+
+        if created {
+            guard fchown(directoryDescriptor, 0, 0) == 0 else {
+                throw StorageError(
+                    operation: "set helper work-directory owner",
+                    code: errno
+                )
+            }
+            guard fchmod(directoryDescriptor, mode_t(0o755)) == 0 else {
+                throw StorageError(
+                    operation: "set helper work-directory mode",
+                    code: errno
+                )
+            }
+        }
+
+        let metadata = try storageMetadata(for: directoryDescriptor)
+        guard HelperStorageSafety.isSecureWorkDirectory(metadata) else {
+            throw StorageError(
+                operation: "helper work directory is not exact root:wheel mode 0755 without an ACL",
+                code: nil
+            )
+        }
+
+        // Retrying both barriers for an existing directory matters: a prior
+        // process can be killed after mkdir/fchmod but before either barrier.
+        // Metadata observed from cache is not durable namespace proof.
+        try fullySynchronize(
+            directoryDescriptor,
+            operation: "fully synchronize helper work directory"
+        )
+        try fullySynchronize(
+            parentDescriptor,
+            operation: "fully synchronize helper work-directory parent entry"
+        )
+        try closeStorageDescriptor(
+            &parentDescriptor,
+            operation: "close synchronized helper storage parent"
+        )
+
+        let result = directoryDescriptor
+        directoryDescriptor = -1
+        return result
+    }
+
+    /// `fsync` alone does not promise device persistence or strict ordering on
+    /// macOS. F_FULLFSYNC requests the filesystem/drive barrier; unsupported
+    /// storage fails closed rather than weakening recovery silently.
+    private func fullySynchronize(
+        _ descriptor: Int32,
+        operation: String
+    ) throws {
+        while fcntl(descriptor, F_FULLFSYNC) != 0 {
+            let syncErrno = errno
+            if syncErrno == EINTR { continue }
+            throw StorageError(operation: operation, code: syncErrno)
+        }
+    }
+
+    /// A close error after a mutation is not success: Darwin can report late
+    /// I/O failure here. Callers set the descriptor invalid before throwing so
+    /// a deferred cleanup never risks closing a reused descriptor.
+    private func closeStorageDescriptor(
+        _ descriptor: inout Int32,
+        operation: String
+    ) throws {
+        let closeResult = Darwin.close(descriptor)
+        let closeErrno = errno
+        descriptor = -1
+        guard closeResult == 0 else {
+            throw StorageError(operation: operation, code: closeErrno)
+        }
+    }
+
+    private func storageMetadata(
+        for descriptor: Int32
+    ) throws -> HelperStorageSafety.Metadata {
+        var fileStatus = stat()
+        guard fstat(descriptor, &fileStatus) == 0 else {
+            throw StorageError(operation: "inspect helper storage", code: errno)
+        }
+
+        let kind: HelperStorageSafety.ObjectKind
+        switch fileStatus.st_mode & mode_t(S_IFMT) {
+        case mode_t(S_IFDIR):
+            kind = .directory
+        case mode_t(S_IFREG):
+            kind = .regularFile
+        default:
+            kind = .other
+        }
+
+        errno = 0
+        let accessControlList = acl_get_fd_np(descriptor, ACL_TYPE_EXTENDED)
+        let aclErrno = errno
+        let hasExtendedACL: Bool
+        if let accessControlList {
+            hasExtendedACL = true
+            _ = acl_free(UnsafeMutableRawPointer(accessControlList))
+        } else if aclErrno == ENOENT {
+            hasExtendedACL = false
+        } else {
+            throw StorageError(
+                operation: "inspect helper storage ACL",
+                code: aclErrno
+            )
+        }
+
+        return HelperStorageSafety.Metadata(
+            kind: kind,
+            ownerUID: UInt32(fileStatus.st_uid),
+            ownerGID: UInt32(fileStatus.st_gid),
+            permissions: UInt32(fileStatus.st_mode & mode_t(0o7777)),
+            linkCount: UInt64(fileStatus.st_nlink),
+            hasExtendedACL: hasExtendedACL
+        )
+    }
+
+    private func readTrustedSentinel() throws -> OverrideSentinel? {
+        var directoryDescriptor = try openSecureWorkDirectory()
+        defer {
+            if directoryDescriptor >= 0 {
+                _ = Darwin.close(directoryDescriptor)
+            }
+        }
+
+        var fileDescriptor = openat(
+            directoryDescriptor,
+            HelperPaths.sentinelFilename,
+            O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+        )
+        if fileDescriptor < 0 {
+            let openErrno = errno
+            if openErrno == ENOENT {
+                try closeStorageDescriptor(
+                    &directoryDescriptor,
+                    operation: "close helper work directory after absent sentinel"
+                )
+                return nil
+            }
+            throw StorageError(
+                operation: "open recovery sentinel without following links",
+                code: openErrno
+            )
+        }
+        defer {
+            if fileDescriptor >= 0 {
+                _ = Darwin.close(fileDescriptor)
+            }
+        }
+
+        let directoryMetadata = try storageMetadata(for: directoryDescriptor)
+        let sentinelMetadata = try storageMetadata(for: fileDescriptor)
+        guard HelperStorageSafety.isTrustedSentinel(
+            workDirectory: directoryMetadata,
+            sentinel: sentinelMetadata
+        ) else {
+            throw StorageError(
+                operation: "recovery sentinel is not an exact root:wheel single-link mode 0600 regular file without an ACL",
+                code: nil
+            )
+        }
+
+        let data = try readSentinelData(from: fileDescriptor)
+        guard let record = IPCCoding.decode(OverrideSentinel.self, from: data) else {
+            throw StorageError(
+                operation: "recovery sentinel contents are not valid",
+                code: nil
+            )
+        }
+        try closeStorageDescriptor(
+            &fileDescriptor,
+            operation: "close recovery sentinel after trusted read"
+        )
+        try closeStorageDescriptor(
+            &directoryDescriptor,
+            operation: "close helper work directory after trusted read"
+        )
+        return record
+    }
+
+    private func readSentinelData(from fileDescriptor: Int32) throws -> Data {
+        var result = Data()
+        var buffer = [UInt8](repeating: 0, count: 4 * 1024)
+
+        while true {
+            let byteCount = buffer.withUnsafeMutableBytes { bytes in
+                Darwin.read(fileDescriptor, bytes.baseAddress, bytes.count)
+            }
+            if byteCount == 0 { return result }
+            if byteCount < 0 {
+                let readErrno = errno
+                if readErrno == EINTR { continue }
+                throw StorageError(
+                    operation: "read recovery sentinel",
+                    code: readErrno
+                )
+            }
+
+            let count = Int(byteCount)
+            guard result.count <= Self.maximumSentinelBytes - count else {
+                throw StorageError(
+                    operation: "recovery sentinel exceeds the maximum reviewed size",
+                    code: nil
+                )
+            }
+            result.append(contentsOf: buffer.prefix(count))
+        }
+    }
+
     private func writeSentinel(_ sentinel: OverrideSentinel) throws {
-        ensureWorkDirectory()
-        let url = URL(fileURLWithPath: HelperPaths.sentinel)
-        try IPCCoding.encoder().encode(sentinel).write(to: url, options: .atomic)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        let data = try IPCCoding.encoder().encode(sentinel)
+        guard data.count <= Self.maximumSentinelBytes else {
+            throw StorageError(
+                operation: "encoded recovery sentinel exceeds the maximum reviewed size",
+                code: nil
+            )
+        }
+
+        var directoryDescriptor = try openSecureWorkDirectory()
+        defer {
+            if directoryDescriptor >= 0 {
+                _ = Darwin.close(directoryDescriptor)
+            }
+        }
+
+        var fileDescriptor = openat(
+            directoryDescriptor,
+            HelperPaths.sentinelFilename,
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+            mode_t(0o600)
+        )
+        guard fileDescriptor >= 0 else {
+            throw StorageError(
+                operation: "exclusively create recovery sentinel",
+                code: errno
+            )
+        }
+        defer {
+            if fileDescriptor >= 0 {
+                _ = Darwin.close(fileDescriptor)
+            }
+        }
+
+        guard fchown(fileDescriptor, 0, 0) == 0 else {
+            throw StorageError(operation: "set recovery sentinel owner", code: errno)
+        }
+        guard fchmod(fileDescriptor, mode_t(0o600)) == 0 else {
+            throw StorageError(operation: "set recovery sentinel mode", code: errno)
+        }
+
+        let directoryMetadata = try storageMetadata(for: directoryDescriptor)
+        let initialSentinelMetadata = try storageMetadata(for: fileDescriptor)
+        guard HelperStorageSafety.isTrustedSentinel(
+            workDirectory: directoryMetadata,
+            sentinel: initialSentinelMetadata
+        ) else {
+            throw StorageError(
+                operation: "new recovery sentinel metadata is not trusted",
+                code: nil
+            )
+        }
+
+        try data.withUnsafeBytes { bytes in
+            var offset = 0
+            while offset < bytes.count {
+                let byteCount = Darwin.write(
+                    fileDescriptor,
+                    bytes.baseAddress?.advanced(by: offset),
+                    bytes.count - offset
+                )
+                if byteCount < 0 {
+                    let writeErrno = errno
+                    if writeErrno == EINTR { continue }
+                    throw StorageError(
+                        operation: "write recovery sentinel",
+                        code: writeErrno
+                    )
+                }
+                guard byteCount > 0 else {
+                    throw StorageError(
+                        operation: "write recovery sentinel made no progress",
+                        code: nil
+                    )
+                }
+                offset += byteCount
+            }
+        }
+
+        try fullySynchronize(
+            fileDescriptor,
+            operation: "fully synchronize recovery sentinel"
+        )
+        let finalDirectoryMetadata = try storageMetadata(
+            for: directoryDescriptor
+        )
+        let finalSentinelMetadata = try storageMetadata(for: fileDescriptor)
+        guard HelperStorageSafety.isTrustedSentinel(
+            workDirectory: finalDirectoryMetadata,
+            sentinel: finalSentinelMetadata
+        ) else {
+            throw StorageError(
+                operation: "persisted recovery sentinel metadata changed before arm",
+                code: nil
+            )
+        }
+
+        try closeStorageDescriptor(
+            &fileDescriptor,
+            operation: "close fully synchronized recovery sentinel"
+        )
+        try fullySynchronize(
+            directoryDescriptor,
+            operation: "fully synchronize recovery sentinel directory entry"
+        )
+        try closeStorageDescriptor(
+            &directoryDescriptor,
+            operation: "close fully synchronized recovery sentinel directory"
+        )
     }
 
     private func removeSentinelFile() throws {
-        guard FileManager.default.fileExists(atPath: HelperPaths.sentinel) else { return }
-        try FileManager.default.removeItem(atPath: HelperPaths.sentinel)
+        var directoryDescriptor = try openSecureWorkDirectory()
+        defer {
+            if directoryDescriptor >= 0 {
+                _ = Darwin.close(directoryDescriptor)
+            }
+        }
+
+        if unlinkat(directoryDescriptor, HelperPaths.sentinelFilename, 0) != 0 {
+            let unlinkErrno = errno
+            if unlinkErrno != ENOENT {
+                throw StorageError(
+                    operation: "remove recovery sentinel",
+                    code: unlinkErrno
+                )
+            }
+        }
+        try fullySynchronize(
+            directoryDescriptor,
+            operation: "fully synchronize recovery sentinel removal"
+        )
+        try closeStorageDescriptor(
+            &directoryDescriptor,
+            operation: "close fully synchronized recovery sentinel removal directory"
+        )
+    }
+
+    /// A failed create/write/full-sync/close may still have published a marker.
+    /// Resolve it immediately from the trusted descriptor path; corrupt or
+    /// untrusted bytes fall back to ordinary-sleep recovery and remain pending.
+    private func reconcileSentinelPersistenceFailure(reason: String) {
+        do {
+            guard let record = try readTrustedSentinel() else { return }
+            performRestore(record, reason: reason)
+        } catch {
+            recoverUntrustedSentinel(
+                reason: "\(reason); persisted marker cannot be trusted: \(error.localizedDescription)"
+            )
+        }
     }
 
     fileprivate func handleArm(_ options: HelperArmOptions, connectionID: ObjectIdentifier?, reply: @escaping @Sendable (Data) -> Void) {
@@ -452,6 +900,9 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         do {
             try writeSentinel(record)
         } catch {
+            reconcileSentinelPersistenceFailure(
+                reason: "fresh arm sentinel persistence failed"
+            )
             reply(replyData(ok: false, error: "could not persist recovery sentinel: \(error.localizedDescription)"))
             return
         }
@@ -539,7 +990,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     /// written but before Lidless mutated the system. Normally this only
     /// removes the unused sentinel. If cleanup itself fails, retain explicit
     /// supervision and drive the machine to the fail-safe normal-sleep state
-    /// rather than leave a crash-relaunch marker with ambiguous ownership.
+    /// rather than leave a configured-relaunch marker with ambiguous ownership.
     private func rejectPreparedArm(
         _ record: OverrideSentinel,
         error: String,
@@ -559,8 +1010,8 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
     /// Failed fresh arm with unknown side effects. Best-effort revert, then
     /// verify: sentinel is removed only when the registry provably shows the
-    /// prior state; anything else parks in `restorePending` so the 30s retry
-    /// and `KeepAlive.PathState` keep supervising until it's provably safe.
+    /// prior state; anything else parks in `restorePending` for the in-process
+    /// 30s retry. If the marker remains, `KeepAlive.PathState` requests relaunch.
     private func abortFreshArm(_ record: OverrideSentinel, reply: @escaping @Sendable (Data) -> Void, error: String) {
         sentinel = nil
         armedConnectionID = nil
@@ -587,9 +1038,10 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     }
 
     /// The single restore path used by every trigger. Sets the world back to
-    /// the sentinel's priors; only on full success does the sentinel leave
-    /// the disk. On failure, state moves to `restorePending` and the tick
-    /// retries forever (launchd keeps us alive: the sentinel still exists).
+    /// the sentinel's priors; only on full success does an owned sentinel
+    /// leave the disk. On failure, state moves to `restorePending` and the
+    /// tick retries while this process remains. A trusted disk marker requests
+    /// launchd relaunch; the untrusted-storage fallback may be memory-only.
     private func performRestore(_ record: OverrideSentinel, reason: String) {
         let restoreTarget = SleepOverrideSafety.restoreTarget(recordedPrior: record.priorSleepDisabled)
         do {
@@ -825,6 +1277,9 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                     sentinel = record
                     watchdogDeadline = .now()
                 } catch {
+                    reconcileSentinelPersistenceFailure(
+                        reason: "override-repair sentinel persistence failed"
+                    )
                     reply(replyData(ok: false, error: "could not persist repair recovery sentinel: \(error.localizedDescription)"))
                     return
                 }

@@ -21,7 +21,7 @@ public enum LidlessIDs {
     /// version, this revision advances when a safety-critical helper behavior
     /// changes. It is self-reported compatibility evidence, not a cryptographic
     /// executable identity or a replacement/install receipt.
-    public static let helperSafetyRevision = 4
+    public static let helperSafetyRevision = 5
 
     public static let appGroupID = "group.com.lidless.shared"
     public static let urlScheme = "lidless"
@@ -31,13 +31,17 @@ public enum LidlessIDs {
 
 /// Filesystem locations owned by the privileged helper (root).
 ///
-/// The sentinel is the keystone of crash recovery: it exists exactly while the
-/// sleep override is active. launchd watches it via `KeepAlive.PathState`, so a
-/// crashed helper is relaunched while it exists, and the helper's first act on
-/// any launch is to restore normal sleep if it finds one.
+/// The sentinel conservatively marks that the helper may have modified system
+/// state; it also exists during the durable pre-arm window and while recovery
+/// evidence remains pending. `KeepAlive.PathState` requests keep/relaunch while
+/// it exists. Actual launchd and crash-recovery behavior remain live gates.
 public enum HelperPaths {
-    public static let workDirectory = "/var/db/lidless"
-    /// Path is hard-coded in com.lidless.helper.plist (KeepAlive.PathState).
-    public static let sentinel = "/var/db/lidless/override-active"
-    public static let log = "/var/db/lidless/helper.log"
+    public static let workDirectoryParent = "/var/db"
+    public static let workDirectoryName = "lidless"
+    public static let workDirectory =
+        "\(workDirectoryParent)/\(workDirectoryName)"
+    public static let sentinelFilename = "override-active"
+    /// Bound by tests to com.lidless.helper.plist (KeepAlive.PathState).
+    public static let sentinel = "\(workDirectory)/\(sentinelFilename)"
+    public static let log = "\(workDirectory)/helper.log"
 }

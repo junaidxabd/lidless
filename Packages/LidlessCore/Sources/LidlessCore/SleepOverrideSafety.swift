@@ -150,3 +150,75 @@ public enum SleepOverrideSafety {
         return .recoveryRequired
     }
 }
+
+/// Pure metadata policy for the root-owned directory and crash-recovery
+/// sentinel used by the privileged helper. Path existence alone is not proof:
+/// a writable directory, link, ACL, or unexpected owner could let another
+/// process replace or suppress the record that drives launchd recovery.
+public enum HelperStorageSafety {
+    public enum ObjectKind: Sendable, Equatable {
+        case directory
+        case regularFile
+        case other
+    }
+
+    public struct Metadata: Sendable, Equatable {
+        public var kind: ObjectKind
+        public var ownerUID: UInt32
+        public var ownerGID: UInt32
+        /// Permission and special bits only (`st_mode & 0o7777`).
+        public var permissions: UInt32
+        public var linkCount: UInt64
+        public var hasExtendedACL: Bool
+
+        public init(
+            kind: ObjectKind,
+            ownerUID: UInt32,
+            ownerGID: UInt32,
+            permissions: UInt32,
+            linkCount: UInt64,
+            hasExtendedACL: Bool
+        ) {
+            self.kind = kind
+            self.ownerUID = ownerUID
+            self.ownerGID = ownerGID
+            self.permissions = permissions
+            self.linkCount = linkCount
+            self.hasExtendedACL = hasExtendedACL
+        }
+    }
+
+    /// Both the system-owned parent and the helper work directory must deny
+    /// rename/replacement authority to non-root users. The helper log is
+    /// intentionally world-readable, so the reviewed mode is exactly 0755.
+    public static func isSecureStorageDirectory(_ metadata: Metadata) -> Bool {
+        metadata.kind == .directory
+            && metadata.ownerUID == 0
+            && metadata.ownerGID == 0
+            && metadata.permissions == 0o755
+            && !metadata.hasExtendedACL
+    }
+
+    public static func isSecureWorkDirectory(_ metadata: Metadata) -> Bool {
+        isSecureStorageDirectory(metadata)
+    }
+
+    /// Sentinel data is trusted only from a non-linked root:wheel regular file
+    /// with no access path beyond its owner and no ACL override.
+    public static func isSecureSentinel(_ metadata: Metadata) -> Bool {
+        metadata.kind == .regularFile
+            && metadata.ownerUID == 0
+            && metadata.ownerGID == 0
+            && metadata.permissions == 0o600
+            && metadata.linkCount == 1
+            && !metadata.hasExtendedACL
+    }
+
+    public static func isTrustedSentinel(
+        workDirectory: Metadata,
+        sentinel: Metadata
+    ) -> Bool {
+        isSecureWorkDirectory(workDirectory)
+            && isSecureSentinel(sentinel)
+    }
+}

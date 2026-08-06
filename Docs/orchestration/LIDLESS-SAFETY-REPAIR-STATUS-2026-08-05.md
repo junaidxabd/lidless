@@ -3184,3 +3184,230 @@ blockers; this checkpoint is not upgrade-complete and must remain
   `safety: retire failed XPC request connections`. `State: IN_PROGRESS`
   remains intentional for the separately recorded open root causes and the
   supervisor's next rolling-remainder binding.
+- E-417 — 2026-08-06T07:04:12+0200 — Before any product edit, read the
+  canonical handoff, immutable starting-state manifest, authenticated rolling
+  remainder manifest and sidecar, progress log, decision log, architecture,
+  and design-reset brief in full. The supplied canonical and immutable hashes
+  matched exactly, and the sidecar verified the rolling manifest at SHA-256
+  `2306c3209c83ef609c0586bb1c136653ccdc071f22b189f36b8503f3285ca6f5`.
+  No repository `AGENTS.md`, `CLAUDE.md`, `CODEX.md`, or instruction-named
+  Markdown file was found outside ignored build output.
+- E-418 — 2026-08-06T07:04:12+0200 — Applied only the checkpoint-aware rolling
+  manifest. The feature worktree canonical path, linked topology, branch, HEAD
+  `b723094e5ad8b28317ede6163668623cd7bc7e62`, Git admin/common directories,
+  clean index, exact three-path dirty inventory, every recorded
+  status/type/mode/size/raw SHA-256, NUL-status digest
+  `3a4984484500650d6b8866b3dfd45bc02ad0ff2888084f86deda5506c36e03dc`,
+  and tracked binary-diff digest
+  `5bfed6a6f1b1f3578736cce1d9ae66138f0f9e0614ffc8e93d0aa80c4d6e3b82`
+  matched exactly. The main checkout independently remained `main` at starting
+  HEAD with clean index/tracked diff, its exact three recorded untracked files,
+  NUL-status digest
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked-diff digest
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+- E-419 — 2026-08-06T07:04:12+0200 — The first post-gate patch mistakenly
+  treated this already tracked ledger as absent and replaced only its
+  working-tree copy. Git status exposed the mistake before package work
+  continued. The 3,186-line committed ledger was restored exactly from HEAD;
+  its working-tree blob then matched HEAD blob
+  `561a884998831a16275e989542c0a1b9bba1adcb`. No product source, index,
+  commit, main-checkout byte, runtime, helper, or system setting was affected.
+- E-420 — 2026-08-06T07:18:01+0200 — Reproduced the committed pre-edit test
+  baseline. The literal required `swift test --package-path
+  Packages/LidlessCore` failed only because the selected beta toolchain tried
+  to write the sandbox-denied user Clang cache; its complete output is
+  `sentinel-storage/swift-test-literal-baseline.log` (6 lines, 2,347 bytes,
+  SHA-256
+  `e79e6251524990d9acbe6f2f4a928ae8705ce96cd74995e50dfc6940ae530223`).
+  Pinning stable Xcode, task-local caches, and disabling nested SwiftPM/compiler
+  sandboxing passed all 287 tests in 28 suites before product edits. Complete
+  output is `sentinel-storage/swift-test-stable-baseline.log` (735 lines,
+  57,322 bytes, SHA-256
+  `86e49007c57b631e107d2d2922aeabdb17aded5a3c75bdb03b3724517ab56931`).
+- E-421 — 2026-08-06T07:18:01+0200 — Re-audited the complete committed package
+  and selected only O27-01 for this invocation. The helper swallowed work-
+  directory creation and sentinel chmod errors, trusted path-decoded sentinel
+  bytes before proving owner/type/mode/link/ACL metadata, used no exclusive or
+  no-follow descriptor binding, and established no file or directory
+  durability barrier before arming. Independent read-only audits also found a
+  separate higher-priority next group: missing/unknown battery telemetry is
+  currently allowed to arm and disables the floor indefinitely. Thermal
+  freshness, scheduled-wake transactionality, session-journal durability,
+  Homebrew cleanup, stale-helper replacement, and evidence-bounded UI copy
+  remain separate open groups and are not combined here.
+- E-422 — 2026-08-06T07:18:01+0200 — Added the descriptor-bound sentinel source
+  regression before changing helper production code. Against committed
+  behavior, its focused RED failed because the secure-directory/storage seam
+  and required metadata/durability operations did not exist. Complete output
+  is `sentinel-storage/sentinel-storage-source-red.log` (87 lines, 5,801
+  bytes, SHA-256
+  `3d9be75df4f5fbdfc427bec9d087f5452313d3a273991a6f7f930a9ecf24559a`).
+- E-423 — 2026-08-06T07:18:01+0200 — Implemented the focused storage repair:
+  exact root:wheel no-ACL directory proof precedes recovery; sentinel creation
+  is descriptor-relative, exclusive, nonblocking/no-follow, root:wheel 0600,
+  single-link regular-file and no-ACL checked; complete writes and creation/
+  removal directory entries are synced; recovery decodes only trusted
+  descriptor bytes; and every possibly published failed write is reconciled
+  immediately, with corrupt/untrusted state forcing ordinary sleep and
+  remaining pending. Exact helper safety behavior revision advanced from 4 to
+  5. Focused policy/source/revision GREEN passed 8 tests in 3 suites in
+  `sentinel-storage/sentinel-storage-focused-green-2.log` (44 lines, 3,118
+  bytes, SHA-256
+  `17bd537ab29aed57d40a3b846e063b513a7c38a2d8f33ec911814aaef56c4714`).
+  The complete helper source simultaneously passed macOS 15 Swift 6 complete
+  strict-concurrency typechecking with warnings as errors; the successful
+  diagnostic log is empty (SHA-256 of empty input
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`).
+
+## Recovery-sentinel storage checkpoint matrix — 2026-08-06
+
+| ID | Finding or invariant | Independent evidence and disposition | Verdict |
+|---|---|---|---|
+| S28-01 | The sentinel namespace must not be replaceable by a non-root actor after a child-only metadata check | The helper opens and exact-checks `/var/db` as root:wheel 0755/no-ACL, then uses `mkdirat`/`openat` for the single-component `lidless` child. It exact-checks the child and reapplies child then parent `F_FULLFSYNC` barriers on every acceptance, including `EEXIST` recovery. | FIXED OFFLINE / LIVE FILESYSTEM GATE |
+| S28-02 | Recovery must never decode path-followed or metadata-untrusted sentinel bytes | Read uses descriptor-relative `openat` with `O_NONBLOCK`/`O_NOFOLLOW`, exact root:wheel 0600 regular-file/single-link/no-ACL proof, bounded EINTR-aware descriptor reads, and decode only after proof. Creation is separately exclusive/no-follow and complete-write checked. | FIXED OFFLINE / FAULT-INJECTION GATE |
+| S28-03 | A successful arm must follow ordered file and namespace persistence requests, and a possibly published failure must be reconciled | File bytes, final metadata, `F_FULLFSYNC`, checked file close, directory `F_FULLFSYNC`, and checked directory close precede enable. Non-EINTR sync and every checked-close error propagate. Both persistence callers immediately inspect/recover any possibly published marker; removal barriers run even after `ENOENT`. | FIXED OFFLINE / PHYSICAL-DURABILITY GATE |
+| S28-04 | App/helper compatibility and launchd path configuration must bind the exact behavior | Independently produced/required safety revision is 5; stale/future revisions fail proof. Shared single-component path constants compute the sentinel, and a parsed-plist regression requires exact `KeepAlive.PathState == [HelperPaths.sentinel: true]`. Configuration wording states requested behavior, not live launchd proof. | FIXED OFFLINE / STALE-HELPER GATE |
+| O28-01 | Other root-owned child paths remain path-following and can invalidate whole-directory safety claims | Independent source review confirmed `HelperLog` can follow a preexisting symlink/hardlink/special `helper.log` as root; `scheduled-wake.json` uses a separate path-based persistence surface. They cannot manufacture a proven sentinel arm but are a distinct privileged-child-storage root cause. | OPEN — SEPARATE ROOT-CAUSE GROUP |
+| O28-02 | Missing or unknown battery telemetry still permits an arm with no enforceable floor | Independent audit traced the fail-open state through `BatteryMonitor`, `CutoffEngine`, and existing tests. It is unrelated to sentinel persistence and remains the higher-priority next behavioral checkpoint. | OPEN — NEXT ROOT-CAUSE GROUP |
+| R28-01 | The authenticated design remainder is not implementation authority | The two tracked design logs and untracked design brief remain byte-exact to the rolling manifest and are excluded from this checkpoint. | PRESERVED / EXCLUDED |
+| G28-01 | Offline source, policy, compile, and loose unsigned-link evidence cannot prove live helper/XPC/launchd, syscall fault handling, target-filesystem latency/support, OS-crash/power-loss durability, or hardware behavior | No Lidless product/helper was launched; no live service, XPC, `pmset`, sleep, signing, or hardware action occurred. Xcode 16/Swift 6.0 is unavailable on this host; language mode 6 under Swift 6.3.2 targeting macOS 15 is compile evidence only. | LIVE / SIGNED-RUNTIME / PHYSICAL GATES OPEN |
+| V28-01 | Exact selected checkpoint bytes require focused/full tests, strict compilation, unsigned Debug/Release links, artifact/config inspection, staged review, and preservation checks | Working-tree GREEN is recorded below; exact-index evidence and final tree/commit identity are recorded in later append-only entries. | PENDING EXACT-INDEX VERIFICATION |
+
+- E-424 — 2026-08-06T07:39:08+0200 — Correction to E-423: sentinel
+  *creation* is descriptor-relative, exclusive, and no-follow; only recovery
+  reading needs and uses `O_NONBLOCK`. E-423's early focused GREEN and empty
+  typecheck log predate adversarial parent-namespace, full-persistence, checked-
+  close, path-binding, and regression-strength repairs and are superseded for
+  checkpoint acceptance. The historical entry is preserved append-only.
+- E-425 — 2026-08-06T07:39:08+0200 — Added a review-triggered RED before the
+  parent durability repair. Against the then-current child-only implementation,
+  the focused source regression failed because an `EEXIST` restart skipped
+  parent namespace synchronization. Complete output is
+  `sentinel-storage/parent-namespace-red-2.log` (106 lines, 4,956 bytes,
+  SHA-256
+  `6f29036dae5ffe83e749d7830e01c85611e7289405c8002338bc84591f8d3d85`).
+  Review also found that ordinary `fsync` could not support the written
+  persistence claim, mutation-bearing close errors were suppressed, `/var/db`
+  rename authority was unproved, and the helper duplicated the launchd marker
+  basename. Those findings were resolved before the terminal GREEN.
+- E-426 — 2026-08-06T07:39:08+0200 — Final narrow implementation binds the
+  exact root:wheel 0755/no-ACL parent and child through descriptors; pins
+  single-component path names; exact-checks sentinel kind/owner/group/0600/
+  link-count/ACL; bounds and retries descriptor reads/writes on `EINTR`; uses
+  retrying `F_FULLFSYNC` on file, child, and parent namespaces; checks every
+  success-path mutation-bearing close; and reconciles both possibly published
+  write failures before either caller continues. Revision 5 gates this behavior.
+  Documentation explicitly permits pre-mutation marker cleanup and bounds
+  PathState, storage-invalid memory-only fallback, device flush, crash, and
+  launchd claims.
+- E-427 — 2026-08-06T07:39:08+0200 — On settled working-tree production bytes,
+  25 focused tests in 5 suites passed in
+  `sentinel-storage/sentinel-storage-focused-terminal-working.log` (85 lines,
+  6,331 bytes, SHA-256
+  `d5de0a0245af8e24a8353766a029249fd5b97dcde1d65eb458a06e671ebcfa0e`).
+  The complete stable-Xcode SwiftPM suite passed 291 tests in 29 suites in
+  `sentinel-storage/swift-test-full-terminal-working.log` (680 lines, 54,126
+  bytes, SHA-256
+  `31dfb3e93f265a9cd1cd7a1022eb1271dc7a0bd8e66ba0f47d65d755ac3f01be`).
+  A command/toolchain/target/exit-bearing strict helper typecheck passed under
+  Apple Swift 6.3.2, Swift language mode 6, macOS 15 target, complete
+  concurrency, and warnings as errors in
+  `sentinel-storage/helper-strict-typecheck-current-metadata.log` (8 lines,
+  1,076 bytes, SHA-256
+  `ee01bf97098f7db2a283b5b76e32d1649ad89c3d3f4448231b63176fb04144b1`).
+  A read-only Darwin probe recorded exact metadata/no-ACL semantics and
+  successful directory-descriptor `F_FULLFSYNC` for this worktree and
+  `/var/db` on this APFS host in `sentinel-storage/darwin-storage-probe-current.log`
+  (8 lines, 1,776 bytes, SHA-256
+  `71e8c28ef59223874ef45ab751e86462b8c84db708f0ca369408f424a6e8ece3`).
+  The probe is compatibility evidence, not target-filesystem, latency,
+  fault-injection, OS-crash, power-loss, or physical-device proof.
+- E-428 — 2026-08-06T07:48:27+0200 — Exported the exact selected index as tree
+  `e6e96391a5c0c4e6f45622c8740c1484d3af6a2b`; its reviewed staged binary diff
+  has SHA-256
+  `057f80b8d4f26df8a5158cc20940972e88b9615e26e54f60522f7c0a19b4f55a`
+  and is preserved as `sentinel-storage/final-staged-patch-preledger.log`
+  (1,585 lines, 80,249 bytes, the same SHA-256). Against that exact export,
+  all 25 focused tests in 5 suites passed in
+  `sentinel-storage/final-exact-index-focused.log` (142 lines, 10,021 bytes,
+  SHA-256
+  `c0ddf11bcbdc2637446d711c08526107c44714485ca5939edde5dc12b840e97b`),
+  and the complete SwiftPM suite passed all 291 tests in 29 suites in
+  `sentinel-storage/final-exact-index-full.log` (681 lines, 54,147 bytes,
+  SHA-256
+  `032ac19d30b69ea9a2ef31cc25be8884d3a12a574c08f5310554040f376f0e54`).
+  This supersedes V28-01's pending exact-index status for the selected product,
+  test, configuration, and documentation bytes.
+- E-429 — 2026-08-06T07:48:27+0200 — Exact-index LidlessCore Debug and Release
+  builds passed in `sentinel-storage/final-exact-index-core-debug.log`
+  (41 lines, 2,429 bytes, SHA-256
+  `c5b07ea7dc83119713de0474a84297931c765e94d128281c92ec741178d0c8e7`)
+  and `sentinel-storage/final-exact-index-core-release.log` (13 lines, 908
+  bytes, SHA-256
+  `56dfc8cd2186171ba0f85272bf95cd316a427a10725472efbc04a2f79e0a9e64`).
+  Direct strict Debug and optimized Release compile/link of all three products
+  passed with signing and linker ad-hoc signing disabled in
+  `sentinel-storage/final-exact-index-products-debug.log` (4 lines, 281 bytes,
+  SHA-256
+  `a09e7172dcf7b9a90ce6269003265b0c21dd9f1692640a7f7837f709a98bb30e`)
+  and `sentinel-storage/final-exact-index-products-release.log` (4 lines, 283
+  bytes, SHA-256
+  `135596555bc6a8a99e0e41e947733a1f2c0733e728963fefa64d96eee949d3b4`).
+  All-product strict static typechecking also passed in
+  `sentinel-storage/final-exact-index-all-products-typecheck.log` (4 lines,
+  256 bytes, SHA-256
+  `905427f5005c6640262867c1a5f32f70d43bae2d3b7de5fa37742ec4f4e5d8cc`).
+  The toolchain was `/Applications/Xcode.app` Apple Swift 6.3.2, Swift language
+  mode 6, arm64 macOS 15 target, SDK 26.5, complete concurrency, and warnings
+  as errors. This is compile/link evidence, not the unavailable Xcode 16 / Swift
+  6.0 compatibility gate.
+- E-430 — 2026-08-06T07:48:27+0200 — Exact-index artifact and configuration
+  inspection passed in
+  `sentinel-storage/final-exact-index-artifact-config-inspection.log` (106
+  lines, 7,116 bytes, SHA-256
+  `942e33f83a0294698bc2f495e2895e670e30d40198586905783fbaf881f2b218`).
+  All inspected plist, entitlement, and project files linted; the parsed helper
+  plist binds `KeepAlive.PathState` exactly to
+  `/var/db/lidless/override-active: true`; and the six loose Debug/Release
+  App/helper/widget outputs were arm64 Mach-O, minimum macOS 15, SDK 26.5,
+  without `LC_CODE_SIGNATURE`, and reported unsigned by `codesign`. Loose
+  outputs do not establish bundle identity, entitlement embedding, signed XPC
+  trust, ServiceManagement, launchd, or runtime behavior. Project-native
+  `xcodebuild`/analyze was not rerun because preserved prior evidence shows
+  that path invokes automatic LaunchServices registration, which this task
+  prohibits; strict direct compiler analysis is the bounded offline substitute.
+- E-431 — 2026-08-06T07:48:27+0200 — Three independent read-only adversarial
+  reviews found no remaining production-semantic blocker in the narrowly
+  selected `override-active` checkpoint after wording corrections and terminal
+  exact-index verification. Their pass is conditional on explicit live
+  filesystem, syscall-fault, physical durability, launchd/crash, signed XPC,
+  stale-helper, sleep/wake, and hardware gates. They separately confirmed that
+  root `HelperLog` can still follow a preexisting symlink, hardlink, or special
+  `helper.log`, and that `scheduled-wake.json` shares the broader privileged
+  child-storage review; neither can manufacture a metadata-proven sentinel arm,
+  so that distinct root cause remains open. Missing/unknown battery telemetry
+  permitting an arm without an enforceable floor remains the higher-priority
+  next behavioral checkpoint.
+- E-432 — 2026-08-06T07:48:27+0200 — Reverified preservation immediately before
+  checkpoint preparation. The main checkout remained canonical path
+  `/Users/junaid/Xcode-Projects/Lidless`, branch `main`, HEAD
+  `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, with clean index/tracked diff,
+  the exact three authenticated `.playwright-mcp` files and bytes, status digest
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked-diff digest
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+  The feature design remainder remains excluded and byte-exact: decisions
+  `cdf6a032f24dc9421f5bbf3e1b696dca7fd37da8bc4d28cf978a302cea03ccd1`,
+  progress
+  `375b445d73847e60c11f321efe97b2ac636c11f4b962118c14b02d22caacf2d0`,
+  and brief
+  `4835b0dc2fa44257d2e4aca6429e5bd5ad1cf93989686c709311d91b9659e7f7`.
+  No product/helper was launched; no helper install, activation, registration,
+  approval, live XPC, `pmset`, sleep-setting, sleep/wake, hardware, plugin,
+  connector, Figma, network, merge, push, or main-checkout mutation occurred.
+  Exactly the 12 reviewed sentinel code/test/configuration/documentation paths
+  plus this append-only ledger are prepared under subject
+  `safety: harden recovery sentinel storage`. `State: IN_PROGRESS` is retained;
+  after this one local commit the supervisor must bind the exact remainder into
+  a fresh rolling manifest before another invocation.

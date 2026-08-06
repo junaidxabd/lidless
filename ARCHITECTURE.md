@@ -60,9 +60,25 @@ always falls back to.
 
 Mechanisms, layered so no single failure strands the override:
 
-1. **Sentinel-first ordering.** `/var/db/lidless/override-active` is written
-   (0600, root) *before* `disablesleep 1` runs and removed only *after* a
-   verified restore. Sentinel schema v2 records the LPM key
+1. **Sentinel-first ordering.** Before decoding disk recovery state or arming,
+   the helper proves both `/var/db` and `/var/db/lidless` are exact root:wheel
+   0755 directories with no ACL. Creation and open of `lidless` are relative
+   to the proven parent descriptor; creation/open of `override-active` is
+   relative to the proven child descriptor, exclusive, and no-follow. The
+   helper proves a single-link root:wheel 0600 regular file with no ACL, writes
+   the complete record, requires successful `F_FULLFSYNC` requests for the
+   file and its directory entry, and checks mutation-bearing closes *before*
+   `disablesleep 1` runs. It re-applies child/parent namespace barriers even
+   when the directory already exists, closing the interrupted-creation retry
+   gap. After a Lidless mutation, removal requires verified restoration, a
+   full directory barrier, and a checked close; an unused prepared marker may
+   instead be removed after a proven pre-mutation rejection. Invalid metadata
+   or a partial/corrupt direct write is never decoded as trusted optional
+   state; proof failure selects version-0 normal-sleep recovery and keeps
+   recovery pending. These host requests fail closed, but offline tests cannot
+   prove a particular physical device honors cache-flush requests under OS
+   crash or power loss. Sentinel schema v2
+   records the LPM key
    (`lowpowermode`/`powermode` — differs across macOS releases) and numeric
    LPM/`tcpkeepalive` priors only for the exact Battery/AC/UPS scopes Lidless
    mutates, plus a legacy `disablesleep` field, so recovery needs no app state.
@@ -78,12 +94,15 @@ Mechanisms, layered so no single failure strands the override:
 3. **Watchdog.** The app heartbeats every 10 s; the helper restores if no
    beat arrives within the TTL (45 s), with a 30 s grace period after system
    wake so a just-woken app isn't raced.
-4. **launchd as the last supervisor.** `KeepAlive.PathState` on the sentinel
-   relaunches a crashed helper *while the override is active*; `RunAtLoad`
-   runs a restore pass at boot. Every helper launch begins: "sentinel exists
-   → restore, then serve." A corrupt sentinel forces `disablesleep 0`, but its
-   optional priors are unprovable: the helper marks recovery pending and
-   retains the corrupt evidence rather than claiming a complete restore.
+4. **launchd configured as the last supervisor.** `KeepAlive.PathState` on the
+   sentinel requests keep/relaunch while the override may be active;
+   `RunAtLoad` requests a boot recovery pass. Every actual helper launch begins
+   with trusted sentinel inspection (restoring when present) or untrusted
+   fail-safe recovery before serving. A corrupt sentinel forces
+   `disablesleep 0`, but its optional priors are
+   unprovable: the helper marks recovery pending and retains corrupt evidence
+   rather than claiming a complete restore. Actual launchd/crash behavior is a
+   live gate.
 5. **Forced-sleep detection.** `disablesleep` makes ordinary sleep
    impossible, so a `kIOMessageSystemWillSleep` while armed means the user
    forced it — the helper releases the override on the way down so the Mac
@@ -93,8 +112,12 @@ Mechanisms, layered so no single failure strands the override:
    commands and must match a fresh `pmset -g custom` readback before the
    sentinel can leave. A command error, invalid snapshot, missing/mismatched
    readback, or sentinel-deletion error parks in `restorePending`; the tick
-   retries every 30 s (launchd keeps the process alive because the sentinel
-   exists). Arming is refused while a restore is pending.
+   retries every 30 s while the process remains. A trusted on-disk marker
+   configures `KeepAlive.PathState` to request relaunch. If storage itself is
+   missing or invalid, the version-0 pending fallback can be memory-only; a
+   simultaneous restore failure followed by forced process loss has no proven
+   disk restart trigger and remains an explicit live fault gate. Arming is
+   refused while a restore is pending.
 7. **SIGTERM/SIGINT fail closed.** A signal latches termination and restores on
    the serial state queue. It voluntarily exits only after no helper-owned
    recovery remains; an owned sentinel or pending restore clears only after
@@ -160,7 +183,7 @@ encoding for XPC, sentinel, and logs); malformed input produces an error
 reply, never a crash. Every reply carries a fresh `HelperStatus` including
 the *read-back* override value. Readiness and every app-side arm, restore,
 outside-ownership, enabled-registration removal, and scheduled-wake acceptance
-boundary require both protocol v6 and the exact safety behavior revision 4.
+boundary require both protocol v6 and the exact safety behavior revision 5.
 A missing, older, or future revision is stale and cannot supply proof. The
 revision is self-reported compatibility metadata, not executable attestation
 or an installation receipt; safely replacing an already registered stale

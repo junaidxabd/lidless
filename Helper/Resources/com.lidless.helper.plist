@@ -15,13 +15,14 @@
 	<array>
 		<string>com.lidless.app</string>
 	</array>
-	<!-- Boot-time restore pass: a sentinel surviving a crash or power loss
-	     is cleaned up the moment the system is back. -->
+	<!-- RunAtLoad requests a boot-time recovery pass for a sentinel that
+	     survives a crash or power loss. Actual recovery remains a live gate. -->
 	<key>RunAtLoad</key>
 	<true/>
-	<!-- While the sleep override is active (sentinel file exists), launchd
-	     guarantees the watchdog is alive by relaunching a crashed helper.
-	     Once the sentinel is gone, the helper may idle-exit freely. -->
+	<!-- While the sleep override is active (sentinel file exists), PathState
+	     requests that launchd keep/relaunch the helper. Actual relaunch and
+	     crash-recovery behavior remain live validation gates. Once the
+	     sentinel is gone, the helper may idle-exit freely. -->
 	<key>KeepAlive</key>
 	<dict>
 		<key>PathState</key>
