@@ -542,7 +542,9 @@ final class AppState {
 
     func cutoffSummary(for cfg: CutoffConfig, armedAt: Date) -> String {
         var parts: [String] = []
-        if cfg.batteryFloorEnabled { parts.append("Floor \(cfg.batteryFloorPercent)%") }
+        if cfg.batteryFloorEnabled, battery.state != .noBattery {
+            parts.append("Floor \(cfg.batteryFloorPercent)%")
+        }
         if cfg.thermalEnabled { parts.append("Thermal guard") }
         for planned in CutoffEngine.plannedCutoffs(config: cfg, armedAt: armedAt, calendar: .current) {
             switch planned.kind {
@@ -555,6 +557,10 @@ final class AppState {
     }
 
     // MARK: - Arm flow intents
+
+    private func batteryPresetIsAttainable(_ source: SessionSource) -> Bool {
+        BatteryPresetAdmission.isAttainable(source: source, battery: battery)
+    }
 
     func beginArmFlow(preset: ArmPreset? = nil) {
         guard !terminationPending,
@@ -573,8 +579,17 @@ final class AppState {
             return
         }
 
+        // The confirmation and preset decision must start from a synchronous
+        // power-source read, not a cached event or the launch-time unknown.
+        batteryMonitor.refresh()
+        battery = batteryMonitor.current
+
         let overrides = preset?.overrides()
         let source: SessionSource = preset.map { .preset($0) } ?? .manual
+        guard batteryPresetIsAttainable(source) else {
+            lastError = "The 20% preset doesn't apply because this Mac has no internal battery."
+            return
+        }
         let assessment = CutoffEngine.assessArm(
             config: config.cutoffs.applying(overrides),
             battery: battery
@@ -601,6 +616,12 @@ final class AppState {
 
     func refreshPendingProjection() {
         guard let pending = pendingArm else { return }
+        guard batteryPresetIsAttainable(pending.source) else {
+            pendingArm = nil
+            scheduleOccurrence = nil
+            lastError = "The 20% preset no longer applies because no internal battery is present."
+            return
+        }
         pendingArm = PendingArm(
             overrides: pending.overrides,
             source: pending.source,
@@ -632,7 +653,7 @@ final class AppState {
                 ratePerHour: rate
             )
         } else if let minutes = battery.timeToEmptyMinutes, battery.isDischarging {
-            timeToEmpty = TimeInterval(minutes * 60)
+            timeToEmpty = TimeInterval(minutes) * 60
         }
 
         return ArmProjection(
@@ -654,7 +675,13 @@ final class AppState {
               let intent = pendingArm,
               phase == .disarmed
         else { return }
-        if case .refusedBelowFloor = intent.assessment { return }
+        guard intent.assessment.allowsArm else { return }
+        guard batteryPresetIsAttainable(intent.source) else {
+            pendingArm = nil
+            scheduleOccurrence = nil
+            lastError = "The 20% preset no longer applies because no internal battery is present."
+            return
+        }
         guard sleepPresentation == .verifiedNormal else {
             pendingArm = nil
             scheduleOccurrence = nil
@@ -724,6 +751,12 @@ final class AppState {
             return
         }
 
+        // Re-read battery evidence after every suspension and immediately
+        // before the final assessment. No await separates this assessment
+        // from helper arm dispatch.
+        batteryMonitor.refresh()
+        battery = batteryMonitor.current
+
         // Cancellation, expiry, and battery events can all run while the
         // authorization/helper probes are suspended. Honor only the same live
         // intent and the same assessment the user actually confirmed.
@@ -742,11 +775,27 @@ final class AppState {
             config: config.cutoffs.applying(pending.overrides),
             battery: battery
         )
+        guard batteryPresetIsAttainable(pending.source) else {
+            phase = .disarmed
+            pendingArm = nil
+            scheduleOccurrence = nil
+            lastError = "Couldn't arm because the 20% preset no longer has an internal battery endpoint."
+            publishWidget()
+            return
+        }
         if case .refusedBelowFloor = freshAssessment {
             phase = .disarmed
             pendingArm = nil
             scheduleOccurrence = nil
             lastError = "Couldn't arm because the battery reached the safety floor."
+            publishWidget()
+            return
+        }
+        if case .refusedBatteryTelemetryUnavailable = freshAssessment {
+            phase = .disarmed
+            pendingArm = nil
+            scheduleOccurrence = nil
+            lastError = "Couldn't arm because the battery state could not be verified."
             publishWidget()
             return
         }
@@ -819,6 +868,48 @@ final class AppState {
                     ))
                 }
                 _ = await refreshHelperInstallState()
+                return
+            }
+
+            // The arm reply proves the helper mutation, not that the battery
+            // evidence sampled before XPC dispatch stayed current throughout
+            // the suspension. Re-read before accepting a session; if the
+            // configured floor can no longer be enforced, enter the same
+            // verified-restoration coordinator used by every other cutoff.
+            batteryMonitor.refresh()
+            battery = batteryMonitor.current
+            let postArmAssessment = CutoffEngine.assessArm(
+                config: config.cutoffs.applying(pending.overrides),
+                battery: battery
+            )
+            let postArmAssessmentAccepted: Bool
+            switch pending.source {
+            case .schedule:
+                postArmAssessmentAccepted = postArmAssessment.allowsArm
+            case .manual, .preset:
+                // A user-confirmed warning cannot silently change while the
+                // XPC request is suspended.
+                postArmAssessmentAccepted = postArmAssessment == freshAssessment
+            }
+            guard postArmAssessmentAccepted,
+                  batteryPresetIsAttainable(pending.source) else {
+                // Before mutation, transient telemetry stays retryable. Once
+                // a helper arm was proven, suppress this schedule occurrence
+                // so repeated arm/restore mutations cannot flap all window.
+                suppressCurrentScheduleOccurrence()
+                helperSessionProven = true
+                _ = beginRestore(PendingRestore(
+                    options: HelperDisarmOptions(
+                        forceSleep: false,
+                        reason: "battery safety changed during arm"
+                    ),
+                    endReason: nil,
+                    notificationTitle: nil,
+                    notificationBody: nil,
+                    notificationSound: false,
+                    playChime: false,
+                    completionError: "The keep-awake request was restored because its battery safety evidence changed while arming."
+                ))
                 return
             }
             helperSessionProven = true
@@ -1440,6 +1531,7 @@ final class AppState {
     func cutoffLabel(_ reason: CutoffReason) -> String {
         switch reason {
         case .thermal(let detail): "Thermal protection: \(detail)"
+        case .batteryTelemetryUnavailable: "Battery state could not be verified"
         case .batteryFloor(let percent, let floor): "Battery reached \(percent)% (floor \(floor)%)"
         case .offTime: "Reached the scheduled off-time"
         case .durationElapsed: "Duration limit reached"
@@ -1977,12 +2069,20 @@ final class AppState {
 
         if let active = ScheduleEngine.activeOccurrence(windows: config.schedules, at: reference, calendar: .current),
            active != suppressedOccurrence {
-            let assessment = CutoffEngine.assessArm(config: config.cutoffs, battery: battery)
-            if case .refusedBelowFloor = assessment {
-                // Below the floor: arming would cut off immediately. Skip
-                // this occurrence rather than flap.
+            let assessment = CutoffEngine.assessArm(
+                config: config.cutoffs,
+                battery: battery
+            )
+            switch assessment {
+            case .refusedBelowFloor:
+                // A real floor crossing stays suppressed until the next
+                // occurrence rather than repeatedly trying to arm.
                 suppressedOccurrence = active
-            } else {
+            case .refusedBatteryTelemetryUnavailable:
+                // Telemetry loss is retryable: leave the occurrence eligible
+                // so a later monitor refresh can establish safe evidence.
+                return
+            case .ok, .lowBatteryWarning:
                 scheduleOccurrence = active
                 pendingArm = PendingArm(
                     overrides: nil,

@@ -34,10 +34,11 @@ Security system frameworks; it performs no system mutations. `CutoffEngine`
 (arm assessment, planned cutoffs, per-tick
 evaluation), `ScheduleEngine` (recurring windows, midnight wrap, DST-safe),
 `DrainEstimator` (least-squares %/hr over the trailing discharge run),
-`PMSetParser` (every piece of pmset text parsing in one tested module), the
-XPC payload types, and the sentinel model. Deterministic tests cover the
-policies that decide when your battery stops draining are never buried in UI
-code.
+`PMSetParser` (every piece of pmset text parsing in one tested module),
+`BatterySnapshotNormalizer` (typed, fail-closed power-source evidence), the
+XPC payload types, battery-evidence admission/cutoff policy, and the sentinel
+model. Deterministic tests keep the policies that decide when a battery floor
+can be enforced out of UI code.
 
 **The app** owns all policy *state*: the session lifecycle, thermal strike
 counting, schedule automation, history recording, and every projection shown
@@ -48,6 +49,13 @@ override value via IORegistry reads on a 15 s tick. The app never assumes an
 operation worked — the menu bar indicator is driven by reading
 `IOPMrootDomain.SleepDisabled` back, which is also what makes an override
 left behind by *any other tool* visible (with a one-click repair).
+When a battery floor is enabled, unreadable or malformed battery evidence
+refuses a new arm and sends an established session into the same
+verified-restoration coordinator. Completion remains pending until the helper
+reply and an independent registry read both prove normal sleep. Enumeration
+absence alone is not accepted as hardware-absence proof. Only a fully
+classified enumeration plus a readable root-domain topology showing no
+clamshell produces the explicit no-battery state.
 
 **The helper** makes no decisions. It clamps its inputs (watchdog TTL is
 15–120 s no matter what the app asks), verifies every mutation by reading the
@@ -221,14 +229,22 @@ offline claims.
    window / `lidless://` URL). If the helper isn't ready, the panel routes to
    Setup instead — arming is impossible until the one-time authorization is
    done.
-2. **Assessment** (`CutoffEngine.assessArm`): on AC → ok (floor applies later
-   if unplugged); discharging at ≤ floor + 2 % → **refused**, with the reason
-   shown; discharging below 30 % → allowed with an explicit warning.
+2. **Assessment** (`CutoffEngine.assessArm`): an enabled floor first requires
+   usable battery/source evidence; unavailable or malformed evidence is
+   **refused**. On AC with a valid battery → ok (floor applies later if
+   unplugged); discharging at ≤ floor + 2 % → **refused**, with the reason
+   shown; discharging below 30 % → allowed with an explicit warning. Dual
+   source/topology evidence proving there is no internal battery is not
+   telemetry failure; its configured floor is shown as inactive, and the
+   battery-only “To 20%” preset is unavailable.
 3. **Confirmation card** (always for the master button; presets skip it only
    when there's nothing to warn about): projected runtime to empty at the
-   current drain rate, the floor with its projected wall-clock time, the
-   first time-based cutoff, and the full cutoff summary. Low-battery arms
-   are visually orange; refusals disable the button and say why.
+   current drain rate, an applicable floor with its projected wall-clock time,
+   the first time-based cutoff, and the enforceable cutoff summary. The card
+   does not promise a floor when telemetry is unavailable or the machine has
+   no internal battery. Low-battery arms are visually orange; refusals disable
+   the button and say why. If topology later proves there is no internal
+   battery, a pending “To 20%” card is withdrawn before it can arm.
 4. **Actuation.** `arm(options)` → helper captures optional priors → proves
    the override inactive → writes the sentinel → proves it inactive again →
    installs the connection owner and monotonic watchdog → runs
@@ -237,14 +253,24 @@ offline claims.
    across scopes with captured numeric priors. A partial optional application
    does not revoke the already-proven sleep arm, but the sentinel retains every
    possibly touched prior and later restoration is strict. Only after the
-   proven reply does the app create the session record, start the 10 s
-   heartbeat and 5-minute battery sampling, post the arm notification, and
-   spring the UI into the armed state. Any failure before proof lands back in
-   `disarmed` with the error surfaced.
+   proven reply, the app synchronously re-reads battery evidence. Only an
+   accepted result—an unchanged assessment with every source-specific endpoint
+   still attainable for manual/preset flows, or any arm-allowed assessment for
+   a schedule flow—lets it create the session record, start the 10 s heartbeat
+   and 5-minute battery sampling, post the arm notification, and spring the UI
+   into the armed state. A result outside those rules instead starts verified
+   restoration. Any failure before proof lands back in `disarmed` with the
+   error surfaced.
 5. **While armed**, a 15 s tick evaluates the engine against live inputs.
    Thermal violations debounce (2 consecutive readings, ≥ 30 s apart);
-   plugging in suspends the floor; config edits apply live. Pre-cutoff
-   warnings post at T-5 minutes and at floor + 3 %.
+   plugging in suspends the floor, but loss of evidence for an enabled floor
+   initiates verified restoration and keeps the session pending until proof;
+   config edits apply live. Pre-cutoff warnings post at T-5 minutes and at
+   floor + 3 %. Before helper mutation, a scheduled occurrence retries after
+   transient telemetry loss while a real floor refusal suppresses that
+   occurrence. After a proven helper mutation, any post-proof battery result
+   that is not accepted suppresses the occurrence before verified restoration
+   to prevent arm/restore flapping.
 6. **Cutoff:** restore normal sleep → notification + chime → `pmset sleepnow`
    after a 3 s grace, *only if the lid is closed*. The session is finalized
    with its reason and battery curve; the next panel open shows the recap.

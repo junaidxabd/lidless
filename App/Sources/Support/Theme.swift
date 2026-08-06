@@ -99,7 +99,7 @@ extension AppState {
         if overrideLeaked { return .alert }
         if overrideStateUnknown { return .alert }
         if case .lowBatteryWarning = pendingArm?.assessment { return .alert }
-        if case .refusedBelowFloor = pendingArm?.assessment { return .alert }
+        if pendingArm?.assessment.allowsArm == false { return .alert }
         if pendingArm != nil { return .focus }
         if isArmed || phase == .arming { return .vigil }
         return .dormant

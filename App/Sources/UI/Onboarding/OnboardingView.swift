@@ -67,7 +67,7 @@ struct OnboardingView: View {
 
             VStack(alignment: .leading, spacing: Theme.s2) {
                 bullet("thermometer.medium", "Thermal protection puts it to sleep if it runs hot — the reason this is safe where a raw pmset hack is not.")
-                bullet("battery.25percent", "A battery floor (default 10%) always brings it back to normal sleep.")
+                bullet("battery.25percent", "A battery floor (default 10%) starts verified restoration at the limit or if its reading becomes unavailable; Lidless stays in recovery until normal sleep is proven.")
                 bullet("clock", "Duration limits, off-times, and recurring schedules end sessions automatically.")
             }
             .frame(maxWidth: 440)

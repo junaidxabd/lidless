@@ -295,9 +295,21 @@ struct FooterButton: View {
 // MARK: - Symbols
 
 enum Symbols {
-    static func battery(percent: Int?, charging: Bool) -> String {
+    static func battery(
+        percent: Int?,
+        charging: Bool,
+        state: PowerSourceState
+    ) -> String {
+        switch state {
+        case .noBattery:
+            return "powerplug"
+        case .unknown:
+            return "questionmark.circle"
+        case .ac, .battery:
+            break
+        }
         if charging { return "battery.100percent.bolt" }
-        guard let percent else { return "battery.100percent" }
+        guard let percent else { return "exclamationmark.triangle" }
         switch percent {
         case 88...: return "battery.100percent"
         case 63..<88: return "battery.75percent"

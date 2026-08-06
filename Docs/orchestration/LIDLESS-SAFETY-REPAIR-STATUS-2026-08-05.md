@@ -3411,3 +3411,156 @@ blockers; this checkpoint is not upgrade-complete and must remain
   `safety: harden recovery sentinel storage`. `State: IN_PROGRESS` is retained;
   after this one local commit the supervisor must bind the exact remainder into
   a fresh rolling manifest before another invocation.
+
+- E-433 — 2026-08-06T07:54:46+0200 — Authenticated and used the checkpoint-aware rolling remainder manifest, whose adjacent sidecar verifies SHA-256 `f890dd24b4510ba30b2eaaa27fbf64c18e30d7cc5b9009fd73f6754817312e5a`. The feature checkout reproduced canonical path `/Users/junaid/Xcode-Projects/Lidless-worktrees/codex-safety-repair-2026-08-04`, linked-worktree/common-directory topology, branch `codex/lidless-safety-repair-2026-08-04`, clean index, and HEAD `39bec0053d0dabca0d5128a093964a3c05d03e3d`. Its exact three-path remainder reproduced every status/type/mode/size/hash record, status digest `3a4984484500650d6b8866b3dfd45bc02ad0ff2888084f86deda5506c36e03dc`, and tracked binary-diff digest `5bfed6a6f1b1f3578736cce1d9ae66138f0f9e0614ffc8e93d0aa80c4d6e3b82`. The main checkout independently remained canonical path `/Users/junaid/Xcode-Projects/Lidless`, branch `main`, clean index, HEAD `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, with exactly its three recorded untracked `.playwright-mcp` files and bytes, status digest `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`, and empty tracked binary-diff digest `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`. This valid rolling audit supersedes any historical-manifest false stop while preserving that earlier evidence. No mismatch or normalization occurred; this invocation resumed at `State: IN_PROGRESS`.
+
+## Battery-telemetry fail-closed checkpoint matrix — 2026-08-06
+
+| ID | Finding or invariant | Independent evidence and disposition | Verdict |
+|---|---|---|---|
+| S29-01 | An enabled battery floor must never admit or continue a session without usable battery evidence | `BatterySnapshot.hasUsableSafetyEvidence`, `CutoffEngine.assessArm`, and active evaluation now refuse/fire for missing, malformed, contradictory, or out-of-range evidence. An explicit floor opt-out does not invent a telemetry cutoff. | FIXED OFFLINE / LIVE TELEMETRY GATE |
+| S29-02 | Power-source enumeration absence is not by itself proof that no internal battery exists | Raw IOPS entries are completely classified through a pure normalizer. Empty/UPS-only enumeration stays unknown unless a readable `IOPMrootDomain` also lacks `AppleClamshellState`; the installed stable SDK explicitly defines that missing property as no clamshell hardware. Unreadable/malformed topology remains unavailable. | FIXED OFFLINE / HARDWARE-TOPOLOGY GATE |
+| S29-03 | Battery evidence must be fresh at the arm commit boundary and after a proven helper mutation | Manual, preset, and schedule flows synchronously refresh before dispatch; manual/preset assessments must still equal the confirmed assessment. A second refresh follows a proven helper reply; a nonaccepted result starts verified restoration, and a scheduled occurrence is suppressed only after that proven mutation to prevent arm/restore flapping. | FIXED OFFLINE / XPC-RACE GATE |
+| S29-04 | The battery-only “To 20%” endpoint must remain attainable throughout admission | Core policy rejects the preset on a proven no-battery topology at begin, pending refresh, pre-dispatch, and post-reply boundaries. A pending card is withdrawn before rebuild when topology transitions to no battery; other presets/manual/schedule remain attainable. | FIXED OFFLINE / UI-RUNTIME GATE |
+| S29-05 | UI/history must distinguish unavailable evidence from proven no-battery state without promising a fictitious floor | Unavailable evidence disables confirmation and shows a telemetry refusal; proven no-battery uses explicit power/no-battery copy and symbols, omits the inactive floor from summaries/charts, and disables the 20% preset. History names telemetry-loss termination. | FIXED OFFLINE / VISUAL GATE |
+| S29-06 | New telemetry termination data must remain readable by this version without breaking legacy records | Exact and nested Codable round trips cover the new `CutoffReason`; a legacy off-time payload still decodes. An older app cannot be proven to decode the new enum case. | CURRENT-VERSION PASS / DOWNGRADE GATE OPEN |
+| R29-01 | The authenticated design remainder is not implementation authority | `decisions.md`, `progress.md`, and the design-reset brief remain byte-exact to the rolling manifest and are excluded from the checkpoint index. | PRESERVED / EXCLUDED |
+| O29-01 | Other independently identified safety groups are not coupled to battery telemetry | Scheduled-wake persistence/replacement, cask uninstall, thermal freshness, crash/session journaling, helper log/storage, stale-helper replacement, and re-arm option handling remain separate root causes. | OPEN — SEPARATE CHECKPOINTS |
+| G29-01 | Offline source/tests/unsigned links cannot prove live IOPS/IORegistry behavior, XPC timing, helper restoration, sleep/wake, closed-lid hardware, signing, notarization, or release readiness | No product/helper was launched and no service, sleep setting, hardware, signing, network, or publication action occurred. | LIVE / SIGNED-RUNTIME / HARDWARE GATES OPEN |
+| V29-01 | Exact selected bytes require focused/full tests, strict all-product compilation, unsigned Debug/Release links, artifact/config inspection, staged review, and preservation checks | Exact pre-ledger index results and artifacts are recorded in E-437 through E-440; final ledger/index and preservation checks are recorded before the local commit. | PASS OFFLINE / FINAL INDEX REVIEW PENDING |
+
+- E-434 — 2026-08-06T08:41:53+0200 — Independently re-audited the complete
+  preserved package and selected only rolling-matrix finding O28-02. The old
+  monitor treated an absent internal-battery entry as desktop/AC, accepted
+  novel/malformed states by defaulting them to battery, performed unchecked
+  percentage arithmetic, and let missing evidence arm or continue with an
+  enabled floor. App admission also relied on cached telemetry across await/XPC
+  boundaries. Scheduled-wake persistence, cask uninstall, thermal freshness,
+  crash/session journaling, helper log/storage, stale-helper replacement, and
+  re-arm options remain separate root-cause groups and were not combined.
+- E-435 — 2026-08-06T08:41:53+0200 — Added focused regressions before the
+  production repair. The first RED exposed 12 issues across 6 tests in
+  `battery-telemetry/focused-red.log` (412 lines, 22,235 bytes, SHA-256
+  `ee060dc837bdd1f977db3f0b8767c6d2afc3b6f7243c0c0a1c6427e5363db4ce`).
+  Adversarial parser/source/admission/post-reply cases exposed 14 issues across
+  8 tests in `battery-telemetry/adversarial-red.log` (2,532 lines, 103,619
+  bytes, SHA-256
+  `35ff103ed47246daf4dcb9e4262ed6ce17b9f161e91263d728a83ace2bd9eeca`).
+  Boot/topology, contradictory charging, arithmetic-extreme, priority, symbol,
+  and wiring cases exposed 14 issues across 16 tests in
+  `battery-telemetry/boot-topology-red.log` (1,598 lines, 69,577 bytes,
+  SHA-256
+  `76b9b485efd921c1c7422dd358638dc9fb7bb86c68e767ac685609af726e8cbd`).
+  A later independent review found that a pending “To 20%” card could become
+  contradictory after a no-battery transition; its focused source-ordering RED
+  failed before production change in
+  `battery-telemetry/pending-preset-transition-red.log` (78 lines, 5,365 bytes,
+  SHA-256
+  `c01889bce626ec6593398e23e4985237b67675c1fed971a15321b27f99e08d0c`),
+  then passed after the core admission/cancellation repair in
+  `battery-telemetry/pending-preset-transition-green.log` (60 lines, 4,391
+  bytes, SHA-256
+  `e98ab297bba2a0cdad86831618ee2c1c71db903ff92b1196049c342d84edf7d9`).
+- E-436 — 2026-08-06T08:41:53+0200 — Implemented the narrow repair: typed
+  source classification and normalization reject unknown entries, duplicate
+  internal sources, invalid capacities, contradictory battery/charging state,
+  and extreme time estimates; explicit no-battery state requires both complete
+  enumeration and readable no-clamshell topology. The cutoff engine refuses an
+  enabled-floor arm and terminates an established enabled-floor session on
+  unusable evidence. App admission refreshes before dispatch and after a proven
+  reply, with equality fencing for manual/preset intent, allows-arm policy for
+  schedule intent, endpoint attainability, verified restoration on post-proof
+  rejection, and post-mutation occurrence suppression. Projection arithmetic
+  converts before multiplying to avoid `Int` overflow. UI/history/documentation
+  now distinguish unavailable evidence, a valid battery, and proven no battery.
+- E-437 — 2026-08-06T08:41:53+0200 — Staged exactly 19 selected
+  code/test/documentation paths and exported the pre-ledger exact index as tree
+  `b4461d9544313e2fae84fcaa8663f7cc7f281946`; its cached binary-diff SHA-256
+  was `bc41911ebe95548143168d32f6550b82bebf26641933b32d7f788e4f9b75bc8e`.
+  Against that export, all 17 focused battery tests passed in
+  `battery-telemetry/exact-focused-tests.log` (124 lines, 9,083 bytes, SHA-256
+  `22ab58f185826b6de7099e2ea45718c017bf38fb0cdb6f8545f2e424bc5302d1`),
+  and the complete SwiftPM suite passed all 308 tests in 30 suites in
+  `battery-telemetry/exact-full-tests.log` (787 lines, 61,964 bytes, SHA-256
+  `1be9fe5943d73f57986a2dccaf00367d6fe98027b1acc72bcf43a3b035a353d6`).
+  Exact-index Debug and Release core builds passed in
+  `battery-telemetry/exact-debug-core-build.log` (42 lines, 3,028 bytes,
+  SHA-256
+  `1762bbea35595354b05fb2e01a72c0fadd458bf4a8708232922302b3f504fd4d`)
+  and `battery-telemetry/exact-release-core-build.log` (12 lines, 1,408 bytes,
+  SHA-256
+  `110020bf49133196b1b3ef6a8b488a2164511a070f38eaca26715a36c601319b`).
+- E-438 — 2026-08-06T08:41:53+0200 — Every exact-index App/helper source
+  passed Swift 6 complete strict-concurrency typechecking with warnings as
+  errors; both also linked directly in unsigned Debug and optimized Release.
+  The initial one-file widget invocations omitted `-parse-as-library` and
+  failed only on Swift's `@main` script-mode rule; those superseded commands,
+  together with the successful App/helper commands, remain in
+  `battery-telemetry/exact-typecheck.log` (27 lines, 3,035 bytes, SHA-256
+  `76a134c9ced42ffeafa9a3cb1894c31489e1dd9a1e1dfe7a2d931e5a9c76c38e`)
+  and `battery-telemetry/exact-link.log` (61 lines, 8,830 bytes, SHA-256
+  `57cd8c9e8b551906899181211a6dd2f43ec94b507b644543f54f75342a1a3a11`).
+  Corrected widget strict typecheck and Debug/Release links all passed with the
+  required library-parse flag in
+  `battery-telemetry/exact-widget-corrected.log` (14 lines, 3,386 bytes,
+  SHA-256
+  `5ad65b5a9689cb5b5352a74b6e708f637ff3f254c8e7d68a8fe16717e9b55eca`).
+  All commands used stable `/Applications/Xcode.app`, Apple Swift 6.3.2,
+  language mode 6, complete concurrency, warnings as errors, arm64 macOS 15,
+  SDK 26.5, `CODE_SIGNING_ALLOWED=NO`, and linker ad-hoc signing disabled.
+  This is compile/link evidence, not runtime or Xcode 16 / Swift 6.0 proof.
+- E-439 — 2026-08-06T08:41:53+0200 — Exact artifact inspection is preserved in
+  `battery-telemetry/exact-artifact-inspection.log` (282 lines, 26,687 bytes,
+  SHA-256
+  `247c6f48b567ac2f1a371f0256724014dae46c834bc321f0e35020582cafd814`).
+  All six loose App/helper/widget Debug/Release outputs are arm64 Mach-O with
+  minimum macOS 15 and SDK 26.5; each `codesign` check reported “code object is
+  not signed at all.” The app output contains the linked normalizer/admission
+  symbols. Exact source Info plists, entitlements, helper launchd plist,
+  ExportOptions, and project file all passed `plutil -lint`; decoded values and
+  project bindings were inspected in
+  `battery-telemetry/exact-config-inspection.log` (155 lines, 9,948 bytes,
+  SHA-256
+  `a35fc440bd68d6a7a4a180892c6035f793e5b96c8a935d9b8b5514e4bdb70f7b`).
+  The same log records the stable SDK contract: `AppleClamshellState` absent
+  means no clamshell on the hardware. Loose outputs are not bundles and do not
+  prove embedded identity/entitlements, signed XPC trust, ServiceManagement,
+  launchd, IOPS/registry runtime, or hardware behavior. Project-native
+  `xcodebuild`/analyze was not retried because preserved prior evidence shows
+  that graph invokes automatic LaunchServices registration, prohibited here;
+  strict direct compiler analysis is the bounded offline substitute.
+- E-440 — 2026-08-06T08:41:53+0200 — Three independent read-only reviews of
+  core/topology, App/monitor/UI, and documentation found no remaining concrete
+  battery-checkpoint blocker after adversarial fixes and wording corrections.
+  Two reviewers separately audited the exact cached diff: all 19 paths are
+  coherent battery policy/normalization/admission/presentation/tests/docs,
+  modes are 100644, cached diff checks pass, and the three authenticated design
+  paths have no cached delta. Their acceptance remains conditional on explicit
+  live telemetry/topology, XPC/restoration, sleep/wake, closed-lid hardware,
+  downgrade, signed runtime, notarization, and release gates.
+- E-441 — 2026-08-06T08:43:12+0200 — Reverified preservation immediately
+  before final ledger staging. The main checkout remains canonical path
+  `/Users/junaid/Xcode-Projects/Lidless`, branch `main`, HEAD
+  `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, with clean index/tracked diff,
+  the exact three authenticated `.playwright-mcp` files and bytes, NUL-status
+  digest `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked-diff digest
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+  The feature design remainder remains excluded and byte-exact: decisions
+  `cdf6a032f24dc9421f5bbf3e1b696dca7fd37da8bc4d28cf978a302cea03ccd1`,
+  progress
+  `375b445d73847e60c11f321efe97b2ac636c11f4b962118c14b02d22caacf2d0`,
+  and brief
+  `4835b0dc2fa44257d2e4aca6429e5bd5ad1cf93989686c709311d91b9659e7f7`;
+  their NUL-status and tracked binary-diff digests remain the rolling values
+  `3a4984484500650d6b8866b3dfd45bc02ad0ff2888084f86deda5506c36e03dc`
+  and `5bfed6a6f1b1f3578736cce1d9ae66138f0f9e0614ffc8e93d0aa80c4d6e3b82`.
+  No product/helper was launched; no helper install, activation, registration,
+  approval, live XPC, `pmset`, sleep setting, sleep/wake, hardware, plugin,
+  connector, Figma, network, merge, push, or main-checkout mutation occurred.
+  V29-01's pending final-index review is superseded once this append-only ledger
+  is restaged and the exact 19-path cached diff/checks pass. The intended local
+  checkpoint subject is `safety: fail closed on unavailable battery telemetry`.
+  `State: IN_PROGRESS` is retained because separate safety groups and live
+  gates remain; after this single local commit the supervisor must bind the
+  exact remainder into a fresh rolling manifest before another invocation.

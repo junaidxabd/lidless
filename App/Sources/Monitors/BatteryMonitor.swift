@@ -74,33 +74,33 @@ final class IOPSBatteryMonitor: BatteryMonitoring {
             return .unknown(at: date)
         }
 
+        var readings: [BatteryPowerSourceReading] = []
+        readings.reserveCapacity(list.count)
         for source in list {
             guard let description = IOPSGetPowerSourceDescription(blob, source)?
-                .takeUnretainedValue() as? [String: Any],
-                description[kIOPSTypeKey] as? String == kIOPSInternalBatteryType
-            else { continue }
-
-            var percent: Int?
-            if let capacity = description[kIOPSCurrentCapacityKey] as? Int {
-                let maxCapacity = description[kIOPSMaxCapacityKey] as? Int ?? 100
-                percent = maxCapacity > 0 ? Int((Double(capacity) / Double(maxCapacity) * 100).rounded()) : capacity
+                .takeUnretainedValue() as? [String: Any] else {
+                readings.append(.unavailable)
+                continue
             }
-
-            let onAC = (description[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
-            let isCharging = description[kIOPSIsChargingKey] as? Bool ?? false
-            var timeToEmpty = description[kIOPSTimeToEmptyKey] as? Int
-            if let value = timeToEmpty, value <= 0 { timeToEmpty = nil }
-
-            return BatterySnapshot(
-                percent: percent,
-                state: onAC ? .ac : .battery,
-                isCharging: isCharging,
-                timeToEmptyMinutes: timeToEmpty,
-                sampledAt: date
-            )
+            readings.append(BatteryPowerSourceReading.classify(
+                type: description[kIOPSTypeKey] as? String,
+                internalBatteryType: kIOPSInternalBatteryType,
+                alternatePowerSourceType: kIOPSUPSType,
+                currentCapacity: description[kIOPSCurrentCapacityKey] as? Int,
+                maximumCapacity: description[kIOPSMaxCapacityKey] as? Int,
+                sourceState: description[kIOPSPowerSourceStateKey] as? String,
+                acPowerState: kIOPSACPowerValue,
+                batteryPowerState: kIOPSBatteryPowerValue,
+                isCharging: description[kIOPSIsChargingKey] as? Bool,
+                timeToEmptyMinutes: description[kIOPSTimeToEmptyKey] as? Int
+            ))
         }
-
-        // No internal battery: desktop. Always on AC, battery cutoffs dormant.
-        return BatterySnapshot(percent: nil, state: .ac, isCharging: false, sampledAt: date)
+        let noInternalBatteryProven =
+            PowerRegistry.clamshellHardwareEvidence() == .absent
+        return BatterySnapshotNormalizer.normalize(
+            readings,
+            noInternalBatteryProven: noInternalBatteryProven,
+            at: date
+        )
     }
 }

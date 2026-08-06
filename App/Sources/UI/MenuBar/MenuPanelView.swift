@@ -220,6 +220,11 @@ struct MenuPanelView: View {
             PresetChip(title: "To 20%", systemImage: "battery.25percent") {
                 state.beginArmFlow(preset: .untilTwentyPercent)
             }
+            .disabled(state.battery.state == .noBattery)
+            .opacity(state.battery.state == .noBattery ? 0.45 : 1)
+            .help(state.battery.state == .noBattery
+                ? "This Mac has no internal battery."
+                : "Keep awake until the internal battery reaches 20%.")
         }
         .frame(maxWidth: .infinity)
         .disabled(!state.helperState.isUsable)
@@ -231,11 +236,17 @@ struct MenuPanelView: View {
     private var statStrip: some View {
         StatStrip(items: [
             .init(
-                icon: Symbols.battery(percent: state.battery.percent, charging: state.battery.isCharging),
+                icon: Symbols.battery(
+                    percent: state.battery.percent,
+                    charging: state.battery.isCharging,
+                    state: state.battery.state
+                ),
                 value: Format.percent(state.battery.percent),
-                caption: state.battery.isCharging
-                    ? "Charging"
-                    : (state.battery.state == .ac ? "On power" : "Battery"),
+                caption: state.battery.state == .noBattery
+                    ? "No battery"
+                    : (state.battery.isCharging
+                        ? "Charging"
+                        : (state.battery.state == .ac ? "On power" : "Battery")),
                 lit: state.sleepPresentation == .verifiedArmed
             ),
             .init(
@@ -282,8 +293,7 @@ struct ArmConfirmCard: View {
     @Environment(AppState.self) private var state
 
     private var refused: Bool {
-        if case .refusedBelowFloor = pending.assessment { return true }
-        return false
+        !pending.assessment.allowsArm
     }
 
     private var warningTint: Bool {
@@ -291,12 +301,25 @@ struct ArmConfirmCard: View {
         return false
     }
 
+    private var showsBatteryFloor: Bool {
+        pending.projection.floorEnabled
+            && state.battery.state != .noBattery
+            && pending.assessment != .refusedBatteryTelemetryUnavailable
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.s3) {
             assessmentHeader
 
             VStack(alignment: .leading, spacing: Theme.s2) {
-                if let rate = pending.projection.ratePerHour, let empty = pending.projection.timeToEmpty {
+                if state.battery.state == .noBattery {
+                    row(
+                        symbol: "powerplug",
+                        text: pending.projection.floorEnabled
+                            ? "No internal battery — configured floor is inactive"
+                            : "No internal battery"
+                    )
+                } else if let rate = pending.projection.ratePerHour, let empty = pending.projection.timeToEmpty {
                     row(
                         symbol: "gauge.with.needle",
                         text: "≈ \(Format.duration(empty)) of battery at \(Format.drain(rate))"
@@ -312,7 +335,7 @@ struct ArmConfirmCard: View {
                     row(symbol: "powerplug", text: "On power — battery cutoffs apply if unplugged")
                 }
 
-                if pending.projection.floorEnabled {
+                if showsBatteryFloor {
                     if let floorDate = pending.projection.floorDate {
                         row(
                             symbol: "battery.25percent",
@@ -333,7 +356,9 @@ struct ArmConfirmCard: View {
                     )
                 }
 
-                row(symbol: "checkmark.shield", text: pending.projection.summary)
+                if pending.assessment != .refusedBatteryTelemetryUnavailable {
+                    row(symbol: "checkmark.shield", text: pending.projection.summary)
+                }
             }
 
             HStack {
@@ -365,6 +390,13 @@ struct ArmConfirmCard: View {
     @ViewBuilder
     private var assessmentHeader: some View {
         switch pending.assessment {
+        case .refusedBatteryTelemetryUnavailable:
+            Label(
+                "Battery state unavailable — Lidless can't enforce the configured safety floor. Check again before keeping awake.",
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.callout.weight(.medium))
+            .foregroundStyle(Color(red: 1.0, green: 0.42, blue: 0.38))
         case .refusedBelowFloor(let percent, let floor):
             Label(
                 percent <= floor

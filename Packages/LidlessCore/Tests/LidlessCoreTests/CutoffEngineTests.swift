@@ -87,16 +87,19 @@ struct CutoffEngineTests {
         // The floor only governs discharge; if unplugged later below the floor,
         // the cutoff fires then. Arming on AC is always allowed.
         #expect(CutoffEngine.assessArm(config: config(), battery: onAC(3)) == .ok)
-        // Charging counts as "on AC" even if state reports .battery quirks aside;
-        // an actively charging 3% machine is also allowed.
-        #expect(CutoffEngine.assessArm(config: config(), battery: battery(3, state: .battery, charging: true)) == .ok)
+        // An actively charging 3% machine with coherent AC evidence is allowed.
+        #expect(CutoffEngine.assessArm(
+            config: config(),
+            battery: battery(3, state: .ac, charging: true)
+        ) == .ok)
     }
 
-    @Test func assessArm_noBattery_ok() {
-        // Desktop: battery cutoffs simply never fire, arming is always ok.
-        #expect(CutoffEngine.assessArm(config: config(), battery: battery(nil, state: .ac)) == .ok)
-        #expect(CutoffEngine.assessArm(config: config(), battery: battery(nil, state: .unknown)) == .ok)
-        #expect(CutoffEngine.assessArm(config: config(), battery: battery(nil, state: .battery)) == .ok)
+    @Test func assessArm_provenNoBattery_ok() {
+        // Enumeration plus independent topology proves no internal battery.
+        #expect(CutoffEngine.assessArm(
+            config: config(),
+            battery: battery(nil, state: .noBattery)
+        ) == .ok)
     }
 
     @Test func assessArm_dischargingAtFloor_refused() {
@@ -146,13 +149,15 @@ struct CutoffEngineTests {
 
     @Test func assessArm_chargingAt25_ok() {
         // Charging suppresses both refusal and warning: not discharging.
-        #expect(CutoffEngine.assessArm(config: config(), battery: battery(25, state: .battery, charging: true)) == .ok)
+        #expect(CutoffEngine.assessArm(
+            config: config(),
+            battery: battery(25, state: .ac, charging: true)
+        ) == .ok)
     }
 
-    @Test func assessArm_unknownPowerState_notDischarging_ok() {
-        // .unknown power state is not "discharging", so even 5% arms without
-        // refusal — the floor cutoff arms live and fires once discharge is known.
-        #expect(CutoffEngine.assessArm(config: config(), battery: battery(5, state: .unknown)) == .ok)
+    @Test func assessArm_unknownPowerState_refusedWhenFloorEnabled() {
+        #expect(CutoffEngine.assessArm(config: config(), battery: battery(5, state: .unknown))
+                == .refusedBatteryTelemetryUnavailable)
     }
 
     // MARK: - plannedCutoffs
@@ -277,17 +282,20 @@ struct CutoffEngineTests {
 
     @Test func evaluateBattery_chargingAtFivePercent_doesNotFire() {
         // Plugging in suspends the floor: charging at 5% is not a cutoff.
-        let charging = battery(5, state: .battery, charging: true)
+        let charging = battery(5, state: .ac, charging: true)
         #expect(evaluate(config: config(), now: t0600.addingTimeInterval(600), battery: charging).fired.isEmpty)
         // Same on AC.
         #expect(evaluate(config: config(), now: t0600.addingTimeInterval(600), battery: onAC(5)).fired.isEmpty)
     }
 
-    @Test func evaluateBattery_floorDisabledOrNoBattery_doesNotFire() {
+    @Test func evaluateBattery_floorDisabledOrProvenNoBattery_doesNotFire() {
         let disabled = config(batteryFloorEnabled: false)
         #expect(evaluate(config: disabled, now: t0600.addingTimeInterval(600), battery: discharging(1)).fired.isEmpty)
-        // No battery hardware: nil percent never fires even in .battery state.
-        #expect(evaluate(config: config(), now: t0600.addingTimeInterval(600), battery: battery(nil, state: .battery)).fired.isEmpty)
+        #expect(evaluate(
+            config: config(),
+            now: t0600.addingTimeInterval(600),
+            battery: battery(nil, state: .noBattery)
+        ).fired.isEmpty)
     }
 
     // MARK: - evaluate: thermal strikes
@@ -385,7 +393,8 @@ struct CutoffEngineTests {
     @Test func evaluate_multipleSimultaneousReasons_sortedByPriority() {
         // Duration fires at 06:30, off-time at 07:00; at 08:00 both have passed,
         // battery is at 8% discharging, and this is the second thermal strike.
-        // Priority order must be thermal < batteryFloor < offTime < durationElapsed,
+        // Priority order must be thermal < telemetry < batteryFloor < offTime
+        // < durationElapsed,
         // even though duration's *date* precedes the off-time's.
         let c = config(thermalStrikesRequired: 2, durationEnabled: true, durationSeconds: 1800, offTimeEnabled: true)
         let r = evaluate(config: c,
@@ -404,8 +413,8 @@ struct CutoffEngineTests {
     }
 
     @Test func evaluate_timeReasonsAlone_priorityOrderNotDateOrder() {
-        // Duration (06:30) elapsed before off-time (07:00), but .offTime (priority 2)
-        // must precede .durationElapsed (priority 3) in `fired`.
+        // Duration (06:30) elapsed before off-time (07:00), but .offTime
+        // (priority 3) must precede .durationElapsed (priority 4) in `fired`.
         let c = config(durationEnabled: true, durationSeconds: 1800, offTimeEnabled: true)
         let r = evaluate(config: c, now: t0600.addingTimeInterval(7200), battery: onAC(80))
         #expect(r.fired == [.offTime, .durationElapsed])
@@ -557,11 +566,12 @@ struct CutoffEngineTests {
     @Test func cutoffReason_priorityOrdering_safetyOutranksConvenience() {
         let ordered: [CutoffReason] = [
             .thermal(detail: "x"),
+            .batteryTelemetryUnavailable,
             .batteryFloor(percent: 1, floor: 10),
             .offTime,
             .durationElapsed,
             .scheduleEnded,
         ]
-        #expect(ordered.map(\.priority) == [0, 1, 2, 3, 4])
+        #expect(ordered.map(\.priority) == [0, 1, 2, 3, 4, 5])
     }
 }

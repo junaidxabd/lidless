@@ -4,6 +4,7 @@ import Foundation
 
 public enum CutoffReason: Codable, Sendable, Equatable, Hashable {
     case thermal(detail: String)
+    case batteryTelemetryUnavailable
     case batteryFloor(percent: Int, floor: Int)
     case offTime
     case durationElapsed
@@ -13,10 +14,11 @@ public enum CutoffReason: Codable, Sendable, Equatable, Hashable {
     public var priority: Int {
         switch self {
         case .thermal: 0
-        case .batteryFloor: 1
-        case .offTime: 2
-        case .durationElapsed: 3
-        case .scheduleEnded: 4
+        case .batteryTelemetryUnavailable: 1
+        case .batteryFloor: 2
+        case .offTime: 3
+        case .durationElapsed: 4
+        case .scheduleEnded: 5
         }
     }
 }
@@ -46,6 +48,17 @@ public enum ArmAssessment: Sendable, Equatable {
     case lowBatteryWarning(percent: Int)
     /// At or under the floor (plus margin) while discharging; arming is refused.
     case refusedBelowFloor(percent: Int, floor: Int)
+    /// The configured floor cannot be enforced without readable battery data.
+    case refusedBatteryTelemetryUnavailable
+
+    public var allowsArm: Bool {
+        switch self {
+        case .ok, .lowBatteryWarning:
+            return true
+        case .refusedBelowFloor, .refusedBatteryTelemetryUnavailable:
+            return false
+        }
+    }
 }
 
 // MARK: - Evaluation result
@@ -77,7 +90,9 @@ public enum CutoffEngine {
     /// Should arming be allowed right now?
     ///
     /// Rules:
-    /// - No battery (desktop) → ok; battery cutoffs simply never fire.
+    /// - A successfully observed battery-less desktop → ok; no battery drains.
+    /// - Missing, malformed, or source-unknown evidence with an enabled floor
+    ///   → refused because the cutoff could not be enforced.
     /// - On AC → ok even at 3%: the floor only governs discharge, and if the
     ///   machine is later unplugged below the floor, the cutoff fires then.
     /// - Discharging at/below floor + margin → refused.
@@ -86,6 +101,11 @@ public enum CutoffEngine {
         config: CutoffConfig,
         battery: BatterySnapshot
     ) -> ArmAssessment {
+        guard battery.hasUsableSafetyEvidence else {
+            return config.batteryFloorEnabled
+                ? .refusedBatteryTelemetryUnavailable
+                : .ok
+        }
         guard let percent = battery.percent, battery.isDischarging else { return .ok }
         if config.batteryFloorEnabled,
            percent <= config.batteryFloorPercent + CutoffConfig.armRefusalMargin {
@@ -154,12 +174,19 @@ public enum CutoffEngine {
             fired.append(.thermal(detail: thermalDetail(config: config, thermal: thermal, processThermal: processThermal)))
         }
 
-        // Battery floor — only while actively discharging.
-        if config.batteryFloorEnabled,
-           let percent = battery.percent,
-           battery.isDischarging,
-           percent <= config.batteryFloorPercent {
-            fired.append(.batteryFloor(percent: percent, floor: config.batteryFloorPercent))
+        // A configured floor is a safety promise. If its evidence disappears,
+        // restore instead of silently running with no enforceable floor.
+        if config.batteryFloorEnabled {
+            if !battery.hasUsableSafetyEvidence {
+                fired.append(.batteryTelemetryUnavailable)
+            } else if let percent = battery.percent,
+                      battery.isDischarging,
+                      percent <= config.batteryFloorPercent {
+                fired.append(.batteryFloor(
+                    percent: percent,
+                    floor: config.batteryFloorPercent
+                ))
+            }
         }
 
         // Time-based cutoffs.

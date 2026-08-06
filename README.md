@@ -21,9 +21,9 @@ Built for two kinds of people:
 
 ## Features
 
-- **One deliberate control.** A power-style arming button in the menu bar panel. Arming on battery always shows the projected runtime at your current drain rate; below 30% you get an explicit warning; at/under the floor it refuses.
-- **Cutoffs** (each optional, sensible defaults): battery floor (default 10%, suspended while charging), thermal protection (`pmset -g therm` warning level / CPU throttling, debounced), duration limit, wall-clock off-time.
-- **Quick-arm presets**: *Until 7 AM* · *4 hours* · *Until 20%*.
+- **One deliberate control.** A power-style arming button in the menu bar panel. A floor-protected arm requires readable battery evidence; below 30% you get an explicit warning, and at/under the floor it refuses.
+- **Cutoffs** (each optional, sensible defaults): battery floor (default 10%, suspended while charging; telemetry loss starts verified restoration and remains pending until normal sleep is proven), thermal protection (`pmset -g therm` warning level / CPU throttling, debounced), duration limit, wall-clock off-time.
+- **Quick-arm presets**: *Until 7 AM* · *4 hours* · *Until 20%* (the battery-only preset is unavailable on a machine proven to have no internal battery).
 - **Schedules**: recurring windows (weeknights 11 PM–7 AM), automatic arm/disarm, RTC wake registered before each window so a sleeping Mac can wake itself and arm (best effort).
 - **Low Power Mode & network keep-alive** while armed, both restored to their prior values on disarm.
 - **Intended cutoff sequence**: prove normal-sleep restoration, then notify and request `sleepnow` only with the lid closed. Terminal completion and duplicate-sleep suppression remain under safety review.

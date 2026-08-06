@@ -5,13 +5,18 @@ import Foundation
 public enum PowerSourceState: String, Codable, Sendable {
     case ac
     case battery
+    /// A fully classified power-source enumeration plus independent readable
+    /// hardware-topology evidence found no internal battery. This is distinct
+    /// from an AC-powered battery whose percentage could not be read.
+    case noBattery
     case unknown
 }
 
 /// A point-in-time reading of the battery, from IOKit power-source
 /// notifications (or the simulator in dry-run mode).
 public struct BatterySnapshot: Codable, Sendable, Equatable {
-    /// 0–100, nil when the machine has no battery.
+    /// 0–100. A nil percentage is usable only with `.noBattery`; every other
+    /// nil/unknown combination is unavailable evidence.
     public var percent: Int?
     public var state: PowerSourceState
     public var isCharging: Bool
@@ -35,6 +40,21 @@ public struct BatterySnapshot: Codable, Sendable, Equatable {
 
     public var hasBattery: Bool { percent != nil }
 
+    /// Whether a floor-protected session can make a truthful battery decision.
+    /// A successful no-internal-battery result is usable because no battery can
+    /// drain. Missing, malformed, or source-unknown readings fail closed.
+    public var hasUsableSafetyEvidence: Bool {
+        switch (percent, state, isCharging) {
+        case (nil, .noBattery, false):
+            return true
+        case (.some(let percent), .ac, _),
+             (.some(let percent), .battery, false):
+            return (0...100).contains(percent)
+        default:
+            return false
+        }
+    }
+
     /// True only when actively draining: on battery power and not charging.
     /// This is the condition that keeps the battery-floor cutoff live;
     /// plugging in makes it false and suspends the countdown.
@@ -42,6 +62,10 @@ public struct BatterySnapshot: Codable, Sendable, Equatable {
 
     public static func unknown(at date: Date) -> BatterySnapshot {
         BatterySnapshot(percent: nil, state: .unknown, isCharging: false, sampledAt: date)
+    }
+
+    public static func noBattery(at date: Date) -> BatterySnapshot {
+        BatterySnapshot(percent: nil, state: .noBattery, isCharging: false, sampledAt: date)
     }
 }
 

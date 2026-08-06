@@ -71,6 +71,7 @@ struct HistoryPane: View {
         switch reason {
         case .cutoff(let cutoff):
             switch cutoff {
+            case .batteryTelemetryUnavailable: "Battery state unavailable"
             case .batteryFloor(let percent, _): "Battery floor (\(percent)%)"
             case .thermal: "Thermal protection"
             case .offTime: "Off-time"

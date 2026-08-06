@@ -207,13 +207,28 @@ struct OverviewContent: View {
     private var batteryCard: some View {
         VStack(alignment: .leading, spacing: Theme.s3) {
             HStack {
-                Label("Battery", systemImage: Symbols.battery(percent: state.battery.percent, charging: state.battery.isCharging))
+                Label(
+                    state.battery.state == .noBattery ? "Power" : "Battery",
+                    systemImage: Symbols.battery(
+                        percent: state.battery.percent,
+                        charging: state.battery.isCharging,
+                        state: state.battery.state
+                    )
+                )
                     .font(.headline)
                 Spacer()
                 Text(Format.percent(state.battery.percent))
                     .font(.headline)
                     .monospacedDigit()
-                Text(state.battery.isCharging ? "Charging" : (state.battery.state == .ac ? "On power" : Format.drain(state.drainPerHour)))
+                Text(
+                    state.battery.state == .noBattery
+                        ? "No internal battery"
+                        : (state.battery.isCharging
+                            ? "Charging"
+                            : (state.battery.state == .ac
+                                ? "On power"
+                                : Format.drain(state.drainPerHour)))
+                )
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -238,7 +253,9 @@ struct OverviewContent: View {
 
     private var activeFloor: Int? {
         let cfg = state.effectiveConfig
-        return cfg.batteryFloorEnabled ? cfg.batteryFloorPercent : nil
+        return cfg.batteryFloorEnabled && state.battery.state != .noBattery
+            ? cfg.batteryFloorPercent
+            : nil
     }
 }
 
