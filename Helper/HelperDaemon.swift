@@ -35,7 +35,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     /// Producer-owned declaration of the behavior actually implemented by
     /// this daemon. Keep this independent from the app's required revision so
     /// an app-side bump cannot silently make an unchanged helper compatible.
-    private static let implementedSafetyRevision = 1
+    private static let implementedSafetyRevision = 2
 
     private let queue = DispatchQueue(label: "com.lidless.helper.state")
     private let log = HelperLog()
@@ -164,6 +164,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             // Unreadable sentinel: prior state unknown. Fail safe: sleep on.
             log.critical("launch found corrupt sentinel — forcing disablesleep 0")
             let fallback = OverrideSentinel(
+                version: 0,
                 armedAt: Date(),
                 watchdogTTL: HelperArmOptions.defaultWatchdogTTL,
                 watchdogDeadline: Date(),
@@ -328,12 +329,16 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         let ttl = min(max(options.watchdogTTL, HelperArmOptions.watchdogTTLRange.lowerBound),
                       HelperArmOptions.watchdogTTLRange.upperBound)
 
-        // At most two blocking commands may run in either risky interval:
-        // enable + fail-safe rollback before success, or the two optional
-        // settings after success. Refuse to arm if their hard upper bound can
-        // consume the watchdog lifetime.
+        // The largest bounded child-wait budget is either enable + fail-safe
+        // rollback before success, or one grouped optional command for each
+        // supported power-source scope after success. Process launch and
+        // other queue work have no real-time bound.
+        let maximumBlockingCommandCount = max(
+            2,
+            ManagedSettingRestorationSafety.maximumScopeCommandCount
+        )
         guard HelperSupervisionTiming.isWithinWatchdogBudget(
-            commandCount: 2,
+            commandCount: maximumBlockingCommandCount,
             watchdogTTL: ttl
         ) else {
             reply(replyData(ok: false, error: "helper command timing exceeds the watchdog safety budget"))
@@ -364,8 +369,9 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         }
 
         // Snapshot optional settings before the final sleep-state preflight.
-        // `pmset -g custom` is a bounded child process, but it must not create
-        // a preflight-to-mutation window while an override is already active.
+        // The `pmset -g custom` child wait is bounded after launch, but the
+        // snapshot must not create a preflight-to-mutation window while an
+        // override is already active.
         let custom: String?
         if options.lowPowerMode || options.tcpKeepAlive {
             do {
@@ -388,19 +394,36 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
         if options.lowPowerMode, let custom {
             if let key = PMSet.lowPowerModeKey(fromCustom: custom) {
-                record.lowPowerModeKey = key
-                record.priorLowPowerMode = PMSetParser.intSetting(key, fromCustom: custom)
+                if let priors = ManagedSettingRestorationSafety.capturedPriors(
+                    for: key,
+                    fromCustom: custom
+                ) {
+                    record.lowPowerModeKey = key
+                    record.priorLowPowerMode = priors
+                } else {
+                    log.info("low power mode requested but no scoped numeric prior was found — skipping")
+                }
             } else {
                 log.info("low power mode requested but unsupported on this system — skipping")
             }
         }
         if options.tcpKeepAlive, let custom {
-            let priors = PMSetParser.intSetting("tcpkeepalive", fromCustom: custom)
-            if priors.isEmpty {
-                log.info("tcpkeepalive requested but no restorable prior was found — skipping")
-            } else {
+            if let priors = ManagedSettingRestorationSafety.capturedPriors(
+                for: "tcpkeepalive",
+                fromCustom: custom
+            ) {
                 record.priorTCPKeepAlive = priors
+            } else {
+                log.info("tcpkeepalive requested but no restorable prior was found — skipping")
             }
+        }
+
+        guard let managedActivationPlan = ManagedSettingRestorationSafety.plan(
+            for: record,
+            target: .activation
+        ) else {
+            reply(replyData(ok: false, error: "captured managed-setting state is not safely restorable"))
+            return
         }
 
         // Fresh arm. Take ownership only from a readable, inactive state,
@@ -453,8 +476,9 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         }
 
         // Install ownership before the enabling command. The command runner's
-        // tested hard bound keeps queued invalidation/timer work inside the
-        // minimum TTL; the disk sentinel remains the crash supervisor.
+        // tested child-wait budget is below the minimum TTL; process launch
+        // and other queue work remain unbounded, while the disk sentinel is
+        // the crash supervisor.
         sentinel = record
         armedConnectionID = connectionID
         watchdogDeadline = .now() + ttl
@@ -482,9 +506,10 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         // Rebase the in-memory watchdog at the exact proof point and reply
         // before optional commands. The disk sentinel already contains all
         // unconditional recovery data and is never rewritten while active.
-        // The app can begin its heartbeat while at most two bounded
-        // best-effort calls occupy the queue; invalidation is delayed by less
-        // than the minimum TTL.
+        // The app can begin its heartbeat while at most three best-effort
+        // per-scope calls occupy the queue. Their child-process wait budgets
+        // total less than the minimum TTL; process launch and other queue work
+        // do not have a real-time bound.
         record.watchdogDeadline = Date().addingTimeInterval(ttl)
         sentinel = record
         watchdogDeadline = .now() + ttl
@@ -500,14 +525,10 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         reply(IPCCoding.encode(result))
 
         // Best-effort extras; never delay the success reply or fail the arm.
-        if let key = record.lowPowerModeKey {
-            do { try PMSet.setEverywhere(key: key, value: 1) }
-            catch { log.error("could not enable low power mode: \(error)") }
-        }
-        if record.priorTCPKeepAlive != nil {
-            do { try PMSet.setEverywhere(key: "tcpkeepalive", value: 1) }
-            catch { log.error("could not enforce tcpkeepalive: \(error)") }
-        }
+        // Only scopes with captured priors are touched, and the sentinel owns
+        // those priors before any optional command begins.
+        do { try PMSet.apply(managedActivationPlan) }
+        catch { log.error("could not apply all managed settings: \(error)") }
     }
 
     /// A second preflight rejected an arm after its recovery sentinel was
@@ -570,12 +591,10 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         do {
             try PMSet.setSleepDisabled(restoreTarget)
         } catch {
-            log.critical("RESTORE FAILED (\(reason)): \(error) — will retry")
-            sentinel = nil
-            armedConnectionID = nil
-            watchdogDeadline = .distantFuture
-            restorePending = record
-            scheduleRestoreRetry()
+            parkRestore(
+                record,
+                message: "RESTORE FAILED (\(reason)): \(error) — will retry"
+            )
             return
         }
 
@@ -584,41 +603,82 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             expected: restoreTarget,
             observed: restoreReadback
         ) {
-            log.critical("RESTORE readback is unverified or mismatched (\(reason)) — will retry")
-            sentinel = nil
-            armedConnectionID = nil
-            watchdogDeadline = .distantFuture
-            restorePending = record
-            scheduleRestoreRetry()
+            parkRestore(
+                record,
+                message: "RESTORE sleep readback is unverified or mismatched (\(reason)) — will retry"
+            )
             return
         }
 
-        // Extras are best-effort: they can't strand sleep, only comfort.
-        if let key = record.lowPowerModeKey, let priors = record.priorLowPowerMode {
-            do { try PMSet.restore(key: key, sections: priors) }
-            catch { log.error("could not restore \(key): \(error)") }
+        guard let managedRestorationPlan = ManagedSettingRestorationSafety.plan(
+            for: record,
+            target: .restoration
+        ) else {
+            parkRestore(
+                record,
+                message: "RESTORE managed-setting snapshot is invalid or unprovable (\(reason)) — retaining sentinel"
+            )
+            return
         }
-        if let priors = record.priorTCPKeepAlive {
-            do { try PMSet.restore(key: "tcpkeepalive", sections: priors) }
-            catch { log.error("could not restore tcpkeepalive: \(error)") }
+
+        do {
+            try PMSet.apply(managedRestorationPlan)
+        } catch {
+            parkRestore(
+                record,
+                message: "RESTORE managed-setting command failed (\(reason)): \(error) — will retry"
+            )
+            return
+        }
+
+        let managedReadback: String?
+        if managedRestorationPlan.isEmpty {
+            managedReadback = nil
+        } else {
+            do {
+                managedReadback = try PMSet.readCustom()
+            } catch {
+                parkRestore(
+                    record,
+                    message: "RESTORE managed-setting readback failed (\(reason)): \(error) — will retry"
+                )
+                return
+            }
+        }
+        guard ManagedSettingRestorationSafety.isRestorationProven(
+            for: record,
+            fromCustom: managedReadback
+        ) else {
+            parkRestore(
+                record,
+                message: "RESTORE managed-setting readback is missing or mismatched (\(reason)) — will retry"
+            )
+            return
         }
 
         do {
             try removeSentinelFile()
         } catch {
-            log.error("RESTORE verified normal sleep but sentinel cleanup failed (\(reason)) — will retry")
-            sentinel = nil
-            armedConnectionID = nil
-            watchdogDeadline = .distantFuture
-            restorePending = record
-            scheduleRestoreRetry()
+            parkRestore(
+                record,
+                message: "RESTORE verified all managed state but sentinel cleanup failed (\(reason)) — will retry"
+            )
             return
         }
         sentinel = nil
         armedConnectionID = nil
         watchdogDeadline = .distantFuture
         restorePending = nil
-        log.info("restored normal sleep (\(reason))")
+        log.info("restored normal sleep and all managed settings (\(reason))")
+    }
+
+    private func parkRestore(_ record: OverrideSentinel, message: String) {
+        log.critical(message)
+        sentinel = nil
+        armedConnectionID = nil
+        watchdogDeadline = .distantFuture
+        restorePending = record
+        scheduleRestoreRetry()
     }
 
     private func scheduleRestoreRetry() {

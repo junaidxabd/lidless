@@ -91,8 +91,9 @@ public struct HelperStatus: Codable, Sendable, Equatable {
     /// Optional for wire compatibility with an older helper; missing is not
     /// proof and must be treated as unverified by safety-sensitive callers.
     public var sleepStateVerified: Bool?
-    /// The helper failed to prove restoration and is retaining its sentinel
-    /// while retrying. Optional for wire compatibility; missing is unknown.
+    /// The helper failed to prove restoration of sleep or another
+    /// helper-managed pmset value and is retaining its sentinel while
+    /// retrying. Optional for wire compatibility; missing is unknown.
     public var restorePending: Bool?
     public var armedSince: Date?
     public var watchdogDeadline: Date?
@@ -143,9 +144,15 @@ public struct HelperReply: Codable, Sendable, Equatable {
 /// - Helper launch (crash restart via `KeepAlive.PathState`, or boot via
 ///   `RunAtLoad`): sentinel present → restore prior state, delete sentinel.
 /// - Watchdog expiry: same.
-/// - The prior values below make restore idempotent and non-destructive even
-///   if the user had unusual pmset settings before arming.
+/// - Version 2 scopes optional mutations exactly to the numeric prior values
+///   below, making restore idempotent and non-destructive even when the user
+///   had unusual pmset settings before arming.
 public struct OverrideSentinel: Codable, Sendable, Equatable {
+    /// Version 2 means optional pmset mutations are scoped exactly to the
+    /// captured power sources. Version 1 used `-a`; its optional metadata
+    /// cannot prove that every mutated source has a recorded prior.
+    public static let currentVersion = 2
+
     public var version: Int
     public var armedAt: Date
     public var watchdogTTL: TimeInterval
@@ -166,7 +173,7 @@ public struct OverrideSentinel: Codable, Sendable, Equatable {
     public var priorTCPKeepAlive: [String: Int]?
 
     public init(
-        version: Int = 1,
+        version: Int = OverrideSentinel.currentVersion,
         armedAt: Date,
         watchdogTTL: TimeInterval,
         watchdogDeadline: Date,

@@ -51,6 +51,11 @@ struct HelperTerminationSafetyTests {
             from: "fileprivate func handleDisarm(",
             through: "fileprivate func handleRepairOverride("
         )
+        let restoreParking = try section(
+            of: source,
+            from: "private func parkRestore(",
+            through: "private func scheduleRestoreRetry()"
+        )
         let architecture = try repositoryFile("ARCHITECTURE.md")
         let normalizedArchitecture = architecture
             .split(whereSeparator: \.isWhitespace)
@@ -65,7 +70,8 @@ struct HelperTerminationSafetyTests {
             "HelperTerminationSafety.restoreRetryDelay(terminationRequested: terminationRequested)"
         ))
         #expect(!source.contains("nextRestoreAttempt = .now() + 30"))
-        #expect(source.components(separatedBy: "scheduleRestoreRetry()").count - 1 == 6)
+        #expect(restoreParking.contains("restorePending = record"))
+        #expect(restoreParking.contains("scheduleRestoreRetry()"))
         for operation in [".arm", ".repairOverride", ".scheduleWake", ".forceSleep"] {
             #expect(source.contains(
                 "HelperTerminationSafety.allows(\(operation), whileTerminationRequested: terminationRequested)"

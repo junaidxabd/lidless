@@ -2228,3 +2228,244 @@ blockers; this checkpoint is not upgrade-complete and must remain
   and the only unstaged/untracked paths are the six authenticated remainder
   paths. Only this terminal evidence entry is appended afterward; no selected
   product or test byte and no accepted verification result changed.
+
+## Twenty-fourth invocation — authenticated recovery
+
+- E-358 — 2026-08-06T04:49:44+0200 — Read the canonical handoff, immutable
+  starting-state manifest, rolling remainder manifest and its adjacent
+  sidecar, current progress and decision logs, architecture, design-reset
+  brief, and this complete append-only ledger before editing. The handoff and
+  immutable manifest matched their supplied SHA-256 values. The sidecar and
+  independently calculated rolling-manifest SHA-256 both equal
+  `bc5ef7e97430b7c6d9d087eeea6e85925ccdc357a16f2a818c0cccf644dbcd24`.
+  A recursive hidden-file scan found no repository-local `AGENTS.md`,
+  `CLAUDE.md`, `CODEX.md`, `GEMINI.md`, `.cursorrules`,
+  `copilot-instructions.md`, or matching instruction file. Before this append,
+  the ledger SHA-256 was
+  `ba8fff59efd4253be46933afe45fbb1849aee29d853c776a08bf20197fc6c02a`;
+  its required top-level `State: IN_PROGRESS`, branch, and starting HEAD were
+  already exact.
+- E-359 — 2026-08-06T04:49:44+0200 — Applied only the authenticated rolling
+  manifest as recovery authority. The feature canonical path, exact
+  two-worktree linked topology, branch, HEAD
+  `3221b3ffa4a3f4aa6f8e7f26da876d2c03b50542`, linked Git admin/common
+  directories, clean index, empty unmerged list, complete six-path dirty
+  inventory, and every recorded status/type/mode/size/raw SHA-256 matched
+  exactly with no extra or missing path. The NUL-delimited complete-status
+  digest was
+  `5cf63a070dfe49313ecf75b3b2b7c3995af41ba5f22a8c4c39523108c7863b09`
+  and the tracked binary-diff digest was
+  `9246b662e27202b4da57f7adb476aae9ab0133cae5176c50d3a8a115cc34ea6f`.
+  Starting HEAD `7f17aaca11bc6228bed48b9265d63b9e576cdea7` remains an ancestor. The
+  historical manifest was not applied to this post-checkpoint state; recovery
+  passed before this first edit.
+- E-360 — 2026-08-06T04:49:44+0200 — Independently reverified the main
+  checkout without editing it: canonical path and linked topology, `main` at
+  starting HEAD, clean index, empty unmerged list and tracked diff, complete
+  three-path `.playwright-mcp` inventory, and every recorded
+  status/type/mode/size/raw SHA-256 matched exactly. Its NUL-status digest was
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`
+  and its tracked binary-diff digest was
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+  The main checkout remains untouched.
+- E-361 — 2026-08-06T04:58:07+0200 — A separate read-only recovery audit
+  independently reproduced the rolling-manifest sidecar, feature and main
+  canonical paths/topology/branches/HEADs, clean indexes, empty unmerged
+  inventories, complete dirty path metadata and bytes, both NUL-status
+  digests, and both tracked binary-diff digests with no mismatch. The reviewer
+  made no file or index edit.
+- E-362 — 2026-08-06T04:58:07+0200 — Preserved a complete current-tree
+  baseline in
+  `build/verification-2026-08-06-twenty-fourth/swift-test-preserved-baseline.log`
+  (714 lines; SHA-256
+  `6515604dc78bca3ba69434209d5f37e22758cf99992e6d654663965b7260923a`).
+  Under Xcode 26.5 / Swift 6.3.2 with an isolated scratch/cache and no product
+  launch, `swift test --package-path Packages/LidlessCore --disable-sandbox`
+  passed all 278 tests in 27 suites. This includes the six authenticated
+  remainder paths and therefore establishes behavior only; it does not accept
+  those paths as implementation authority.
+- E-363 — 2026-08-06T04:58:07+0200 — Two independent read-only code reviews
+  rejected the authenticated six-path remainder as a checkpoint: its new
+  helper-removal Boolean wrappers are unused duplicates that erase richer
+  admission/action semantics; its tests largely exercise those dead APIs or
+  duplicate committed coverage; and its progress/design text is stale or
+  outside this safety invocation. The selected bounded root cause instead is
+  optional managed-setting restoration: `performRestore` currently deletes
+  the recovery sentinel after ignoring Low Power Mode / `tcpkeepalive`
+  failures, while `PMSet.restore` suppresses a partial failure and arming uses
+  `-a` even when only a subset of per-source priors was captured. Strict
+  per-source planning, all-command failure propagation, fresh custom readback,
+  exact restoration proof, and a helper safety-revision bump are one coherent
+  offline checkpoint. Wake-ledger atomicity and safe stale-helper replacement
+  remain separate open gates.
+- E-364 — 2026-08-06T04:58:07+0200 — Added the focused managed-setting
+  policy/source-order regression before production changes. The expected RED
+  failed at compile time because `ManagedSettingRestorationSafety` did not
+  exist; the complete 865-line output is preserved at
+  `build/verification-2026-08-06-twenty-fourth/swift-test-managed-settings-red.log`
+  (SHA-256
+  `141538d113f79333c94a485b9d6ba61e8d1757d21c3ec4107a390c80a82677c6`).
+  The regression specifies supported per-source snapshots, rejection of
+  invalid/unrestorable sentinels, deterministic grouped activation/restore
+  plans, exact fresh readback proof, no-readback success only when there are
+  no managed priors, and proof-before-sentinel-removal source ordering.
+
+### Twenty-fourth finding and verification matrix
+
+| ID | Finding or invariant | Independent evidence and disposition | Verdict |
+|---|---|---|---|
+| T24-01 | The authenticated six-path remainder is not a coherent safety checkpoint | Two read-only reviews found unused/lossy removal wrappers, duplicative tests, stale progress text, and out-of-scope founder-gated design material. Every remainder status, mode, size, and raw hash remains exact and unstaged. | PRESERVED / EXCLUDED |
+| T24-02 | Optional `pmset` activation previously used `-a` after capturing only whichever per-source priors happened to parse | Schema-v2 policy now captures numeric Battery/AC/UPS priors only, builds deterministic grouped `-b`/`-c`/`-u` plans, and touches no unrecorded scope. Any per-scope command failure propagates. | FIXED OFFLINE |
+| T24-03 | Restore previously ignored partial LPM/`tcpkeepalive` failure and deleted the recovery sentinel without proving those values | Restore now proves normal sleep, validates and applies every scoped prior, obtains a fresh `pmset -g custom` readback, requires exact values, and only then removes the sentinel. Every failure parks the record and schedules retry. | FIXED OFFLINE |
+| T24-04 | Legacy optional or corrupt sentinel evidence cannot prove which scopes old `-a` activation mutated | Schema v2 is required for optional restoration. Plain schema v1 can restore sleep only; v1 with optional state, future versions, and the explicit version-0 corrupt fallback retain recovery evidence instead of claiming completion. | FAIL CLOSED |
+| T24-05 | New behavior must not be accepted from an older installed helper, and bounded-wait wording must not imply a real-time guarantee | App-required and helper-produced safety revisions are both 2. Tests reject missing, 0, 1, and 3. Source and architecture distinguish finite child-wait budgets from unbounded process launch, filesystem, IOKit, and earlier queue work. | FIXED OFFLINE / RUNTIME GATE OPEN |
+| T24-06 | Exact selected bytes must pass independently of the preserved remainder | Exported index tree `1dba5d53509e42c545c4e6d039324096a490316a` passed 7 focused, 21 related, and all 279 exact tests, both Core configurations, strict all-product typechecking, and unsigned Debug/Release direct links. | PASS OFFLINE |
+| T24-07 | Offline tests and loose unsigned executables cannot establish real power-setting restoration, XPC trust, launchd behavior, or hardware safety | No product or helper was launched and no live service, XPC, `pmset`, sleep, signing, or hardware action occurred. The inspected outputs have no code-signature load command and no entitlements. | SIGNED-RUNTIME / HARDWARE GATES OPEN |
+
+### Twenty-fourth append-only evidence log (continued)
+
+- E-365 — 2026-08-06T05:21:44+0200 — Implemented the bounded managed-setting
+  root-cause group. `ManagedSettingRestorationSafety` accepts only the current
+  schema, supported keys, supported power scopes, nonempty numeric prior maps,
+  and internally consistent LPM key/prior pairs. It deterministically groups
+  activation or restoration settings into at most three scope commands.
+  `PMSet.apply` is fail-fast with no swallowed partial failure. Fresh arms
+  persist all possibly touched priors before optional application; restore
+  proves sleep, applies every managed prior, obtains a fresh custom snapshot,
+  proves every exact value, and removes the sentinel only afterward. All
+  failure paths converge on `parkRestore`, retain recovery ownership, and
+  schedule retry. Sentinel schema and the independently produced/required
+  helper safety revision advance to 2.
+- E-366 — 2026-08-06T05:21:44+0200 — The first complete working-tree GREEN
+  attempt exposed one stale lexical test that counted six literal
+  `scheduleRestoreRetry()` call sites after retry parking was centralized; all
+  production behavior had passed, but the complete run correctly remained
+  rejected (`swift-test-full-managed-settings.log`, 734 lines, SHA-256
+  `9adddb1bb68f3d678c3951a59d66644f203835aa937c1ea599602ed6fb3f4424`).
+  The test now asserts the semantic invariant inside `parkRestore`: it stores
+  `restorePending = record` before calling `scheduleRestoreRetry()`. The final
+  literal command `swift test --package-path Packages/LidlessCore
+  --disable-sandbox` passed all 286 tests in 28 suites, including the seven
+  excluded remainder tests
+  (`swift-test-full-working-managed-settings-terminal.log`, 733 lines,
+  SHA-256
+  `7d90a2cbd5608111cc2f953edac22a77431665aedfd884dc98c4feb2f8053195`).
+- E-367 — 2026-08-06T05:21:44+0200 — Independent adversarial review found and
+  closed three checkpoint hazards: a schema-v1 optional sentinel could not
+  inherit v2 scoped semantics; a synthetic corrupt fallback must be explicit
+  version 0 rather than accidentally defaulting to the current schema; and
+  child wait budgets must not be described as whole-command or queue
+  real-time bounds. A production-wiring regression pins version 0 before the
+  corrupt recovery call, and source/architecture wording now states the
+  remaining unbounded work. The final reviewer verdict found no remaining
+  concrete production-semantic defect and made no source or index edit.
+- E-368 — 2026-08-06T05:21:44+0200 — Curated exactly 11 paths: architecture,
+  this ledger, helper daemon and `PMSet`, sentinel/revision Core sources, the
+  new pure policy, three adjusted safety suites, and its new focused suite.
+  The six authenticated remainder paths are not staged. Before these
+  continued ledger entries, `git diff --cached --check` passed; exported index
+  tree `1dba5d53509e42c545c4e6d039324096a490316a` had staged binary-diff SHA-256
+  `74f09fb871c193e991f5c7a2bd73315e0d8c1bf41d094935bff234c155308751`.
+  Its 130-file raw input manifest has SHA-256
+  `e1ffacf0f9771fff63c313f45782799cf24d1861dbe2dfcf4093d6c8ef305202`.
+  Only append-only ledger bytes change after this tested export; terminal
+  review must prove every selected non-ledger blob still matches that tree.
+- E-369 — 2026-08-06T05:21:44+0200 — The exact exported tree passed all 7
+  managed-setting focused tests
+  (`swift-test-managed-settings-focused-exact-terminal.log`, SHA-256
+  `dba1a0dbb6a16fedd392cef5a3078ef5f4018850324dfcb6a9d838682ccfb32c`),
+  21 related tests across managed restoration, helper revision, supervision
+  timing, and termination
+  (`swift-test-managed-settings-related-exact-terminal.log`, SHA-256
+  `68ac71b5722652f51762821913f770d21110549cb5f16b93196d6e17ecdae67a`),
+  and all 279 exact tests in 27 suites
+  (`swift-test-managed-settings-full-exact-terminal.log`, SHA-256
+  `22d5ccff0bed3955ff820429625a814c3a2ca57a13f706b4f69694615737eee6`).
+  The exact suite excludes the authenticated seven-test remainder suite by
+  construction; E-366 proves coexistence in the complete working tree.
+- E-370 — 2026-08-06T05:21:44+0200 — Under Xcode 26.5 / Swift 6.3.2, exact
+  Debug and Release `LidlessCore` builds passed with signing disabled
+  (`swift-build-core-debug-managed-settings-exact-terminal.log`, SHA-256
+  `6202705e9a8856108834699b3065c873773d02f3567f28af16e7a99b05155e40`;
+  Release SHA-256
+  `a215a4781e9b5e9aad8390c8b3ae562b9f16c1a0bb3eaa4db1ff7beb1a8b6bcd`).
+  All 25 App, 4 helper, and 1 widget sources passed macOS 15 Swift 6 complete
+  strict-concurrency typechecking with warnings-as-errors
+  (`swiftc-all-products-typecheck-managed-settings-exact-terminal.log`,
+  SHA-256
+  `07c19f344db52ba496f8d91ed4561bf924f2e5e845323f44dfb86243e64a6c96`).
+  With `CODE_SIGNING_ALLOWED=NO`, `CODE_SIGNING_REQUIRED=NO`, compiler sandbox
+  disabling, and linker ad-hoc signing disabled, every exact product source
+  set and all 28 Core objects linked in Debug
+  (`direct-all-products-debug-managed-settings-exact-terminal.log`, SHA-256
+  `388fef882533cdbc4496c3093e95c578a85a0f8e19969f6d65f6a274522e961c`)
+  and optimized Release (SHA-256
+  `37e7ad30d3776a2aa2b5021f74a924af98747ff783fc6831bac0911c667ca044`).
+  The exact toolchain record has SHA-256
+  `655f4ec210446d6e1a204891e89ef7f2f3c3d41d981d806297c31509a7f1b28b`.
+- E-371 — 2026-08-06T05:21:44+0200 —
+  `artifact-inspection-managed-settings-exact-terminal.log` (108 lines,
+  SHA-256
+  `d2fea4a3e02899d9200ca3ce7e77b27a1bd9de65fae5cbb84be28f1cc8821933`)
+  records modes, sizes, hashes, thin arm64 file types, macOS 15 / SDK 26.5
+  build-version commands, absence of `LC_CODE_SIGNATURE`, and expected
+  unsigned codesign verdicts for all six loose Debug/Release outputs.
+  `config-plist-entitlement-inspection-managed-settings-exact-terminal.log`
+  (220 lines, SHA-256
+  `746ba5852844e266989a8dbfcb76d9f8cf8bbbceaaa8f56dc66cfee321fd09dc`)
+  preserves lint and decoded App/helper/widget plist and entitlement sources,
+  project bindings, exact schema/revision constants, scoped policy wiring,
+  and the local `pmset(1)` description of `-b`/`-c`/`-u` versus `-a`. These
+  are loose executables and source configurations, not built bundles, signed
+  identity, embedded-entitlement, XPC, or runtime trust evidence.
+- E-372 — 2026-08-06T05:21:44+0200 — Reverified the feature remainder and main
+  checkout after all tests/builds in
+  `main-and-remainder-preservation-managed-settings-precommit.log` (46 lines,
+  SHA-256
+  `dbe8eaabf5c75e0ed6c102db11f3c3cf50bc0926e016cf4ad28d4d3c6c0608e2`).
+  The exact two-worktree topology, feature branch/precommit HEAD/common Git
+  directory, empty unmerged list, all six remainder statuses/modes/sizes/raw
+  hashes, NUL-status SHA-256
+  `5cf63a070dfe49313ecf75b3b2b7c3995af41ba5f22a8c4c39523108c7863b09`,
+  and remainder tracked binary-diff SHA-256
+  `9246b662e27202b4da57f7adb476aae9ab0133cae5176c50d3a8a115cc34ea6f`
+  match the rolling authority. The main remains `main` at starting HEAD with a
+  clean index/tracked diff, exact three-path `.playwright-mcp` inventory,
+  status SHA-256
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked binary-diff SHA-256.
+- E-373 — 2026-08-06T05:21:44+0200 — Both staged and tracked-unstaged
+  `git diff --check` passed; separate `--no-index --check` checks found no
+  whitespace error in either untracked remainder file. No App/helper/widget
+  process, helper install/activation/registration/approval/unregister, live
+  XPC, mutating `pmset`, sleep-setting change, sleep/wake, hardware,
+  authentication, credential, plugin/provider/connector, Figma, network
+  publication, release, notarization, merge, push, deploy, or main-checkout
+  mutation was performed. Project-native Xcode build/analyze was not retried
+  after the established nested-sandbox failure and automatic LaunchServices
+  side-effect constraint; strict compiler analysis and direct unsigned builds
+  are the bounded static evidence. Real per-source mutation/readback, old-v1
+  optional recovery, signed XPC trust, SMAppService lifecycle, process-launch
+  timing, crash/restart, sleep/wake, closed-lid behavior, stale-helper safe
+  replacement, wake-ledger persistence, registry atomicity, notarization, and
+  release readiness remain open gates.
+- E-374 — 2026-08-06T05:21:44+0200 — The coherent checkpoint is prepared under
+  subject `safety: prove managed pmset restoration`. `State: IN_PROGRESS` is
+  intentionally retained because the authenticated six-path remainder and
+  separate safety/runtime/hardware gates remain. After exactly one local
+  commit, the supervisor must bind the exact remaining tree into a fresh
+  rolling manifest before another invocation.
+- E-375 — 2026-08-06T05:24:07+0200 — Reviewed the complete 11-path staged
+  patch. `final-staged-review-managed-settings.log` (1,471 lines, SHA-256
+  `efddf014fcbcdcefe98c36b0759754b1989629123573f78f70a065c05260e96c`)
+  records the full staged binary patch, sole top-level `State: IN_PROGRESS`,
+  exact selected/remainder path sets, pre-terminal index tree
+  `abdd2086661e76c9c5265444a4c9c7487608061e`, and pre-terminal staged
+  binary-diff SHA-256
+  `2ac04ca67373e85e9d209849820e1788cd2b9dcbd9bc58808611b679254f11a6`.
+  Every selected non-ledger index blob matches tested tree
+  `1dba5d53509e42c545c4e6d039324096a490316a` byte-for-byte. Both staged and
+  complete tracked working-tree whitespace checks pass, and the only
+  unstaged/untracked paths are the six authenticated remainder paths. Only
+  this terminal evidence entry is appended afterward; no selected product or
+  test byte and no accepted verification result changed.

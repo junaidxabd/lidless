@@ -17,6 +17,14 @@ enum PMSet {
         }
     }
 
+    struct ManagedSettingPlanError: Error, CustomStringConvertible {
+        let scope: ManagedSettingRestorationSafety.Scope
+
+        var description: String {
+            "managed-setting plan for \(scope.rawValue) contained no settings"
+        }
+    }
+
     /// A hung pmset (wedged powerd) must never consume the daemon's minimum
     /// watchdog lifetime: the watchdog, connection invalidation, restore
     /// retries, and SIGTERM all share the serial state queue. The timeout and
@@ -82,16 +90,6 @@ enum PMSet {
 
     // MARK: - Managed settings (Low Power Mode, tcpkeepalive)
 
-    /// pmset flag for a `pmset -g custom` section name.
-    static func scopeFlag(forSection section: String) -> String? {
-        switch section {
-        case "Battery Power": "-b"
-        case "AC Power": "-c"
-        case "UPS Power": "-u"
-        default: nil
-        }
-    }
-
     /// The key managing Low Power Mode on this system, discovered from
     /// current settings: "lowpowermode" (older) or "powermode" (newer).
     /// nil when the machine supports neither.
@@ -107,25 +105,23 @@ enum PMSet {
         try run(["-g", "custom"])
     }
 
-    static func setEverywhere(key: String, value: Int) throws {
-        try run(["-a", key, String(value)])
-    }
-
-    /// Restore a per-section snapshot captured at arm time. Best-effort per
-    /// section; throws only if every section fails.
-    static func restore(key: String, sections: [String: Int]) throws {
-        var lastError: Error?
-        var succeededAny = sections.isEmpty
-        for (section, value) in sections {
-            guard let flag = scopeFlag(forSection: section) else { continue }
-            do {
-                try run([flag, key, String(value)])
-                succeededAny = true
-            } catch {
-                lastError = error
+    /// Applies one command per captured power-source scope. A scope's settings
+    /// are grouped into one invocation, and any failed invocation fails the
+    /// whole attempt so the sentinel-backed restore loop can retry.
+    static func apply(
+        _ plan: [ManagedSettingRestorationSafety.ScopedMutation]
+    ) throws {
+        for scopedMutation in plan {
+            guard !scopedMutation.settings.isEmpty else {
+                throw ManagedSettingPlanError(scope: scopedMutation.scope)
             }
+            var arguments = [scopedMutation.scope.pmsetFlag]
+            for setting in scopedMutation.settings {
+                arguments.append(setting.key)
+                arguments.append(String(setting.value))
+            }
+            try run(arguments)
         }
-        if !succeededAny, let lastError { throw lastError }
     }
 
     // MARK: - Scheduled wake

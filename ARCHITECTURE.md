@@ -35,7 +35,7 @@ Security system frameworks; it performs no system mutations. `CutoffEngine`
 evaluation), `ScheduleEngine` (recurring windows, midnight wrap, DST-safe),
 `DrainEstimator` (least-squares %/hr over the trailing discharge run),
 `PMSetParser` (every piece of pmset text parsing in one tested module), the
-XPC payload types, and the sentinel model. 271 deterministic tests; the
+XPC payload types, and the sentinel model. 279 deterministic tests; the
 policies that decide when your battery stops draining are never buried in UI
 code.
 
@@ -62,9 +62,13 @@ Mechanisms, layered so no single failure strands the override:
 
 1. **Sentinel-first ordering.** `/var/db/lidless/override-active` is written
    (0600, root) *before* `disablesleep 1` runs and removed only *after* a
-   verified restore. It records the LPM key (`lowpowermode`/`powermode` —
-   differs across macOS releases), `tcpkeepalive` priors, and a legacy
-   `disablesleep` field, so recovery needs no app state. Protocol v5 and later
+   verified restore. Sentinel schema v2 records the LPM key
+   (`lowpowermode`/`powermode` — differs across macOS releases) and numeric
+   LPM/`tcpkeepalive` priors only for the exact Battery/AC/UPS scopes Lidless
+   mutates, plus a legacy `disablesleep` field, so recovery needs no app state.
+   A schema-v1 sentinel with optional state cannot claim those scoped
+   semantics and remains pending for explicit recovery; v1 without optional
+   state can still restore normal sleep. Protocol v5 and later
    refuse to arm over a measured external override and always restore ordinary
    sleep (`disablesleep 0`). The disk record is immutable while active;
    heartbeat and re-arm deadlines live only in queue-owned memory because
@@ -77,16 +81,20 @@ Mechanisms, layered so no single failure strands the override:
 4. **launchd as the last supervisor.** `KeepAlive.PathState` on the sentinel
    relaunches a crashed helper *while the override is active*; `RunAtLoad`
    runs a restore pass at boot. Every helper launch begins: "sentinel exists
-   → restore, then serve." A corrupt sentinel restores to safe defaults
-   (`disablesleep 0`).
+   → restore, then serve." A corrupt sentinel forces `disablesleep 0`, but its
+   optional priors are unprovable: the helper marks recovery pending and
+   retains the corrupt evidence rather than claiming a complete restore.
 5. **Forced-sleep detection.** `disablesleep` makes ordinary sleep
    impossible, so a `kIOMessageSystemWillSleep` while armed means the user
    forced it — the helper releases the override on the way down so the Mac
    *stays* asleep.
-6. **Restore failure never gives up.** If `pmset` errors, the sentinel stays,
-   the state machine parks in `restorePending`, and the tick retries every
-   30 s (launchd keeps the process alive because the sentinel exists).
-   Arming is refused while a restore is pending.
+6. **Restore failure never gives up.** Normal sleep is proved first. Every
+   recorded optional value is then restored through grouped per-scope
+   commands and must match a fresh `pmset -g custom` readback before the
+   sentinel can leave. A command error, invalid snapshot, missing/mismatched
+   readback, or sentinel-deletion error parks in `restorePending`; the tick
+   retries every 30 s (launchd keeps the process alive because the sentinel
+   exists). Arming is refused while a restore is pending.
 7. **SIGTERM/SIGINT fail closed.** A signal latches termination and restores on
    the serial state queue. It voluntarily exits only after no helper-owned
    recovery remains; an owned sentinel or pending restore clears only after
@@ -97,11 +105,15 @@ Mechanisms, layered so no single failure strands the override:
    still force-kill the process, so launchd escalation and shutdown timing
    remain live validation gates rather than offline guarantees.
 8. **Bounded state-queue work while armed.** Each `pmset` child gets 3 s,
-   followed by at most 1 s to observe forced termination. No more than two
-   such calls may precede queued supervision at the 15 s minimum TTL, and
-   wake scheduling is deferred while armed or recovering. This bounds the
-   helper's child-process waits; it is not a formal real-time bound on every
-   filesystem, process-launch, or IOKit call.
+   followed by at most 1 s to observe forced termination. The critical
+   enable/rollback interval is at most two calls; post-proof optional work is
+   grouped into at most three power-scope calls, strictly below the 15 s
+   minimum TTL. Once a restore starts executing, its at-most-five child calls
+   (sleep restore, three scopes, custom readback) have a 20 s child-process
+   bound. Prior queue occupancy — including post-reply optional activation —
+   plus filesystem, process-launch, and IOKit work can still outlive the app's
+   25 s local deadline; that timeout is outcome-unknown, not cancellation or
+   restore proof. Wake scheduling is deferred while armed or recovering.
 
 The helper rechecks the registry after the potentially unbounded initial
 sentinel write and immediately before installing in-memory ownership and
@@ -148,7 +160,7 @@ encoding for XPC, sentinel, and logs); malformed input produces an error
 reply, never a crash. Every reply carries a fresh `HelperStatus` including
 the *read-back* override value. Readiness and every app-side arm, restore,
 outside-ownership, enabled-registration removal, and scheduled-wake acceptance
-boundary require both protocol v6 and the exact safety behavior revision 1.
+boundary require both protocol v6 and the exact safety behavior revision 2.
 A missing, older, or future revision is stale and cannot supply proof. The
 revision is self-reported compatibility metadata, not executable attestation
 or an installation receipt; safely replacing an already registered stale
@@ -172,11 +184,14 @@ helper remains a separate deployment gate.
    the override inactive → writes the sentinel → proves it inactive again →
    installs the connection owner and monotonic watchdog → runs
    `disablesleep 1` → verifies via registry read-back (restoring on mismatch)
-   → replies with proof → performs best-effort LPM/tcpkeepalive. Only after
-   the proven reply does the app create the session record, start the 10 s
+   → replies with proof → performs best-effort LPM/`tcpkeepalive`, grouped only
+   across scopes with captured numeric priors. A partial optional application
+   does not revoke the already-proven sleep arm, but the sentinel retains every
+   possibly touched prior and later restoration is strict. Only after the
+   proven reply does the app create the session record, start the 10 s
    heartbeat and 5-minute battery sampling, post the arm notification, and
-   spring the UI into the armed state. Any failure lands back in `disarmed`
-   with the error surfaced.
+   spring the UI into the armed state. Any failure before proof lands back in
+   `disarmed` with the error surfaced.
 5. **While armed**, a 15 s tick evaluates the engine against live inputs.
    Thermal violations debounce (2 consecutive readings, ≥ 30 s apart);
    plugging in suspends the floor; config edits apply live. Pre-cutoff
@@ -198,7 +213,7 @@ mode (`--render-screenshots`), so the docs can never drift from the real UI.
 ## Project layout
 
 ```
-Packages/LidlessCore/    pure logic + 271 tests (swift test)
+Packages/LidlessCore/    pure logic + 279 tests (swift test)
 App/Sources/             AppState, monitors, HelperClient, services, SwiftUI
 Helper/                  daemon (PMSet, HelperDaemon, launchd plist)
 Widget/                  WidgetKit mirror of the published snapshot
