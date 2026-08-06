@@ -1297,3 +1297,218 @@ and build-freshness evidence are implemented and tested.
 - E-292 — 2026-08-06T02:35:19+0200 — Final pre-commit main-checkout preservation passed in `main-preservation-signal-nineteenth-precommit-corrected.log` (SHA-256 `4b3136d461b222d9323c3d711d99c8e8a5b30c561813cd9728738a62000fa74c`): canonical path, exact two-worktree topology, shared Git common directory, main `main` branch/starting HEAD, clean index and tracked diff, complete three-path `.playwright-mcp` inventory, every type/mode/size/raw SHA-256, NUL-status digest `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`, and empty tracked binary-diff digest matched the authenticated rolling manifest exactly. The first harness resolved main's relative `.git` against the feature directory and stopped on the resulting false common-directory mismatch before file comparison (`main-preservation-signal-nineteenth-precommit.log`, SHA-256 `5d64630d66ee580605930ebd7936fe524723bc4f4127e84769066fe7afbe40a3`); it changed nothing and is not counted.
 - E-293 — 2026-08-06T02:35:19+0200 — No App/helper/widget process, helper install/activation/registration/approval/unregister, live XPC, `pmset`, sleep-setting mutation, sleep/wake, hardware, authentication, plugin/provider/connector, Figma, network publication, release, notarization, merge, push, or main-checkout mutation was performed. Project-native Xcode build/analyze was not retried after the established nested-sandbox failure and automatic LaunchServices side-effect constraint. The checkpoint is prepared under subject `safety: retain helper recovery on termination`. Exactly the five reviewed signal code/test/documentation paths plus this append-only ledger are selected; all uninstall, broad removal, smoke, orchestration, and design remainder stays unstaged. `State: IN_PROGRESS` is intentionally retained. After this single local commit, the supervisor must authenticate the exact remaining tree in a fresh rolling manifest before another invocation.
 - E-294 — 2026-08-06T02:38:28+0200 — Reviewed the complete six-path staged diff. `final-staged-review-signal-nineteenth.log` (SHA-256 `f411901ba39394a94650ecd1ad30b9d5f9d1834152d144fd10b119479f60a477`) records the full patch and confirmed the exact path set, `State: IN_PROGRESS`, a 110-addition/zero-deletion ledger append, staged tree `0c83815f70f5664a666476799845f43ad53371a2`, full staged binary-diff SHA-256 `45ae367d8331771de072f04f6bfa2eba12aefabb6defc152cb0cc64ab7d6ad19`, unchanged five-file code-diff SHA-256 `ea8f57e2f9b873dba12d3a255524f8288277b965e44cdfc3e47a70e4f8c484e8`, byte equality between every selected code/test index blob and the independently tested export, exclusion of uninstall/version/remainder bytes, and both complete working-tree and staged-diff whitespace checks. Only this final append is added afterward.
+
+## Twentieth recovery audit — authenticated helper-removal remainder
+
+- E-295 — 2026-08-06T02:43:45+0200 — Read the canonical handoff,
+  immutable starting-state manifest, authenticated rolling remainder manifest
+  and adjacent sidecar, progress log, decision log, architecture, and
+  design-reset brief in full. The canonical handoff SHA-256
+  `95bdacdde663c642c2f97d532c1ec2b931e94a7dfcda47b8031e011ab3944831`
+  and immutable-manifest SHA-256
+  `d84065171a261e24ae574b98164132472ff1e8bb635647403d814b9fcf58c36a`
+  matched their supplied values. The sidecar-recorded rolling-manifest SHA-256
+  `5e7ceefb948791e370212bcd8cb46fa9185fce69c3a29f65fa6d78bc41dbe848`
+  matched the manifest bytes. A recursive repository scan found no
+  `AGENTS.md`, `CLAUDE.md`, `CODEX.md`, or equivalent instruction file. The
+  existing 1,299-line ledger working copy matched its HEAD blob byte-for-byte
+  at SHA-256
+  `7880830ef9cdba70076be95372b5bcc86dc96b5475db83d4da19165e31dc6cc3`
+  before this append; its required top-level `State: IN_PROGRESS`, branch, and
+  starting HEAD were already exact.
+- E-296 — 2026-08-06T02:43:45+0200 — Applied only the authenticated rolling
+  manifest as recovery authority. The feature canonical path, exact
+  two-worktree linked topology, branch, HEAD
+  `5a3dbedd5a34316f905676d8773532e6af6c346f`, Git admin/common directories,
+  clean index, complete seven-path dirty inventory, every recorded
+  status/type/mode/size/raw SHA-256, NUL-status digest
+  `b776d916f5d2a7b21364484ee4ede9d5194dcc1be1fcb313fd526bc803890183`,
+  and tracked binary-diff digest
+  `213546c6be72f57d69bdcfcc0161bb27c535b7737171d3fa1c561c1b0dbdb87f`
+  matched exactly before editing. A preliminary newline-delimited status hash
+  differed because it did not preserve the manifest's NUL encoding; the
+  immediately corrected NUL-delimited reproduction matched and changed no
+  file. Starting HEAD
+  `7f17aaca11bc6228bed48b9265d63b9e576cdea7` remains an ancestor of the
+  authenticated checkpoint HEAD.
+- E-297 — 2026-08-06T02:43:45+0200 — Independently reverified the rolling
+  manifest's main-checkout record without editing it: canonical path and
+  linked topology, `main` at
+  `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, clean index, complete
+  three-path `.playwright-mcp` inventory, every recorded
+  status/type/mode/size/raw SHA-256, NUL-status digest
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked binary-diff digest
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`
+  matched exactly. The main checkout remains untouched.
+
+## Twentieth-checkpoint ruling — fence the daemon cleanup handoff
+
+The authenticated seven-path remainder is not coherent enough to accept as a
+single package. Complete diff review and three independent read-only audits
+confirmed duplicate and unused removal-policy APIs, source-shape-heavy broad
+tests, duplicate smoke assertions, stale orchestration claims, unrelated
+design material, and unresolved daemon cleanup defects. In particular, the
+uninstall reply still reuses status captured before wake/data cleanup; wake
+ledger removal and data deletion are not one transaction; failed data deletion
+can disable the file sink; the cleanup fence is not restart-durable; and
+ServiceManagement replacement/freshness, blocking-call timeouts, and live
+failure behavior remain open. None of those broad policy, smoke,
+orchestration, design, or additional uninstall bytes is selected.
+
+The selected defect is narrower. Once this daemon process began its fallible
+cleanup sequence, a partial failure or lost reply could leave the same serial
+queue willing to accept a new arm, heartbeat extension, forced sleep, wake
+schedule, or unowned override-repair transaction. The selected implementation
+latches a queue-local, monotonic `cleanupStarted` fence before cleanup's first
+restore, wake-cancellation, or file-deletion side effect. It rejects those
+risk-increasing operations while preserving observation, restoration of state
+the helper already owns, wake cancellation, and cleanup retry. The direct
+wake-cancellation path now retains its in-memory/persisted record when `pmset`
+cancellation fails instead of clearing proof with `try?`.
+
+This is a same-process admission checkpoint, not a durable cleanup protocol.
+A daemon restart resets the fence; another process cannot observe it; work
+already executing on the serial queue precedes it; the helper protocol remains
+v6 and cannot prove that an installed executable contains these bytes; and no
+test invokes a daemon, XPC request, `pmset`, ServiceManagement, sleep/wake,
+launchd restart, or cleanup fault. The production-wiring regression is exact
+source-order evidence rather than an executable daemon integration test.
+
+### Twentieth-checkpoint finding and verification matrix
+
+| ID | Invariant | Exact checkpoint evidence | Remaining boundary | Ruling |
+| --- | --- | --- | --- | --- |
+| S-48 | Cleanup admission closes before this daemon process performs its first fallible cleanup side effect | The queue-local fence is assigned `.cleanupStarted` before restore, wake cancellation, data deletion, or success reply; pure operation tables reject arm, heartbeat, force sleep, new wake scheduling, and new override repair | The fence is not persistent or cross-process, does not cover already-running queue work, and does not prove cleanup completion | CHECKPOINT VERIFIED OFFLINE — RESTART/CROSS-PROCESS/COMPLETION GATES OPEN |
+| S-49 | Cleanup ambiguity does not block already-owned recovery work | The policy admits observation, owned restoration, wake cancellation, and cleanup retry; repair classifies existing sentinel/pending recovery separately from a new repair; uninstall remains callable after the latch | No live retry, restore, XPC, `pmset`, or failure-injection path was executed | CHECKPOINT VERIFIED OFFLINE — LIVE/FAULT GATES OPEN |
+| S-50 | Failed direct wake cancellation cannot discard the daemon's only scheduled-wake record | The `epoch <= 0` branch returns a failure before clearing or persisting `scheduledWake`; the focused RED caught the prior `try?`/clear ordering | Wake persistence and uninstall-time cancellation remain non-transactional; external state was not observed | CHECKPOINT VERIFIED OFFLINE — PERSISTENCE/PMSET GATES OPEN |
+| V-31 | Exact selected bytes pass RED/GREEN, focused, complete, strict compile, and unsigned Debug/Release checks | Pre-ledger tree `d96cd5a370153f87f14b7f59a9cfb6c8bcdac05f` passed 3 exact focused tests, all 261 exact tests, Debug/Release core builds and App/helper/widget links, plus Swift 6 complete-concurrency typechecking with warnings-as-errors | The wiring test reads exact source; project-native Xcode build/analyze was not retried under the established nested-sandbox and automatic LaunchServices side-effect constraint | PASS FOR EXACT OFFLINE CODE — EXECUTABLE-INTEGRATION/XCODE GRAPH OPEN |
+| V-32 | Loose build and source-configuration evidence remains bounded to what was inspected | Six direct arm64 outputs target macOS 15 / SDK 26.5, lack `LC_CODE_SIGNATURE`, and fail `codesign` inspection as unsigned; source plists/entitlements and the project file linted, decoded, and matched project bindings | Outputs are not bundles and prove no bound entitlement, signing identity, installed helper, XPC trust, registration, notarization, or runtime behavior | PARTIAL — BUNDLE/SIGNING/RUNTIME GATES OPEN |
+
+- E-298 — 2026-08-06T03:03:15+0200 — Reproduced the complete authenticated
+  dirty-package baseline before accepting a remainder claim. Xcode-beta 27.0
+  Swift passed 265 tests in 24 suites in
+  `swift-test-twentieth-dirty-baseline.log` (SHA-256
+  `dad6813069607f07228031bc40a523e05dcd635655714a6598b4ce625bd2e362`).
+  Complete diff review plus three independent read-only audits rejected the
+  broad remainder for the concrete defects and evidence limits listed above.
+  No reviewer edited a file.
+- E-299 — 2026-08-06T03:03:15+0200 — Confirmed the separable daemon defect:
+  cleanup could begin and fail ambiguously while the same daemon process
+  remained open to new risk-increasing work. The initial focused RED failed
+  because `HelperRemovalDaemonSafety` did not exist
+  (`swift-test-helper-removal-daemon-fence-red.log`, SHA-256
+  `c37e216fdfccb2e6ee0f7b7bb85e19b2ce0a05388f91f05fccef36ce12a52f28`).
+  The policy and queue-local wiring then made the operation table GREEN.
+- E-300 — 2026-08-06T03:03:15+0200 — Adversarial review tightened the
+  checkpoint to cover request-time and delayed force sleep, watchdog
+  heartbeat, existing-owned versus new override repair, new wake versus wake
+  cancellation, and latch ordering. The hardened test exposed a second RED:
+  direct wake cancellation used `try?`, cleared `scheduledWake`, and persisted
+  that loss even when cancellation failed
+  (`swift-test-helper-removal-daemon-cancel-red.log`, SHA-256
+  `79b29d25943f435f17cb0e3f2d84496090ca7b319a054cbb63153c410b178d8a`).
+  The focused correction returns failure and retains the record.
+- E-301 — 2026-08-06T03:03:15+0200 — Final focused working-tree GREEN passed
+  all 3 daemon-fence tests in
+  `swift-test-helper-removal-daemon-fence-hardened-green2.log` (SHA-256
+  `9861fcf46d26746f7e5f156b1cc81aaee6a606bdbf7b99443d8bb36870fa816c`),
+  and 23 related removal tests passed in 6 suites in
+  `swift-test-helper-removal-related-green.log` (SHA-256
+  `1a2717b4759a61f9d37f0e6e48c2dbc3943441a670b8161ac52af005d261cbf2`).
+  The complete dirty tree passed 268 tests in 25 suites in
+  `swift-test-twentieth-dirty-final.log` (SHA-256
+  `63d55ba1067c29702f83e2037c24737032f2e9c1682068c48b9ca69fed85ca9e`).
+  The unstaged broad removal test needed a source-anchor adaptation for that
+  dirty-tree pass; those adaptation bytes and the broad test remain excluded,
+  and the pass does not cure the rejected remainder.
+- E-302 — 2026-08-06T03:03:15+0200 — Curated exactly three code/test paths.
+  The immutable pre-ledger Git-index tree is
+  `d96cd5a370153f87f14b7f59a9cfb6c8bcdac05f`; its staged binary-diff SHA-256
+  is `1cff7b4b3210389f9d40baea646ec2d54c740dc244cae6d1e283e1a2c48e00f0`.
+  Exact staged blob SHA-256 values are
+  `bb604f45397ca0a1c8b29677ca1ffa2ad8a8bfcd92326faf8f576777a16f351a`
+  for `HelperDaemon.swift`,
+  `e0c02c67d7112d4f53d8546e2ab855c50fc16e3161b3952d4e533d54ae900e2a`
+  for the pure policy, and
+  `adabd1e656fda43a734f083e61c91b9338cec6c5f9e3311ae5f5b25a2287e3c2`
+  for the regression. The index was exported independently, each blob matched,
+  and `git diff --cached --check` passed.
+- E-303 — 2026-08-06T03:03:15+0200 — The exact index snapshot passed all 3
+  daemon-fence tests in
+  `swift-test-helper-removal-daemon-fence-exact-final.log` (SHA-256
+  `420d98dadda540abfc4601a9be094a28f89bef9dba1c8c35c6a0f2a1aa0ccf3c`)
+  and all 261 tests in 24 suites in
+  `swift-test-twentieth-exact-final.log` (SHA-256
+  `ceccffa98fb87809a710960301fa447864d7e1fbf1efde2642986c7d915f7401`).
+  Complete output is preserved; no App, helper, or widget product was launched.
+- E-304 — 2026-08-06T03:03:15+0200 — From that same exact snapshot, stable
+  Xcode 26.5 Swift 6.3.2 built `LidlessCore` and strictly compiled and directly
+  linked all 25 App, 4 helper, and 1 widget sources in Debug
+  (`direct-all-products-debug-twentieth-exact.log`, SHA-256
+  `5d4b82f7c5f9492c150813b40957dd8a0c59e0c1400e899d31ea59529c9c7daf`)
+  and optimized Release
+  (`direct-all-products-release-twentieth-exact.log`, SHA-256
+  `1f196f4e4b337327f476a201a0ab78a9c23b747079b830e3ae1a7ea60bdd2d4e`).
+  `CODE_SIGNING_ALLOWED=NO`, Swift 6 complete strict concurrency,
+  warnings-as-errors, compiler sandbox disabling, and linker ad-hoc-signature
+  disabling were explicit. A separate all-products typecheck passed with the
+  same strict settings in
+  `static-typecheck-all-products-twentieth-exact.log` (SHA-256
+  `37fdb73d01d2269b965104d9a20a3926ddba9797f70e8d3428c70c160ee2241b`).
+- E-305 — 2026-08-06T03:03:15+0200 —
+  `artifact-config-inspection-twentieth-exact.log` (SHA-256
+  `e203d1ea2f988703d0c3ec288de239e0ab5b50f7b203a25a396e4e14f03792f0`)
+  preserves file type, arm64 architecture, macOS 15 / SDK 26.5 build versions,
+  absence of `LC_CODE_SIGNATURE`, and `codesign`'s unsigned verdict for all six
+  loose Debug/Release products; the Debug helper exports the selected policy
+  symbols. The same log preserves lint and decoded values for the exact App,
+  helper, and widget plist/entitlement sources, project-file syntax, and the
+  relevant project bindings. These are unbundled compile artifacts, not
+  signed-runtime or release evidence.
+- E-306 — 2026-08-06T03:03:15+0200 — Independent daemon, adversarial, and
+  test-evidence reviews found no blocker within the narrow same-process,
+  serial-queue admission claim. They explicitly left restart and cross-process
+  persistence, ServiceManagement ABA/executable freshness, stale pre-cleanup
+  status, log-sink recovery, wake-ledger transactionality, cleanup completeness,
+  blocking-call timeouts, protocol-v6 freshness, and live XPC/`pmset` behavior
+  open. They also classified the production-wiring regression as source-shape
+  evidence rather than daemon execution evidence.
+- E-307 — 2026-08-06T03:03:15+0200 — Post-build main-checkout preservation
+  passed in `main-preservation-twentieth-precommit.log` (SHA-256
+  `cc4a148159127d7bee74d75058fe827454a4071e93643b344396524bff1c1bde`):
+  canonical paths, exact two-worktree topology, shared Git common directory,
+  main `main` branch/starting HEAD, clean index and tracked diff, complete
+  three-path `.playwright-mcp` inventory, every type/mode/size/raw SHA-256,
+  NUL-status digest
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked binary-diff digest matched the rolling authority exactly.
+- E-308 — 2026-08-06T03:03:15+0200 — No App/helper/widget process, helper
+  install/activation/registration/approval/unregister, live XPC, `pmset`, sleep
+  setting, sleep/wake, hardware, authentication, plugin/provider/connector,
+  Figma, network publication, release, notarization, merge, push, or
+  main-checkout mutation was performed. Project-native Xcode build/analyze was
+  not retried after the established nested-sandbox failure and automatic
+  LaunchServices side-effect constraint. The checkpoint is prepared under
+  subject `safety: fence daemon cleanup handoff`. Exactly the daemon fence
+  policy/wiring, focused regression, and this append-only ledger are selected;
+  all other removal, smoke, orchestration, and design remainder stays unstaged.
+  `State: IN_PROGRESS` is intentionally retained. After this single local
+  commit, the supervisor must authenticate the exact remaining tree in a fresh
+  rolling manifest before another invocation.
+- E-309 — 2026-08-06T03:05:17+0200 — Reviewed the complete four-path staged
+  diff. `final-staged-review-twentieth-corrected.log` (SHA-256
+  `59d0c9b259a3c915cfa74dd3eb14872c5612ff217d77c8d7f52d3d2a2827a3f1`)
+  records the full patch and confirmed the exact curated path set, the required
+  top-level `State: IN_PROGRESS`, a 199-addition/zero-deletion ledger append,
+  staged tree `4188d15f2201495d84207a4106b000dd795d228b`, full staged binary-diff
+  SHA-256 `e7708b317ff9ede9ced6a35670806717fb2ad4e8d09437d88d4c8a7683711edd`,
+  unchanged three-file code-diff SHA-256
+  `1cff7b4b3210389f9d40baea646ec2d54c740dc244cae6d1e283e1a2c48e00f0`,
+  byte equality between every selected code/test index blob and the independently
+  tested snapshot, and both complete working-tree and staged-diff whitespace
+  checks. The first review harness incorrectly asserted that `State` was the
+  ledger's first line instead of its established third line and stopped without
+  changing source or index (`final-staged-review-twentieth-pre-final-entry.log`,
+  SHA-256 `64261f1b35ccb8ab3feb992f757b42c1ad3b6b6db24cdbbc428e37dd255a2690`);
+  it is not counted. Only this final evidence entry is appended afterward.

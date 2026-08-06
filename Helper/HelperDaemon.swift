@@ -55,6 +55,11 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     /// system lifecycle intent arrives. This closes the nil -> active -> nil
     /// ABA window that a sentinel-only guard cannot detect.
     private var lifecycleGeneration = UUID()
+    /// Queue-local handoff fence latched before cleanup's first fallible side
+    /// effect. It closes risk-increasing work in this daemon process even when
+    /// cleanup fails or its reply is lost, without blocking already-owned
+    /// restoration.
+    private var helperRemovalFence: HelperRemovalDaemonSafety.Fence = .open
 
     // Supervision clocks are monotonic (mach time), never wall-clock: an NTP
     // step or manual clock change must neither extend the unsupervised
@@ -304,6 +309,10 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         advanceLifecycle()
         guard HelperTerminationSafety.allows(.arm, whileTerminationRequested: terminationRequested) else {
             reply(replyData(ok: false, error: "helper termination is pending; refusing to arm"))
+            return
+        }
+        guard HelperRemovalDaemonSafety.allows(.arm, while: helperRemovalFence) else {
+            reply(replyData(ok: false, error: "helper cleanup has started; refusing to arm"))
             return
         }
         guard restorePending == nil else {
@@ -635,6 +644,10 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     fileprivate func handleHeartbeat(reply: @escaping @Sendable (Data) -> Void) {
         queue.async { [self] in
             lastActivity = Date()
+            guard HelperRemovalDaemonSafety.allows(.heartbeat, while: helperRemovalFence) else {
+                reply(replyData(ok: false, error: "helper cleanup has started; refusing heartbeat"))
+                return
+            }
             guard var current = sentinel else {
                 reply(replyData(ok: false, error: "no active session"))
                 return
@@ -665,6 +678,11 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                 return
             }
             advanceLifecycle()
+            if options.forceSleep,
+               !HelperRemovalDaemonSafety.allows(.forceSleep, while: helperRemovalFence) {
+                reply(replyData(ok: false, error: "helper cleanup has started; refusing forced sleep"))
+                return
+            }
 
             if let record = sentinel ?? restorePending {
                 performRestore(record, reason: "disarm: \(options.reason)")
@@ -697,6 +715,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                         observedClamshellClosed: observedClamshellClosed,
                         observedSleepDisabled: observedSleepDisabled
                     ),
+                    HelperRemovalDaemonSafety.allows(.forceSleep, while: helperRemovalFence),
                     HelperTerminationSafety.allows(.forceSleep, whileTerminationRequested: terminationRequested)
                     else { return }
                     log.info("forcing sleep (\(options.reason))")
@@ -713,6 +732,12 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             advanceLifecycle()
             guard HelperTerminationSafety.allows(.repairOverride, whileTerminationRequested: terminationRequested) else {
                 reply(replyData(ok: false, error: "helper termination is pending; refusing override repair"))
+                return
+            }
+            let removalOperation: HelperRemovalDaemonSafety.Operation =
+                sentinel != nil || restorePending != nil ? .restoreOwnedState : .beginOverrideRepair
+            guard HelperRemovalDaemonSafety.allows(removalOperation, while: helperRemovalFence) else {
+                reply(replyData(ok: false, error: "helper cleanup has started; refusing a new override-repair transaction"))
                 return
             }
 
@@ -755,6 +780,11 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                 reply(replyData(ok: false, error: "helper termination is pending; refusing wake work"))
                 return
             }
+            let removalOperation: HelperRemovalDaemonSafety.Operation = epoch > 0 ? .scheduleWake : .cancelWake
+            guard HelperRemovalDaemonSafety.allows(removalOperation, while: helperRemovalFence) else {
+                reply(replyData(ok: false, error: "helper cleanup has started; refusing wake scheduling"))
+                return
+            }
             // Wake scheduling is not safety-critical and may require two
             // blocking pmset calls. Never let it sit ahead of watchdog or
             // connection-invalidation work for an active/recovering override;
@@ -792,7 +822,12 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                     try? PMSet.cancelWake(rendered: previous.rendered)
                 }
             } else if let existing = scheduledWake {
-                try? PMSet.cancelWake(rendered: existing.rendered)
+                do {
+                    try PMSet.cancelWake(rendered: existing.rendered)
+                } catch {
+                    reply(replyData(ok: false, error: "scheduled wake cancellation failed: \(error)"))
+                    return
+                }
                 scheduledWake = nil
                 persistScheduledWake()
             }
@@ -804,6 +839,10 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         queue.async { [self] in
             lastActivity = Date()
             advanceLifecycle()
+            // Monotonic for this process: any partial or ambiguous cleanup
+            // outcome keeps new risk-increasing work closed. Recovery and a
+            // cleanup retry remain admitted by the pure operation policy.
+            helperRemovalFence = .cleanupStarted
             if let record = sentinel ?? restorePending {
                 performRestore(record, reason: "uninstall")
             }
