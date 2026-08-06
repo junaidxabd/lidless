@@ -35,7 +35,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     /// Producer-owned declaration of the behavior actually implemented by
     /// this daemon. Keep this independent from the app's required revision so
     /// an app-side bump cannot silently make an unchanged helper compatible.
-    private static let implementedSafetyRevision = 3
+    private static let implementedSafetyRevision = 4
 
     private let queue = DispatchQueue(label: "com.lidless.helper.state")
     private let log = HelperLog()
@@ -968,8 +968,26 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                     )))
                     return
                 }
-                scheduledWake = nil
             }
+            // Best-effort reconciliation may previously have cleared memory
+            // even when deleting the on-disk record failed. Strict cleanup
+            // must therefore run unconditionally, including when no wake is
+            // currently known in memory.
+            do {
+                try removeScheduledWakeRecordForCleanup()
+            } catch {
+                // Keep any exact in-memory intent. Even when none is known, a
+                // stale or unreadable ledger has not been ruled out, so fail
+                // before authorizing the client to deregister this helper.
+                let failureStatus = currentStatus()
+                reply(IPCCoding.encode(HelperReply(
+                    ok: false,
+                    error: "scheduled wake record cleanup failed; helper cleanup remains incomplete: \(error.localizedDescription)",
+                    status: failureStatus
+                )))
+                return
+            }
+            scheduledWake = nil
             log.info("uninstalling: removing \(HelperPaths.workDirectory)")
             // Any later log line would recreate the directory we just
             // removed; from here on, log to the unified log only.
@@ -1041,6 +1059,20 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
     private func replyData(ok: Bool, error: String? = nil) -> Data {
         IPCCoding.encode(HelperReply(ok: ok, error: error, status: currentStatus()))
+    }
+
+    /// Uninstall cannot rely on the best-effort persistence used by ordinary
+    /// wake reconciliation: a surviving ledger would be loaded as live intent
+    /// after a later cleanup failure or helper restart. Exact-target absence is
+    /// already the required postcondition; every other filesystem error keeps
+    /// removal incomplete.
+    private func removeScheduledWakeRecordForCleanup() throws {
+        do {
+            try FileManager.default.removeItem(at: scheduledWakeURL)
+        } catch let error as CocoaError where error.code == .fileNoSuchFile &&
+                                               error.filePath == scheduledWakeURL.path {
+            // The exact record is already absent.
+        }
     }
 
     private func persistScheduledWake() {

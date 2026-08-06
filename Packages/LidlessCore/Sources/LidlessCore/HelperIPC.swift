@@ -49,7 +49,7 @@ public protocol LidlessHelperXPC {
         reply: @escaping @Sendable (Data) -> Void
     )
 
-    /// Legacy protocol-v6 selector. Safety revision 3 helpers refuse this
+    /// Legacy protocol-v6 selector. Current helpers refuse this
     /// unbound request before any cleanup mutation. It remains present so an
     /// older app receives a structured failure rather than invoking cleanup.
     func uninstall(_ reply: @escaping @Sendable (Data) -> Void)

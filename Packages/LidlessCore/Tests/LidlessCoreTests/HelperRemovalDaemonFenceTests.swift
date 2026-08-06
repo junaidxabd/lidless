@@ -233,7 +233,7 @@ struct HelperRemovalDaemonFenceTests {
             separatedBy: "reply(IPCCoding.encode(HelperReply(ok: true"
         ).count == 2)
         let wakeFailureBranch = cleanup[
-            wakeCancellation.lowerBound..<wakeClear.lowerBound
+            wakeCancellation.lowerBound..<wakeFailureReturn.upperBound
         ]
         #expect(String(wakeFailureBranch).components(
             separatedBy: "ok: false"
@@ -357,6 +357,104 @@ struct HelperRemovalDaemonFenceTests {
             separatedBy: "queue.sync { self.fileSinkEnabled = true }"
         ).count == 2)
         #expect(!enableLogControl.contains("self.fileSinkEnabled = false"))
+    }
+
+    @Test func uninstallRequiresWakeLedgerAbsenceBeforeDeletingHelperData() throws {
+        let helper = try repositoryFile("Helper/HelperDaemon.swift")
+        let cleanup = try section(
+            of: helper,
+            from: "fileprivate func handleUninstall(",
+            through: "fileprivate func handleLegacyUninstall("
+        )
+        let ledgerRemoval = try section(
+            of: helper,
+            from: "private func removeScheduledWakeRecordForCleanup() throws",
+            through: "private func persistScheduledWake()"
+        )
+
+        let cancellation = try #require(cleanup.range(
+            of: "try PMSet.cancelWake(rendered: existing.rendered)"
+        ))
+        let cancellationBranch = try #require(cleanup.range(
+            of: "if let existing = scheduledWake {",
+            range: cleanup.startIndex..<cancellation.lowerBound
+        ))
+        let openingBrace = cleanup.index(before: cancellationBranch.upperBound)
+        var depth = 0
+        var cursor = openingBrace
+        var cancellationBranchEnd: String.Index?
+        while cursor < cleanup.endIndex {
+            switch cleanup[cursor] {
+            case "{":
+                depth += 1
+            case "}":
+                depth -= 1
+                if depth == 0 {
+                    cancellationBranchEnd = cursor
+                }
+            default:
+                break
+            }
+            if cancellationBranchEnd != nil { break }
+            cursor = cleanup.index(after: cursor)
+        }
+        let cancellationClose = try #require(cancellationBranchEnd)
+        let durableClear = try #require(cleanup.range(
+            of: "try removeScheduledWakeRecordForCleanup()",
+            range: cancellation.upperBound..<cleanup.endIndex
+        ))
+        let inMemoryClear = try #require(cleanup.range(
+            of: "scheduledWake = nil",
+            range: durableClear.upperBound..<cleanup.endIndex
+        ))
+        let failureMessage = try #require(cleanup.range(
+            of: "scheduled wake record cleanup failed; helper cleanup remains incomplete",
+            range: durableClear.upperBound..<inMemoryClear.lowerBound
+        ))
+        let failureStatus = try #require(cleanup.range(
+            of: "let failureStatus = currentStatus()",
+            range: durableClear.upperBound..<failureMessage.lowerBound
+        ))
+        let failedReply = try #require(cleanup.range(
+            of: "ok: false",
+            range: failureStatus.upperBound..<failureMessage.lowerBound
+        ))
+        let returnedFailureStatus = try #require(cleanup.range(
+            of: "status: failureStatus",
+            range: failureMessage.upperBound..<inMemoryClear.lowerBound
+        ))
+        let dataRemoval = try #require(cleanup.range(
+            of: "try FileManager.default.removeItem(atPath: HelperPaths.workDirectory)"
+        ))
+        let failureReturn = try #require(cleanup.range(
+            of: "return",
+            range: failureMessage.upperBound..<inMemoryClear.lowerBound
+        ))
+
+        #expect(cancellationClose < durableClear.lowerBound)
+        #expect(cancellation.lowerBound < durableClear.lowerBound)
+        #expect(failureStatus.lowerBound < failedReply.lowerBound)
+        #expect(failedReply.lowerBound < failureMessage.lowerBound)
+        #expect(failureMessage.lowerBound < returnedFailureStatus.lowerBound)
+        #expect(returnedFailureStatus.lowerBound < failureReturn.lowerBound)
+        #expect(failureReturn.lowerBound < inMemoryClear.lowerBound)
+        #expect(durableClear.lowerBound < inMemoryClear.lowerBound)
+        #expect(inMemoryClear.lowerBound < dataRemoval.lowerBound)
+        #expect(failureReturn.lowerBound < dataRemoval.lowerBound)
+
+        #expect(ledgerRemoval.contains(
+            "try FileManager.default.removeItem(at: scheduledWakeURL)"
+        ))
+        let normalized = ledgerRemoval.replacingOccurrences(
+            of: #"\s+"#,
+            with: " ",
+            options: .regularExpression
+        )
+        let exactAbsentCatch = "catch let error as CocoaError where "
+            + "error.code == .fileNoSuchFile && "
+            + "error.filePath == scheduledWakeURL.path {"
+        #expect(normalized.contains(exactAbsentCatch))
+        #expect(!ledgerRemoval.contains("try?"))
     }
 
     @Test func cleanupCompletionRechecksNormalSleepAndReturnsFreshStatus() throws {

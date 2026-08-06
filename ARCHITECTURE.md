@@ -160,7 +160,7 @@ encoding for XPC, sentinel, and logs); malformed input produces an error
 reply, never a crash. Every reply carries a fresh `HelperStatus` including
 the *read-back* override value. Readiness and every app-side arm, restore,
 outside-ownership, enabled-registration removal, and scheduled-wake acceptance
-boundary require both protocol v6 and the exact safety behavior revision 3.
+boundary require both protocol v6 and the exact safety behavior revision 4.
 A missing, older, or future revision is stale and cannot supply proof. The
 revision is self-reported compatibility metadata, not executable attestation
 or an installation receipt; safely replacing an already registered stale
@@ -181,6 +181,16 @@ open gates. This handshake is self-reported compatibility evidence, not
 attestation of installed bytes or a receipt for the registered executable;
 signed replacement and live ServiceManagement/XPC behavior remain separate
 runtime gates.
+
+Uninstall-time scheduled-wake cleanup is also fail-closed. After `pmset`
+accepts cancellation, the daemon must remove the exact persisted wake record
+before clearing its in-memory intent or attempting broader helper-data removal.
+Exact-target absence is accepted; any other ledger-removal error retains any
+known in-memory intent and returns failure, so the current client does not
+authorize deregistration. The external `pmset` mutation and filesystem unlink
+are not atomic: process death in that interval, external wake changes, and real
+cancellation/readback behavior remain live recovery gates rather than closed
+offline claims.
 
 ## The arming flow (exact)
 

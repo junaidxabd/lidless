@@ -2668,3 +2668,195 @@ blockers; this checkpoint is not upgrade-complete and must remain
   was `db2805c7ab32163db61b442e4f0db377f495aecae7d24c5a5e19128f589ee484`.
   This E-388 append is the sole subsequent selected-byte change before the
   final index check and commit.
+
+## Twenty-sixth recovery audit — helper-removal remainder
+
+- E-389 — 2026-08-06T06:03:37+0200 — Began the twenty-sixth recovery from the
+  checkpoint-aware rolling remainder manifest, whose adjacent sidecar exactly
+  matches manifest SHA-256
+  `535e281d004f26cfd2ffae198a48a2ecfb6f8e663ed7ce38f15f270fcce62e80`.
+  The canonical handoff and immutable historical manifest independently match
+  their supplied SHA-256 values. The rolling manifest is the sole authority
+  because feature HEAD has advanced beyond starting HEAD. Before this first
+  edit, this ledger was 379,269 bytes with SHA-256
+  `315f2a2e11b5f02cf4223e090cae8a490d5e5f58d3b471a465a16bc24cd3da52`;
+  its required top-level `State: IN_PROGRESS`, branch, and starting HEAD were
+  exact. The handoff, both manifests, sidecar, progress log, decision log,
+  architecture, and design-reset brief were read in full. A tracked and
+  untracked hidden-file scan found no repository-local `AGENTS.md`,
+  `CLAUDE.md`, or equivalent instruction file.
+- E-390 — 2026-08-06T06:03:37+0200 — The pre-edit recovery audit reproduced
+  the exact feature canonical path, two-worktree linked topology, branch, HEAD
+  `d29b6d3ccd47f740e7c56a571519d8cf806c8c8c`, linked Git admin/common
+  directories, clean index, and complete six-path dirty inventory. Every
+  recorded path status, regular-file type, mode, byte count, and raw SHA-256
+  matched with no extra or missing path. The NUL-delimited status SHA-256 was
+  `5cf63a070dfe49313ecf75b3b2b7c3995af41ba5f22a8c4c39523108c7863b09`
+  and the tracked binary-diff SHA-256 was
+  `9246b662e27202b4da57f7adb476aae9ab0133cae5176c50d3a8a115cc34ea6f`.
+  The main checkout was inspected read-only at canonical path
+  `/Users/junaid/Xcode-Projects/Lidless`: branch `main`, starting HEAD, clean
+  index and tracked diff, exact three-path `.playwright-mcp` inventory, status
+  SHA-256
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked binary-diff SHA-256 all matched the rolling authority. One
+  preliminary read-only comparison script failed before comparison because it
+  iterated manifest values as keys; it changed nothing. The corrected
+  independent comparison returned `ROLLING_RECOVERY_COMPARISON=EXACT_MATCH`.
+  No mismatch was normalized or waived, and the main checkout remains
+  untouched.
+
+### Twenty-sixth finding and verification matrix
+
+| Surface / invariant | Verdict | Independently reproduced evidence and boundary |
+|---|---|---|
+| Rolling checkpoint recovery and main-checkout preservation | PASS | Sidecar, topology, branch, pre-checkpoint HEAD, clean starting index, all six remainder records, both digests, and every main-checkout field matched exactly before the first edit. |
+| Inherited six-file helper-removal remainder as one coherent package | REJECTED / PRESERVED | `canBeginAppRemoval` and `canRemoveRegistration` are unused Boolean duplicates that erase stronger existing admission/status semantics; the new broad test file duplicates weaker subsets of committed suites; the smoke and orchestration/design edits do not form the same root-cause repair. None is staged or normalized. |
+| Uninstall after a known scheduled wake | PASS — source/order only | A successful external cancellation is followed by strict exact-record absence before in-memory intent is cleared or helper data is deleted; either cancellation or record-removal error returns `ok: false` before deregistration can be authorized. No live `pmset` or injected filesystem execution occurred. |
+| Uninstall when memory has no scheduled wake but a ledger may remain | PASS — source/order only | The strict record-removal call is lexically outside the optional in-memory branch and therefore runs unconditionally. Exact-target `fileNoSuchFile` alone is accepted; every other error propagates to the fail-closed reply. |
+| Compatibility with helpers lacking this behavior | PASS — metadata boundary only | App requirement and daemon producer declaration both advance from safety revision 3 to exact revision 4; missing, old (including 3), and future revisions fail every proof wrapper. This is self-reported compatibility metadata, not executable identity or replacement proof. |
+| Regression evidence | PASS | Three increasingly specific wake-ledger/order RED observations and the revision-4 RED preceded the settled implementation; focused exact-index GREEN is 16 tests in 4 suites and complete exact-index GREEN is 284 tests in 28 suites. |
+| Debug/Release compilation and artifact inspection | PASS — unsigned static evidence | Exact-index Core builds, strict Swift 6 all-product type-checks, and loose App/helper/widget links passed in both configurations with signing disabled; all six outputs lack `LC_CODE_SIGNATURE` and are rejected by `codesign` as unsigned. |
+| External cancellation plus ledger unlink as one durable transaction | OPEN | The operations are not atomic. Crash/power loss between them, unlink durability, cancellation timeout/outcome ambiguity, retry idempotence, and external wake readback remain unproved. |
+| Corrupt/mismatched ledger, process restart, helper replacement, ServiceManagement ABA/unregister | OPEN | A corrupt or memory/disk-mismatched record can still correspond to an orphan external wake; process-local fences, revision-3 replacement, signed mixed-version XPC, same-category registration replacement, inactive-orphan cleanup, and live unregister require separate work or runtime evidence. |
+
+- E-391 — 2026-08-06T06:23:44+0200 — Reviewed the complete inherited
+  six-file remainder against checkpoint HEAD and traced every claimed helper
+  removal invariant through the existing stronger policy types and call sites.
+  The package was not accepted wholesale. `HelperRemovalSafety.canBeginAppRemoval`
+  duplicates `HelperRemovalAppSafety.canProceedRemoval` while omitting the real
+  start gates; `canRemoveRegistration` collapses the safety-significant
+  `.unregister` versus `.alreadyInactive` decision into a Boolean; neither new
+  wrapper has a production call site. The untracked broad test suite duplicates
+  weaker subsets of committed removal, handshake, token, wake, restart, and
+  registration suites, and the smoke/progress/decision/design edits do not
+  close this root cause. All six paths remain byte-identical to the rolling
+  authority and outside the index.
+- E-392 — 2026-08-06T06:23:44+0200 — The literal required
+  `swift test --package-path Packages/LidlessCore` was attempted first and its
+  complete environment-only failure is preserved in
+  `swift-test-literal-preserved-baseline.log` (6 lines, 2,347 bytes, SHA-256
+  `6379b944642ff274eb2f8327aca50bb901f69759cb3c50e947aef56a06682c53`,
+  exit 1): the default beta toolchain tried to write a sandbox-denied user
+  clang cache. The same preserved tree passed under the stable Xcode toolchain
+  with redirected task caches and SwiftPM sandboxing disabled: 290 tests in 29
+  suites, recorded completely in `swift-test-preserved-baseline-stable.log`
+  (744 lines, 57,906 bytes, SHA-256
+  `6c13fd2cbf192c888113ae138c4cb9d029a9579c934c0cd4560ee396f425eb69`).
+  This established only a reproducible baseline, not acceptance of the dirty
+  package.
+- E-393 — 2026-08-06T06:23:44+0200 — Independently confirmed that
+  `handleUninstall` canceled a known external wake and cleared memory but did
+  not strictly eliminate `scheduled-wake.json` before fallible helper-data
+  deletion. A later failure or restart could therefore reload stale intent.
+  RED was observed before the root fix: the initial missing strict cleanup in
+  `swift-test-wake-ledger-red.log` (1,243 lines, SHA-256
+  `cda960d68f4734ecfd5dede45301642dddbddfb1eaf60da7c8e5bf0122b0427a`,
+  exit 1); the memory-nil/stale-ledger hole in
+  `swift-test-wake-ledger-candidate-red.log` (191 lines, SHA-256
+  `0c89a805e70d956315decea16907a5b7e0e2cfbce8dfd12ddac3762b1f4757fd`,
+  exit 1); and the clear-before-ledger ordering in
+  `swift-test-wake-order-red.log` (199 lines, SHA-256
+  `a07a7eb36d57dfb135e5b1903c5aaad2895a39480dac2d40491cdaf0fcede85b`,
+  exit 1). Advancing the test expectation to revision 4 first produced 28
+  incompatibility issues against the still-revision-3 sources in
+  `swift-test-helper-revision-4-red.log` (190 lines, SHA-256
+  `d123449708ce0af45dba8c67fff11398f0eefdff72d5eeb7b91f1e10c354806a`,
+  exit 1).
+- E-394 — 2026-08-06T06:23:44+0200 — Implemented the bounded root fix:
+  optional exact wake cancellation; unconditional throwing removal of the
+  exact wake ledger; acceptance only of exact-target absence; a fresh
+  `ok: false` status and early return for every other removal error; and
+  in-memory clearing only after ledger absence. The app requirement and daemon
+  producer declaration now independently advertise safety revision 4, and
+  architecture text records both the boundary and non-atomic limitations. The
+  regression is explicitly source-structural; it proves ordering and failure
+  wiring but does not execute `pmset`, inject a filesystem fault, or restart a
+  daemon. Focused revision/wake GREEN is preserved in
+  `swift-test-wake-revision-final-green.log` (97 lines, SHA-256
+  `14924ca00845dba2b755b4d2ac1bcf9cb3b41772ec67ce94de6bf5535a70245b`).
+  A broader first run correctly exposed one stale one-failure-count assertion
+  (`swift-test-removal-revision-related-final.log`, exit 1); after scoping that
+  assertion to the cancellation branch, the 16 tests in 4 related suites pass
+  in `swift-test-removal-revision-related-final-green.log` (123 lines, SHA-256
+  `bdc419453251b66ae4a03fd0ba89596e83ce5fcfe335bc9a33f93b3c2a5f7324`).
+- E-395 — 2026-08-06T06:23:44+0200 — The settled complete working tree
+  passes 291 tests in 29 suites in `swift-test-full-working-settled.log` (746
+  lines, 58,092 bytes, SHA-256
+  `44963f7c7678d736c1480b6a64a0244c0aa9b016ad83eb51f6e0853572083382`).
+  To exclude the inherited untracked and smoke tests from checkpoint evidence,
+  exactly seven selected paths were staged and exported from index tree
+  `d3e38503d0a95f0392829957c4044e797e70cc4d`; every non-ledger selected blob
+  matched the export byte-for-byte. That exact export passes 284 tests in 28
+  suites in `swift-test-exact-index.log` (729 lines, 56,793 bytes, SHA-256
+  `0a43e15a92d83b62e8d41d7564744ec361f84c2d1efe9e691eb6c645f423f837`)
+  and the focused 16 tests in 4 suites in
+  `swift-test-exact-index-focused.log` (58 lines, SHA-256
+  `08ee4d7e68c2a21332ece289a0205a60c69a8554e33dbee2ca10585e5b81ddd7`).
+- E-396 — 2026-08-06T06:23:44+0200 — Exact-index LidlessCore Debug and
+  Release builds passed with `CODE_SIGNING_ALLOWED=NO` and
+  `CODE_SIGNING_REQUIRED=NO`; complete output is in
+  `swift-build-core-debug-exact.log` (37 lines, SHA-256
+  `e2a1a1f34d5c59cf578b5a3d93834fdad6394dd9c4de1858782517d61b25353e`)
+  and `swift-build-core-release-exact.log` (9 lines, SHA-256
+  `5bffcbdcceb69e3fe79f1b0b7192b905369f3266e19ccb3af74b3041f0c7aaf0`).
+  Strict Swift 6, macOS 15, complete-concurrency, warnings-as-errors static
+  type-checking passed over all 25 App, 4 helper, and 1 widget sources in
+  `swiftc-all-products-typecheck-exact.log` (23 lines, SHA-256
+  `ee37c36ee63e82baaa0bb152e89b12a2eabb892a0566a60c98219dbe3f573dcd`).
+  The same sources and 28 exact Core objects linked into loose unsigned App,
+  helper, and widget executables in both configurations without launching them;
+  commands are preserved in `direct-all-products-debug-exact.log` (27 lines,
+  SHA-256 `7d0053921e0251c9c2567fc01dd2e788ab8d158ec6d7635b515f44b0b227a856`)
+  and `direct-all-products-release-exact.log` (27 lines, SHA-256
+  `6d9f448a5079323f4b9a8cb2b8f31f59f517e3b841f3c3d3374b0830c2393f1d`).
+- E-397 — 2026-08-06T06:23:44+0200 — Artifact/configuration inspection is
+  preserved in `artifact-config-inspection-exact.log` (375 lines, 30,372
+  bytes, SHA-256
+  `90c5822b803a0e676bdc57eeec44c9a7b3bd93f9558b6c1c973a220e9c328ebf`).
+  All six loose outputs are arm64 Mach-O executables targeting macOS 15, have
+  no `LC_CODE_SIGNATURE`, and produce the expected nonzero unsigned `codesign`
+  display/entitlement verdict. App/helper/widget plist and entitlement sources
+  lint and decode; source/generated project bindings, revision-4 declarations,
+  the strict cleanup call, and both fail-closed helper strings were inspected.
+  These outputs are not bundles, signed identities, installed-helper receipts,
+  XPC trust, notarization, or runtime evidence. Working, staged, and both
+  untracked whitespace checks plus an empty unmerged list pass in
+  `diff-checks-exact.log` (5 lines, SHA-256
+  `dc7853a38a38812a05fcd0a20da10e7beee1e2bcec2e70f101466fbbbd37c589`).
+- E-398 — 2026-08-06T06:23:44+0200 — The corrected terminal precommit
+  preservation audit is `main-and-remainder-preservation-precommit-exact.log`
+  (22 lines, 3,986 bytes, SHA-256
+  `97da8e9949b915eaa4072e94652aca3ee5f537e18d1430506f7ad9208caf9f30`):
+  feature topology/branch/precommit HEAD/common directory, empty unmerged list,
+  exact seven staged paths, every six-file remainder status/mode/size/hash and
+  both remainder digests match; main remains `main` at starting HEAD with clean
+  index/tracked diff, exact three `.playwright-mcp` records, and both main
+  digests unchanged. A preliminary checker omitted `--untracked-files=all` and
+  failed while parsing the collapsed main directory after all prior fields had
+  matched (`main-and-remainder-preservation-precommit.log`, 21 lines, SHA-256
+  `463dabd0a59f906e2c8ba1fd984a4018c4ea08bb4dbdfcb7b8a87684d42397d5`);
+  it changed nothing. No App/helper/widget product was launched, and no helper,
+  ServiceManagement, XPC, `pmset`, sleep, hardware, credential, plugin,
+  provider, connector, Figma, network, release, merge, push, deploy, or main
+  checkout mutation was performed. Project-native Xcode build/analyze was not
+  retried because its established nested-sandbox failure path can trigger
+  automatic LaunchServices registration; direct compiler analysis is the
+  bounded substitute. Top-level `State: IN_PROGRESS` is intentionally retained
+  for the authenticated six-file remainder and explicit live/atomicity gates.
+  This invocation will create exactly one local checkpoint with subject
+  `safety: require wake ledger absence before helper removal`; the supervisor
+  must bind the exact post-commit remainder into a fresh rolling manifest
+  before another invocation.
+- E-399 — 2026-08-06T06:23:44+0200 — Reviewed the complete staged binary
+  diff in `final-staged-review-wake-ledger.log` (525 lines, 32,317 bytes,
+  SHA-256
+  `2da0c0e46763f560739e7491e036194111c87739c04b413fe0691481d891d646`).
+  It confirms the exact seven selected paths, preserves their full diff,
+  verifies that every non-ledger index blob remains byte-for-byte identical to
+  the tested exact-index export, and passes staged/unstaged whitespace and
+  unmerged checks. The pre-terminal-ledger index tree was
+  `8739c073727441ca1dfe95bfa89ad7ae43747ac1`; its staged binary-diff SHA-256
+  was `06b77c55f580b27e3bdf5ff56e604af066a1aaeefcb5a0b1177a2d3feb28cf7a`.
+  This E-399 append is the sole subsequent selected-byte change before the
+  final index check and one local commit.
