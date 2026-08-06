@@ -226,7 +226,11 @@ struct ScheduledWakeReconciliationTests {
         #expect(wakeMaintenance.contains("scheduledWakeReconciliation.complete("))
         #expect(!wakeMaintenance.contains("lastScheduledWakeSent = .some(desired)"))
         #expect(wakeMaintenance.contains("catch HelperClientError.rejected(_)"))
-        #expect(scheduleCall.contains("guard reply.ok else"))
+        #expect(scheduleCall.contains("guard reply.ok,"))
+        #expect(scheduleCall.contains(
+            "SleepOverrideSafety.isCurrentHelper(reply.status)"
+        ))
+        #expect(!scheduleCall.contains("guard reply.ok else"))
         #expect(finalize.contains("scheduledWakeReconciliation.invalidate()"))
         #expect(interruption.contains("scheduledWakeReconciliation.invalidate()"))
 
@@ -254,11 +258,15 @@ struct ScheduledWakeReconciliationTests {
         #expect(success.lowerBound < rejection.lowerBound)
         #expect(rejection.lowerBound < uncertainty.lowerBound)
 
-        let replyGuard = try #require(scheduleCall.range(of: "guard reply.ok else"))
+        let replyGuard = try #require(scheduleCall.range(of: "guard reply.ok,"))
+        let revisionGuard = try #require(scheduleCall.range(
+            of: "SleepOverrideSafety.isCurrentHelper(reply.status)"
+        ))
         let rejectionThrow = try #require(scheduleCall.range(
             of: "throw HelperClientError.rejected"
         ))
-        #expect(replyGuard.lowerBound < rejectionThrow.lowerBound)
+        #expect(replyGuard.lowerBound < revisionGuard.lowerBound)
+        #expect(revisionGuard.lowerBound < rejectionThrow.lowerBound)
     }
 
     private func repositoryFile(_ relativePath: String) throws -> String {

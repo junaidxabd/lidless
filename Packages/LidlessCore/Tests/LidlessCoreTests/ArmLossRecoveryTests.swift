@@ -189,7 +189,8 @@ struct ArmLossRecoveryTests {
         ) == .recoveryRequired)
 
         let client = try repositoryFile("App/Sources/Helper/HelperClient.swift")
-        #expect(client.contains("installState = status.helperVersion == LidlessIDs.helperVersion"))
+        #expect(client.contains("installState = SleepOverrideSafety.isCurrentHelper(status)"))
+        #expect(!client.contains("installState = status.helperVersion == LidlessIDs.helperVersion"))
         #expect(!client.contains("status.helperVersion >= LidlessIDs.helperVersion"))
     }
 

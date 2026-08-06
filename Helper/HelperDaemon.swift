@@ -32,6 +32,10 @@ private let kIOMessageSystemHasPoweredOn: UInt32 = 0xE000_0300
 /// callbacks hop onto it; nothing touches state anywhere else. That
 /// discipline is what the `@unchecked Sendable` asserts.
 final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
+    /// Producer-owned declaration of the behavior actually implemented by
+    /// this daemon. Keep this independent from the app's required revision so
+    /// an app-side bump cannot silently make an unchanged helper compatible.
+    private static let implementedSafetyRevision = 1
 
     private let queue = DispatchQueue(label: "com.lidless.helper.state")
     private let log = HelperLog()
@@ -910,6 +914,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         let recoveryPending = restorePending != nil
         return HelperStatus(
             helperVersion: LidlessIDs.helperVersion,
+            helperSafetyRevision: Self.implementedSafetyRevision,
             armed: sentinel != nil,
             // On an unreadable registry, report the conservative possibility:
             // the override may still be on whenever a live or recovering

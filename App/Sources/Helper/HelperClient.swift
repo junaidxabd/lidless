@@ -9,7 +9,8 @@ enum HelperInstallState: Equatable {
     /// Registered; waiting for the user's one-time approval in System Settings.
     case requiresApproval
     case ready(helperVersion: Int)
-    /// Helper responds with a protocol version incompatible with this app.
+    /// Helper responds with a protocol or safety revision incompatible with
+    /// this app. The associated value is the wire protocol version only.
     case stale(helperVersion: Int)
     /// launchd says enabled, but XPC calls fail.
     case notResponding(String)
@@ -22,8 +23,8 @@ enum HelperInstallState: Equatable {
         }
     }
 
-    /// A protocol-incompatible helper must never arm under this app's safety
-    /// policy, but remains reachable for inspection and recovery.
+    /// An incompatible helper must never arm under this app's safety policy,
+    /// but remains reachable for inspection and de-risking recovery requests.
     var isReachable: Bool {
         switch self {
         case .ready, .stale, .simulated: true
@@ -121,7 +122,7 @@ final class HelperClient: HelperControlling {
         case .enabled:
             do {
                 let status = try await status()
-                installState = status.helperVersion == LidlessIDs.helperVersion
+                installState = SleepOverrideSafety.isCurrentHelper(status)
                     ? .ready(helperVersion: status.helperVersion)
                     : .stale(helperVersion: status.helperVersion)
             } catch {
@@ -326,9 +327,12 @@ final class HelperClient: HelperControlling {
         let reply = try await callForReply { proxy, done in
             proxy.scheduleWake(epoch, reply: done)
         }
-        guard reply.ok else {
+        guard reply.ok,
+              SleepOverrideSafety.isCurrentHelper(reply.status)
+        else {
             throw HelperClientError.rejected(
-                reply.error ?? "The helper rejected scheduled-wake reconciliation."
+                reply.error
+                    ?? "The helper rejected scheduled-wake reconciliation or no longer matches this app's safety revision."
             )
         }
     }

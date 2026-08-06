@@ -45,6 +45,14 @@ public enum SleepOverrideSafety {
         observed == expected
     }
 
+    /// Wire-version equality is insufficient: an already registered helper
+    /// can retain the same protocol while predating a safety-critical behavior
+    /// repair. Missing, older, and future revisions all fail closed.
+    public static func isCurrentHelper(_ status: HelperStatus) -> Bool {
+        status.helperVersion == LidlessIDs.helperVersion
+            && status.helperSafetyRevision == LidlessIDs.helperSafetyRevision
+    }
+
     /// The app may expose an armed session only when the helper confirms it
     /// owns a live session and a readable registry shows the override on.
     public static func isArmProven(_ reply: HelperReply) -> Bool {
@@ -55,7 +63,7 @@ public enum SleepOverrideSafety {
     /// Status-only probes can renew presentation proof, but only for the
     /// current safety protocol and an exact readable armed state.
     public static func isArmProven(_ status: HelperStatus) -> Bool {
-        status.helperVersion == LidlessIDs.helperVersion
+        isCurrentHelper(status)
             && status.armed
             && status.sleepStateVerified == true
             && status.sleepDisabled
@@ -85,7 +93,7 @@ public enum SleepOverrideSafety {
     /// session, the registry read succeeded and reports normal sleep, and no
     /// retry remains pending. Missing fields from an older helper are unknown.
     public static func isRestoreProven(_ status: HelperStatus) -> Bool {
-        status.helperVersion == LidlessIDs.helperVersion
+        isCurrentHelper(status)
             && !status.armed
             && status.sleepStateVerified == true
             && status.sleepDisabled == false
@@ -111,7 +119,7 @@ public enum SleepOverrideSafety {
         _ status: HelperStatus,
         independentlyObserved: Bool?
     ) -> Bool {
-        status.helperVersion == LidlessIDs.helperVersion
+        isCurrentHelper(status)
             && !status.armed
             && status.restorePending == false
             && independentlyObserved == true

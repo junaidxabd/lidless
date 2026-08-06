@@ -159,6 +159,7 @@ final class SimulatedHelper: HelperControlling {
     func status() async throws -> HelperStatus {
         HelperStatus(
             helperVersion: LidlessIDs.helperVersion,
+            helperSafetyRevision: LidlessIDs.helperSafetyRevision,
             armed: armed,
             sleepDisabled: sleepDisabled,
             sleepStateVerified: true,

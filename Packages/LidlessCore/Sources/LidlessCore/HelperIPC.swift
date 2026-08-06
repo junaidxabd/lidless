@@ -79,6 +79,10 @@ public struct HelperDisarmOptions: Codable, Sendable, Equatable {
 
 public struct HelperStatus: Codable, Sendable, Equatable {
     public var helperVersion: Int
+    /// Exact safety behavior revision declared by the responding helper.
+    /// Optional for same-protocol helpers built before this field existed;
+    /// missing or mismatched values cannot authorize a safety transition.
+    public var helperSafetyRevision: Int?
     public var armed: Bool
     /// Actual current value of the system-wide override (read back from the
     /// power-management root domain), not what the helper believes it set.
@@ -96,6 +100,7 @@ public struct HelperStatus: Codable, Sendable, Equatable {
 
     public init(
         helperVersion: Int,
+        helperSafetyRevision: Int?,
         armed: Bool,
         sleepDisabled: Bool,
         sleepStateVerified: Bool? = nil,
@@ -105,6 +110,7 @@ public struct HelperStatus: Codable, Sendable, Equatable {
         scheduledWake: Date? = nil
     ) {
         self.helperVersion = helperVersion
+        self.helperSafetyRevision = helperSafetyRevision
         self.armed = armed
         self.sleepDisabled = sleepDisabled
         self.sleepStateVerified = sleepStateVerified

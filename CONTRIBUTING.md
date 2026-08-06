@@ -48,4 +48,7 @@ authorized notarization and stapling, `Scripts/release.sh finalize` validates
 the app and hashes the resulting final zip. The
 cask in `Casks/lidless.rb` tracks the published release URL. Maintainers bump
 `CFBundleShortVersionString` in both Info.plists and `LidlessIDs.helperVersion`
-when the XPC surface changes.
+when the XPC surface changes. A safety-critical helper behavior change also
+requires an explicit, independently reviewed bump of both the app-required
+revision and the daemon's producer-owned implemented revision; do not derive
+the latter automatically from the former.

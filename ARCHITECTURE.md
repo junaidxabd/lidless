@@ -143,7 +143,13 @@ Ad-hoc helpers fail closed because an identifier-only requirement is locally
 spoofable. Payloads are Codable JSON over `Data` (one
 encoding for XPC, sentinel, and logs); malformed input produces an error
 reply, never a crash. Every reply carries a fresh `HelperStatus` including
-the *read-back* override value.
+the *read-back* override value. Readiness and every app-side arm, restore,
+outside-ownership, enabled-registration removal, and scheduled-wake acceptance
+boundary require both protocol v6 and the exact safety behavior revision 1.
+A missing, older, or future revision is stale and cannot supply proof. The
+revision is self-reported compatibility metadata, not executable attestation
+or an installation receipt; safely replacing an already registered stale
+helper remains a separate deployment gate.
 
 ## The arming flow (exact)
 

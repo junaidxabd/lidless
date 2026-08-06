@@ -16,6 +16,13 @@ public enum LidlessIDs {
     /// the value, so callers must not infer which helper build is running.
     public static let helperVersion = 6
 
+    /// Exact behavior contract required before this app accepts helper status
+    /// as arm, restore, ownership, or removal proof. Unlike the wire protocol
+    /// version, this revision advances when a safety-critical helper behavior
+    /// changes. It is self-reported compatibility evidence, not a cryptographic
+    /// executable identity or a replacement/install receipt.
+    public static let helperSafetyRevision = 1
+
     public static let appGroupID = "group.com.lidless.shared"
     public static let urlScheme = "lidless"
 

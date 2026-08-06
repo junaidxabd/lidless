@@ -1794,3 +1794,239 @@ hardware behavior was exercised.
   correction; the final adversarial test review passed after the source-order
   hardening. Only this terminal evidence entry is appended afterward; no
   code/test byte or accepted verification result changed.
+
+## Twenty-second invocation — authenticated recovery
+
+- E-326 — 2026-08-06T03:47:55+0200 — Read the canonical handoff, immutable
+  state manifest, rolling remainder manifest and its adjacent SHA-256
+  sidecar, current progress and decision logs, architecture, and design-reset
+  brief in full before editing. The handoff and immutable-manifest SHA-256
+  values matched the supplied values. The rolling sidecar and independently
+  calculated manifest digest both equal
+  `4ca4b938458f56e88ce6f9e85ec5b2ca26f9b7b20e5fe046f44dce5986568ca1`.
+  A repository scan found no `AGENTS.md`, `CLAUDE.md`, `CODEX.md`, `GEMINI.md`,
+  or other Markdown agent-instruction file.
+- E-327 — 2026-08-06T03:47:55+0200 — Reproduced every rolling-authority field
+  before this append. The canonical feature worktree is the registered linked
+  worktree on `codex/lidless-safety-repair-2026-08-04` at
+  `315cc9f416d418c07938c5c7dd226a1b3842ddae`; its admin directory is
+  `/Users/junaid/Xcode-Projects/Lidless/.git/worktrees/codex-safety-repair-2026-08-04`
+  and common directory is `/Users/junaid/Xcode-Projects/Lidless/.git`. Its
+  index is clean and unmerged-entry list empty. All six dirty paths matched
+  their exact recorded two-character status, regular-file type, mode, byte
+  count, and raw SHA-256 with no extra or missing path. Its NUL-delimited
+  complete-status digest was
+  `5cf63a070dfe49313ecf75b3b2b7c3995af41ba5f22a8c4c39523108c7863b09`
+  and tracked binary-diff digest was
+  `9246b662e27202b4da57f7adb476aae9ab0133cae5176c50d3a8a115cc34ea6f`.
+  Recovery passed exactly; the historical starting-state manifest was not
+  misapplied to this post-checkpoint HEAD and `State: IN_PROGRESS` remains
+  correct.
+- E-328 — 2026-08-06T03:47:55+0200 — Independently reproduced the main
+  checkout preservation record without editing it: canonical path
+  `/Users/junaid/Xcode-Projects/Lidless`, branch `main`, starting HEAD, clean
+  index, empty unmerged list and tracked diff, exactly the three recorded
+  untracked `.playwright-mcp` paths, every recorded type/mode/size/raw digest,
+  NUL-status digest
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked binary-diff digest
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+
+## Twenty-second checkpoint — exact helper behavior revision
+
+The complete six-path authenticated remainder was reviewed against HEAD before
+selecting any change. Its two additional `HelperRemovalSafety` predicates
+duplicate already committed app-removal admission and action policies, and one
+collapses the intentional `unregister` versus `alreadyInactive` result. The
+broad untracked test primarily exercises those duplicate predicates and mixes
+unrelated source-shape claims. The smoke additions duplicate an existing
+protocol-version check and add unrelated widget-Codable coverage. The progress,
+decision, and design-reset edits are stale or outside this safety checkpoint.
+All six paths remain byte-for-byte preserved and excluded.
+
+The selected defect is a compatibility-boundary failure. Historical commit
+`ff6ece4cefd8d312525e8abead7bc760db80eea1` shipped protocol v6 while its
+uninstall handler suppressed required wake-cancellation and data-removal
+errors, cleared the wake record after an unproved cancellation, and returned
+success with status captured before cleanup. The pre-checkpoint app accepted
+any responding protocol-v6 helper as ready. Consequently, an already
+registered old v6 helper could be accepted by a newer app and its unsafe
+uninstall reply could authorize deregistration. Protocol equality did not
+identify the implemented safety behavior.
+
+This checkpoint adds app-required safety revision 1 to `HelperStatus`, makes
+construction explicit, and gives the daemon a separate producer-owned
+implemented revision. Missing, older, and future revisions fail closed at
+readiness, arm, restore, outside-ownership, enabled-registration removal, and
+scheduled-wake acceptance. The integer is self-reported compatibility
+metadata. It is not cryptographic executable identity, installed-byte
+freshness, or an installation receipt.
+
+An already enabled pre-revision v6 helper is now deliberately stranded in a
+fail-closed state: it remains reachable for de-risking XPC requests, but its
+replies cannot complete app proof or authorize unregister. The current Setup
+path calls `register()` rather than a proved unregister-completion-register
+replacement transaction, so it cannot replace that helper. UI copy also
+overstates self-reported compatibility as verification. These are deployment
+blockers; this checkpoint is not upgrade-complete and must remain
+`State: IN_PROGRESS`.
+
+### Twenty-second-checkpoint finding and verification matrix
+
+| ID | Invariant | Exact checkpoint evidence | Remaining boundary | Ruling |
+| --- | --- | --- | --- | --- |
+| S-56 | Protocol equality alone cannot authorize a safety transition | `isCurrentHelper` requires exact protocol v6 and safety revision 1; arm, restore, two-source restore, outside-ownership, failed-arm disposition, recovery-gate completion, and enabled-registration removal regressions reject missing/0/2 and accept 1 | Revision is self-reported and does not identify installed bytes | CHECKPOINT VERIFIED OFFLINE — ATTESTATION GATE OPEN |
+| S-57 | A producer cannot accidentally mint the app-required revision by omitting an initializer argument | `HelperStatus.init` requires an explicit optional revision; both production constructors are explicit; the daemon advertises independent literal `implementedSafetyRevision = 1`; only test-target convenience supplies current-revision fixtures | A reviewer must still prove behavior before deliberately bumping the daemon literal | CHECKPOINT VERIFIED OFFLINE — BEHAVIOR REVIEW GATE OPEN |
+| S-58 | Old same-protocol wire data fails closed without breaking decoding | Raw nested `HelperReply` JSON with no revision decodes it as `nil`; 0 and 2 remain mismatched; wrong-type data is rejected; a legacy decoder ignores the new key in current encoded status | No live XPC or mixed-installed-version exchange was executed | CHECKPOINT VERIFIED OFFLINE — LIVE MIXED-VERSION GATE OPEN |
+| S-59 | Cached readiness cannot let an incompatible helper confirm a scheduled-wake mutation | `scheduleWake` requires both `reply.ok` and exact current reply status; related source-order checks pin the gate before accepted completion | Wake scheduling has no independent external readback and a timeout remains outcome-unknown | CHECKPOINT VERIFIED OFFLINE — PMSET/READBACK GATES OPEN |
+| S-60 | An incompatible helper stays de-risking-reachable but cannot arm or complete removal | `.stale` remains reachable while `.isUsable` is false; exact-revision proof rejects its replies | No safe stale-helper replacement transaction exists; recovery/removal completion is intentionally unavailable | PARTIAL FAIL-CLOSED BOUNDARY — REPLACEMENT REQUIRED |
+| V-36 | RED/GREEN evidence discriminates the same-version defect and wrapper bypasses | Initial regression produced 17 issues on the unsafe tree; hardened focused tests cover raw nested replies, direct and wrapper proof paths, producer declarations, scoped readiness, and wake reply gating | Source inspection cannot execute ServiceManagement or an installed old helper | PASS FOR OFFLINE POLICY — INTEGRATION GATE OPEN |
+| V-37 | The complete preserved tree and exact selected tree pass deterministic tests | Working tree passed 274 tests in 26 suites; independently exported pre-ledger index passed 4 focused, 57 related, and all 267 exact tests in 25 suites | Working-tree-only seven-test suite is excluded authenticated remainder; exact tests do not compile App/helper/widget products | PASS — PRODUCT COMPILE SEPARATELY VERIFIED |
+| V-38 | Exact selected product inputs pass strict static checks and unsigned Debug/Release compilation | Stable Xcode 26.5 built Core and strictly typechecked and directly linked 25 App, 4 helper, and 1 widget sources in Debug and optimized Release with Swift 6 complete concurrency, warnings-as-errors, signing disabled, and linker ad-hoc signing disabled | Project-native Xcode build/analyze was not retried under the established nested-sandbox and automatic LaunchServices side-effect constraint | PASS FOR EXACT OFFLINE SOURCES — XCODE GRAPH OPEN |
+| V-39 | Artifact and configuration inspection remains bounded to observed facts | Six loose arm64 outputs target macOS 15 / SDK 26.5, contain no `LC_CODE_SIGNATURE`, and fail codesign inspection as unsigned; source plists, entitlements, project syntax/bindings, and shell syntax passed inspection | Loose outputs are not bundles and prove no embedded entitlement, signed XPC trust, registration, notarization, or runtime behavior | PARTIAL — BUNDLE/SIGNING/RUNTIME GATES OPEN |
+
+- E-329 — 2026-08-06T04:14:26+0200 — Before modifying selected source,
+  stable Xcode 26.5 Swift 6.3.2 passed the complete preserved package's 270
+  tests in 25 suites (`swift-test-preserved-baseline-stable.log`, SHA-256
+  `915d770d68235e91848cecf467b3d38252aec1fea3ab66c0518ecf626c961462`).
+  A first Xcode-beta attempt failed on its forbidden module-cache path before
+  manifest compilation and supplied no source verdict. Three independent
+  read-only reviewers rejected the six-path remainder as a checkpoint and
+  found the higher-risk same-version compatibility defect; none edited a file.
+- E-330 — 2026-08-06T04:14:26+0200 — Historical inspection is preserved in
+  `historical-same-version-helper-root-cause.log` (SHA-256
+  `b67eedf643bfeeb9468d8ab1c7cfe8997c7ca0588f05b49a0ae5c07d4d00776b`).
+  It proves ancestor commit
+  `ff6ece4cefd8d312525e8abead7bc760db80eea1` declared protocol v6 without a
+  safety revision, records its exact helper-source SHA-256
+  `badfc5f6f07572fe4cc1755cfab369380511efae62d2cf6468a36a245fd5bcd9`,
+  preserves the unsafe uninstall handler, and shows the pre-checkpoint app's
+  version-only readiness branch.
+- E-331 — 2026-08-06T04:14:26+0200 — The initial baseline-compatible
+  regression produced 17 expected issues because missing/old/future
+  same-protocol statuses could prove arm, restore, outside ownership, and
+  removal and because production publication/readiness wiring was absent
+  (`swift-test-helper-safety-revision-red.log`, SHA-256
+  `2b1f22b1400fa991daf97071005d3b28a5c6335b1eabc84eb68f8a045641f01b`).
+  Review then found two mutation gaps: an initializer default silently minted
+  the current revision, and scheduled wake accepted `reply.ok` alone. The
+  initializer is now required, daemon publication is producer-owned, and wake
+  acceptance checks the returned revision. The final working focused suite
+  passed 4 tests (`swift-test-helper-safety-revision-green3.log`, SHA-256
+  `b45185045b3514bbde588e226a6232faca4be207c5afc919a5a2e3339a14f397`).
+- E-332 — 2026-08-06T04:14:26+0200 — The first related rerun correctly caught
+  two stale assertions that required the old `guard reply.ok else` source
+  shape (`swift-test-helper-revision-related-green2.log`, SHA-256
+  `eb12761c9ed8692631a885f573f384f6901bbede97992ac5314ca6746ba8d081`).
+  After strengthening those existing regressions to require both operation
+  success and exact reply revision, 57 related tests in 9 suites passed
+  (`swift-test-helper-revision-related-green3.log`, SHA-256
+  `21d589ffa5b41f4c97296ea920d454cb358886426b5f2caeb1bf30a76ab8281d`).
+  The complete preserved working tree then passed 274 tests in 26 suites
+  (`swift-test-helper-revision-full-working-tree.log`, SHA-256
+  `d065f69c8a1617fd25dc1063fa4bbe43d286543eadeaaf8b6a4f4da243ff7d64`).
+- E-333 — 2026-08-06T04:14:26+0200 — Curated exactly 12 pre-ledger paths.
+  The independently exported pre-ledger index tree is
+  `dec23ec7cc65efdff2a34dd82133b5e11235fdd6`; its complete binary-diff
+  SHA-256 is
+  `7483d29f852d182613e49975ade4c10a34c39c260ed2afa9660fd6cb9d3bdd08`.
+  `git diff --cached --check` passed. The exact exported product-input digest
+  across 57 Core/App/helper/widget source and configuration inputs is
+  `c64fd4819f96f06d7fdeb974e5cd4dee067bda3defc1728f43d68899c5fad5c5`.
+  No selected product or test byte changed after export; only this append-only
+  ledger is added later.
+- E-334 — 2026-08-06T04:14:26+0200 — The independently exported index passed
+  all 4 focused tests (`swift-test-helper-safety-revision-focused-exact.log`,
+  SHA-256
+  `e9a37fba4e4634e00946bbcdd777f57b4f6356240157d6972c5c16a2a13618a4`),
+  57 related tests in 9 suites
+  (`swift-test-helper-revision-related-exact.log`, SHA-256
+  `af091d81833e9b80fdbcf672fef61d5f19a7eae55938949523bedfaf145123a5`),
+  and all 267 exact tests in 25 suites
+  (`swift-test-helper-revision-full-exact.log`, SHA-256
+  `50632a4e71c5c4ad066b3c987430c368fe165dc39abd9507d9716efe2e115106`).
+  The exact suite excludes the authenticated untracked removal suite by
+  construction; the working-tree pass in E-332 covers coexistence with it.
+- E-335 — 2026-08-06T04:14:26+0200 — Exact Debug and Release `LidlessCore`
+  builds passed (`swift-build-core-debug-exact.log`, SHA-256
+  `15585d55ab15e937d6fc8ac27e5c8dd86af06abee6b2fb1bc70fb15d443d5c43`;
+  `swift-build-core-release-exact.log`, SHA-256
+  `603f997067bb66cfe27a034cb9eb9628df3afce5e29b7d6a6fea54a4892185df`).
+  All 25 App, 4 helper, and 1 widget sources passed macOS 15 Swift 6
+  complete-concurrency typechecking with warnings-as-errors
+  (`swiftc-all-products-typecheck-helper-revision-exact.log`, SHA-256
+  `954ebbd7a0a345493ab4e8753c9e7224a6568416c852f5167befc53a8fc34661`).
+  With `CODE_SIGNING_ALLOWED=NO`, `CODE_SIGNING_REQUIRED=NO`, compiler sandbox
+  disabling, and linker ad-hoc signing disabled, all exact sources compiled
+  and linked in Debug
+  (`direct-all-products-debug-helper-revision-exact.log`, SHA-256
+  `01ea3dc644c8d9ab758d1925f2e11f1a7cbf669ab416f1b2d7a57aca3b2e23fd`)
+  and optimized Release
+  (`direct-all-products-release-helper-revision-exact.log`, SHA-256
+  `570a95a850aef42e3dca6bc8ca80885f63bde862afc15f73379627a269ba7d5d`).
+- E-336 — 2026-08-06T04:14:26+0200 —
+  `artifact-inspection-helper-revision-exact.log` (SHA-256
+  `c6ee483b62128b2eae8b586c3cafd1d9b2eebaf452ad7f99825b2b0cd47a14de`)
+  records hashes, modes, arm64 file types, macOS 15 / SDK 26.5 build-version
+  commands, absence of `LC_CODE_SIGNATURE`, and expected unsigned codesign
+  results for all six loose Debug/Release outputs.
+  `config-plist-entitlement-inspection-helper-revision-exact.log` (SHA-256
+  `dd2272ac16323bac2e1c0b459e599dcbbefd08ecf5893d0b290861b49cc8000a`)
+  preserves lint and decoded values for all App/helper/widget plist and
+  entitlement sources, export options, project syntax and bindings, central
+  identifiers/revisions, and shell syntax. No product was launched.
+- E-337 — 2026-08-06T04:14:26+0200 — A lower-priority wake-ledger persistence
+  defect was separately reproduced: uninstall cancels a wake without first
+  durably removing its scheduled-wake record, so later cleanup failure or a
+  crash can make restart retry stale intent. Initial RED/candidate-GREEN logs
+  are preserved at SHA-256
+  `a02ad78fd4581dd0aeb69734d98f2ef5691cc567bf34789f42952277a6e74b60`
+  and `11ab8152b0f8933ade6929b4f71ec13826d228d73a2d9e9d294c436c0c47ec84`;
+  the hardened exact-HEAD RED is
+  `f32ac6050936ff8e5d6bed0569f913c70c84a87e1f4ec5b663ef3164f6a4d406`.
+  Its candidate code and test edits were fully reverted before this checkpoint
+  and are neither staged nor claimed. The defect remains a separate root-cause
+  group.
+- E-338 — 2026-08-06T04:14:26+0200 — Independent compatibility, production,
+  and adversarial-test reviews found no bypass in the final narrow revision
+  predicate after the explicit-constructor and wake-reply corrections. They
+  unanimously retained the stale-helper replacement deadlock and self-reported
+  metadata boundary. Other open root-cause groups are an XPC request that can
+  wait forever for no reply, partial/quiet failure restoring optional managed
+  low-power and TCP-keepalive settings, wake-ledger persistence, and
+  point-in-time/non-atomic filesystem, registry, and ServiceManagement handoff
+  evidence. No reviewer edited a file.
+- E-339 — 2026-08-06T04:14:26+0200 — Main-checkout preservation passed after
+  tests and builds in
+  `main-preservation-helper-revision-precommit.log` (SHA-256
+  `fb033fe3213cf32347d167cbc435582072a78ff38f914877f73045e7ffbea663`):
+  canonical paths, exact two-worktree topology and common directory, main
+  branch/starting HEAD, clean index and tracked diff, all three exact
+  `.playwright-mcp` records, NUL-status digest
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked binary-diff digest matched the rolling authority.
+- E-340 — 2026-08-06T04:14:26+0200 — No App/helper/widget process, helper
+  install/activation/registration/approval/unregister, live XPC, `pmset`,
+  sleep-setting mutation, sleep/wake, hardware, authentication, credential,
+  plugin/provider/connector, Figma, network publication, release, notarization,
+  merge, push, deploy, or main-checkout mutation was performed. Project-native
+  Xcode build/analyze was not retried after the established nested-sandbox
+  failure and automatic LaunchServices side-effect constraint. The checkpoint
+  is prepared under subject `safety: require exact helper behavior revision`;
+  `State: IN_PROGRESS` is intentionally retained. After this one local commit,
+  the supervisor must bind the exact remaining six-path tree into a fresh
+  rolling manifest before another invocation.
+- E-341 — 2026-08-06T04:16:33+0200 — Reviewed the complete 13-path staged
+  patch. `final-staged-review-helper-revision-pre-terminal.log` (SHA-256
+  `9b8c20dff0d701aea77c051d85e9c981946a327d5721a937ecddb58aa447ea59`)
+  records the full diff, sole top-level `State: IN_PROGRESS`, 222-addition
+  ledger append, exact curated path set, pre-terminal index tree
+  `4123fd1aa09ba56db29bbf9c0752b94f23a349b0`, and full staged binary-diff
+  SHA-256
+  `531ac75ff9106bae7113641b7346c5653dd41167ca4d37b2e06532137f691478`.
+  It independently compares every one of the 12 selected code, test, and
+  architecture/contributor-document index blobs byte-for-byte with the tested
+  export; all match. Both staged and complete working-tree whitespace checks
+  pass, and the only unstaged/untracked paths are the six authenticated
+  remainder paths. Only this terminal evidence entry is appended afterward;
+  no selected product or test byte and no accepted verification result changed.
