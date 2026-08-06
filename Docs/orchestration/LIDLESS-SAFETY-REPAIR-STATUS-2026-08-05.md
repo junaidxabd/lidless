@@ -3011,3 +3011,176 @@ blockers; this checkpoint is not upgrade-complete and must remain
   intentionally retained because the supervisor must bind the exact remaining
   three-file design tree into a fresh rolling manifest before any later
   invocation; all signed/runtime/hardware gates remain open.
+
+## Complete XPC failure-retirement checkpoint matrix — 2026-08-06
+
+| ID | Invariant or boundary | Exact offline evidence | Ruling |
+|---|---|---|---|
+| X27-01 | Every XPC setup, proxy-transport, and timeout failure must retire the exact connection that carried the outcome-unknown request | The generic request worker has one catch-all after the exactly-once continuation; it calls identity-safe `retireConnection(requestConnection)` before rethrowing the original error. The first focused RED failed on the former timeout-only catch, and the final six-test suite passes. | CHECKPOINT VERIFIED OFFLINE |
+| X27-02 | Malformed reply bytes must not escape after the captured connection has left scope | `status`, cleanup preparation, and all `HelperReply` operations decode inside the same generic request worker. Decode failure throws inside its catch-all, so the captured connection is retired before the error escapes. The second focused RED failed on the missing in-scope decoder, and the final source contract plus strict App compilation pass. | CHECKPOINT VERIFIED OFFLINE |
+| X27-03 | Late proxy, reply, and timeout callbacks must still complete a continuation exactly once | The existing lock-backed `CompletionGate` remains unchanged; the focused suite covers each terminal winner plus 300 concurrent contenders. | CHECKPOINT VERIFIED OFFLINE |
+| X27-04 | Local retirement must not clear a newer connection that replaced the failed request's connection | `handleConnectionLoss` always invalidates the captured object, but clears cached state and publishes proof loss only when identity still matches. Existing ordering tests remain green. | CHECKPOINT VERIFIED OFFLINE |
+| O27-01 | The root recovery sentinel must be proven owner-only before arming | `writeSentinel` still suppresses the chmod result, does not validate final ownership/mode/ACL, and existing work-directory permissions are not revalidated. This is a separate helper-storage root cause and was not combined with the XPC checkpoint. | OPEN — NEXT ROOT-CAUSE GROUP |
+| O27-02 | Scheduled-wake replacement, persistence, cancellation, and later reconciliation must not strand an untracked RTC wake | Helper persistence and prior-wake cancellation remain best-effort; App reconciliation can retain sticky uncertainty without an authoritative external wake readback. This known separate root cause remains unresolved. | OPEN — SEPARATE ROOT-CAUSE GROUP / LIVE GATE |
+| O27-03 | Crash-session evidence must not be discarded before durable history and restore proof | `SessionStore` can suppress history-write and journal-delete errors, and finalizes the orphaned record before launch reconciliation proves helper plus registry restoration. This is a separate evidence-integrity root cause. | OPEN — SEPARATE ROOT-CAUSE GROUP |
+| O27-04 | Every distribution uninstall path must preserve the reviewed cleanup/deregistration protocol | The inherited Homebrew cask still requests raw `launchctl` removal and its caveat overpromises restoration, while README and architecture retain uninstall/runtime gates. The cask is byte-identical to starting HEAD and was not changed in this checkpoint. | OPEN — RELEASE POLICY CONTRADICTION |
+| V27-01 | Selected XPC bytes must pass RED/GREEN, focused, complete, strict static, and unsigned Debug/Release checks | Two focused REDs reproduced the uncovered branches; final focused passed 6 tests, complete passed 287 tests in 28 suites, both Core configurations built, all three product source sets passed strict Swift 6 typechecking, and all six direct products linked unsigned. | PASS FOR THIS OFFLINE CHECKPOINT |
+
+- E-407 — 2026-08-06T06:57:29+0200 — Before any edit, independently passed
+  the checkpoint-aware recovery gate. The canonical handoff and immutable
+  manifest matched required SHA-256 values
+  `95bdacdde663c642c2f97d532c1ec2b931e94a7dfcda47b8031e011ab3944831`
+  and `d84065171a261e24ae574b98164132472ff1e8bb635647403d814b9fcf58c36a`.
+  The rolling manifest's adjacent sidecar verified it at SHA-256
+  `9afbf0476f155d70defac2651fcf8f3075664599b21242e9dc6f4705d045325c`.
+  The feature worktree resolved to its recorded canonical path, linked
+  worktree admin directory, common Git directory, branch, and HEAD
+  `766b775f512e1207a012eb3fd44ecfb56bc2ea6f`; the index and unmerged list
+  were empty. Its exact three-file remainder matched every recorded
+  status/type/mode/size/raw hash, with NUL-status SHA-256
+  `3a4984484500650d6b8866b3dfd45bc02ad0ff2888084f86deda5506c36e03dc`
+  and tracked binary-diff SHA-256
+  `5bfed6a6f1b1f3578736cce1d9ae66138f0f9e0614ffc8e93d0aa80c4d6e3b82`.
+  The main checkout remained `main` at starting HEAD with clean index and
+  tracked diff; its three recorded untracked artifacts matched exactly,
+  NUL-status SHA-256 was
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and tracked-diff SHA-256 was the empty-input
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+  The handoff, both manifests, sidecar, progress, decisions, architecture,
+  design-reset brief, this complete ledger, and `CONTRIBUTING.md` were read in
+  full; no repository `AGENTS.md`, `CLAUDE.md`, or equivalent governing file
+  was present.
+- E-408 — 2026-08-06T06:57:29+0200 — Treated the committed package and all
+  prior verdicts as untrusted. Reviewed the complete starting-HEAD-to-current
+  73-file package diff, commit chain, dirty remainder, App/helper/Core safety
+  paths, release/configuration surfaces, and existing tests. A pinned stable
+  Xcode baseline passed all 285 pre-edit tests in 28 suites in
+  `swift-test-full.log` (731 lines, 56,963 bytes, SHA-256
+  `c14388aef374442973544d84777eb0f9d1b1af2130223a9dbf81089f6f182646`).
+  Three independent read-only audits confirmed that the committed
+  `HelperClient.call` retired only timeout failures: proxy errors and bad-proxy
+  setup failures escaped with the captured connection cached, and all three
+  response types decoded after that connection left scope. Apple's local SDK
+  header states that a reply-bearing proxy invokes either its error handler or
+  reply handler exactly once and separately states that interruption callback
+  ordering is not guaranteed. A failed arm or heartbeat could therefore reuse
+  the failed channel and delay helper-side connection-loss restoration until a
+  later callback or the finite watchdog.
+- E-409 — 2026-08-06T06:57:29+0200 — Added the transport/setup regression
+  before changing production. Against committed behavior it failed exactly
+  because no catch-all followed the continuation in
+  `xpc-request-failure-retirement-red.log` (126 lines, 7,673 bytes, SHA-256
+  `474bcabdbb7fc30b2cf3d8a82f8229124af7e6d29280c20d0d7f1412e641bbbf`).
+  After exposing the remaining decoder gap, added its focused regression
+  before the decode refactor; it failed exactly because the generic in-scope
+  decoder was absent in `xpc-malformed-reply-retirement-red.log` (66 lines,
+  3,766 bytes, SHA-256
+  `4069dc1e3c59997995dd0d04ab0ebb0cd9d1a20473cf9ed9e4d0e01d94850c3c`).
+  The root fix made the request worker generic over a decodable, sendable
+  response, moved all status/preparation/reply decoding inside its protected
+  scope, and replaced timeout-only retirement with one identity-safe catch-all
+  that preserves the original error. No daemon, Core production policy,
+  configuration, UI, or design file changed.
+- E-410 — 2026-08-06T06:57:29+0200 — Final focused GREEN passed 6 tests in
+  one suite in `swift-test-xpc-request-safety-focused-final.log` (32 lines,
+  2,381 bytes, SHA-256
+  `133c45ec9e683abca209e74d0dc99d96859212c7b8e2b42030cf10741ffbd5ba`).
+  Final complete stable-toolchain verification passed 287 tests in 28 suites
+  in `swift-test-full-final.log` (735 lines, 57,317 bytes, SHA-256
+  `a7ae119e4dec71cef27675a19373a380f8229e2fe68d9d13a1681ab552bc144c`).
+  The literal required command `swift test --package-path
+  Packages/LidlessCore` was also attempted and its complete environment-only
+  failure is preserved in `swift-test-literal.log` (6 lines, 2,347 bytes,
+  SHA-256
+  `9f9db952e56d1319182b9f2ed01fad1a348ead9dfba00c22cb2f22c908c36d6c`):
+  the selected beta toolchain attempted a sandbox-denied user Clang-cache
+  write. The accepted commands pinned stable Xcode, task-local caches, and
+  disabled only SwiftPM/compiler nested sandboxing.
+- E-411 — 2026-08-06T06:57:29+0200 — With
+  `CODE_SIGNING_ALLOWED=NO` and `CODE_SIGNING_REQUIRED=NO`, stable Swift built
+  LidlessCore in Debug and Release. Complete logs are
+  `swift-build-core-debug.log` (37 lines, 2,189 bytes, SHA-256
+  `4e962a8c69b38d0bfaceea02c4fbb074fbc780682404bbf0b1f05421b6c7deec`)
+  and `swift-build-core-release.log` (9 lines, 666 bytes, SHA-256
+  `1544ca41caed4cb7a04076a4b30f2896a8b26bf64df3318a564f80224fe99203`).
+  All 25 App, 4 helper, and 1 widget sources passed Swift 6 complete strict
+  concurrency with warnings as errors in
+  `static-typecheck-all-products-final.log` (27 lines, 5,981 bytes, SHA-256
+  `4deb276c9a0c9930e302e41ac689288ded5b057a92bc05a9fb9a98192fcbc38a`).
+  All three source sets linked against the 28 Core objects in Debug and
+  optimized Release with linker ad-hoc signing disabled; the complete log is
+  `direct-all-products-debug-release-final.log` (106 lines, 68,945 bytes,
+  SHA-256
+  `5a609569ee0222f7c1e8281764d936abd615a776ed8f62079560d2991799ce9c`).
+  All six outputs are arm64 Mach-O executables with macOS 15 minimum, no
+  `LC_CODE_SIGNATURE`, and expected code-sign inspection failure. None was
+  launched.
+- E-412 — 2026-08-06T06:57:29+0200 — Bash syntax, ShellCheck at warning-or-
+  higher severity, YAML loading, all six source plist/entitlement files, and
+  the generated project plist syntax passed. Decoded values and project
+  bindings for identifiers, team, entitlements, deployment target, helper
+  placement, Mach service, associated app, and Developer ID export method are
+  preserved in `artifact-config-inspection-final-corrected.log` (342 lines,
+  25,868 bytes, SHA-256
+  `c991bb6aa80a96c6343e4969f7d32793c6aee0763aa28946d0dc15643e5a8c2b`).
+  A first harness stopped before those checks because unthresholded ShellCheck
+  returned its four inherited informational SC2015 notices; it is preserved
+  and excluded as `artifact-config-inspection-final.log` (26 lines, 1,230
+  bytes, SHA-256
+  `5279c028fdaceb1aed0a942c133e28aeab6c2aa8fd8afdd5a63ad75cb26c11a1`).
+  Project-native Xcode build/analyze was not rerun because preserved evidence
+  shows that path invokes automatic LaunchServices registration. These loose
+  unsigned executables are compile evidence only, not bundle identity,
+  entitlement, signed XPC, SMAppService, or runtime proof.
+- E-413 — 2026-08-06T06:57:29+0200 — Independent audits also identified
+  separate unresolved root causes that prevent a terminal package verdict:
+  suppressed sentinel permission enforcement; non-transactional scheduled-
+  wake replacement/persistence plus sticky reconciliation uncertainty;
+  crash-session journal deletion before durable history and launch restore
+  proof; and the unchanged Homebrew cask's raw `launchctl` removal path. These
+  findings are recorded in O27-01 through O27-04 and intentionally remain out
+  of this one-root-cause checkpoint. Signed positive-path bundle verification,
+  real XPC identity, ServiceManagement registration/removal/ABA behavior,
+  live `pmset`, sleep/wake, crash/reboot, closed-lid hardware behavior,
+  notarization, and release readiness remain open. No App/helper product,
+  privileged service, system setting, provider, or network action occurred.
+- E-414 — 2026-08-06T06:57:29+0200 — Pre-ledger preservation audit passed in
+  `preservation-audit-preledger.log` (64 lines, 4,255 bytes, SHA-256
+  `3e5555d164920f702a3ce1496705ad6176d672534d1563d05b14d6b7684624e4`).
+  Branch, HEAD, linked-worktree topology, common directory, and empty index
+  remained correct. The three unrelated design files retained exact rolling-
+  manifest mode/size/hash bytes. The main checkout remained `main` at starting
+  HEAD with clean index/tracked diff and its exact three recorded untracked
+  artifacts; its NUL-status and tracked-diff digests remained
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`
+  and `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+  `State: IN_PROGRESS` is retained because only the XPC failure-retirement
+  group is eligible for this invocation's single checkpoint.
+- E-415 — 2026-08-06T06:59:21+0200 — Exported the complete selected index
+  tree `1f5edf9c9da0faff42c1f939ed24bf9b23c3379b` to an isolated temporary
+  directory, excluding the unstaged three-file design remainder. From those
+  exact staged bytes, the focused request-safety suite passed 6 tests in
+  `swift-test-exact-index-focused.log` (96 lines, 6,346 bytes, SHA-256
+  `c6294b6a6b37a2785bcbb144d323b596215067a63718f8c7aef0a2ccbc822f63`),
+  and the complete suite passed 287 tests in 28 suites in
+  `swift-test-exact-index-full.log` (671 lines, 53,358 bytes, SHA-256
+  `bccac2544f349f71d51308f83f4f83a6f711beb81c99bd767969a82bce3eecc4`).
+  Export metadata is preserved in `exact-index-export-metadata.log` (2 lines,
+  102 bytes, SHA-256
+  `141b7ba4b3d358c5903fad72c056918af54e1ec16c54aee7e59eee4efef47243`).
+- E-416 — 2026-08-06T06:59:21+0200 — Reviewed the complete staged diff. It
+  contains only `HelperClient.swift`, its request-safety regression, and this
+  append-only ledger; there is no configuration, daemon, UI/design, binary,
+  rename, mode, or deletion change. Staged and unstaged whitespace checks
+  pass, the unmerged list is empty, and the sole unstaged remainder is the
+  exact three-file rolling-manifest design tree. Before E-415 and this E-416
+  terminal append, the index tree was
+  `1f5edf9c9da0faff42c1f939ed24bf9b23c3379b` and the complete staged binary-
+  diff SHA-256 was
+  `fb4625a368ab5ca7e8c58a0cb4e42ac4227ce03e0d1179ce695e5ce9db07ced4`.
+  These two ledger entries are the sole later selected-byte change before the
+  final index check and exactly one local commit with subject
+  `safety: retire failed XPC request connections`. `State: IN_PROGRESS`
+  remains intentional for the separately recorded open root causes and the
+  supervisor's next rolling-remainder binding.

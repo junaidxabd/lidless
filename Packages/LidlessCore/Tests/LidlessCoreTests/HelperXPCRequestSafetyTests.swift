@@ -78,11 +78,80 @@ struct HelperXPCRequestSafetyTests {
         )
     }
 
+    @Test func everyXPCTransportOrSetupFailureRetiresTheCapturedConnection() throws {
+        let client = try repositoryFile("App/Sources/Helper/HelperClient.swift")
+        let call = try section(
+            of: client,
+            from: "    private func call<Response:",
+            through: "    private func callForReply("
+        )
+
+        let continuation = try #require(call.range(
+            of: "let data: Data = try await withCheckedThrowingContinuation"
+        ))
+        let catchAll = try #require(call.range(
+            of: "        } catch {",
+            range: continuation.upperBound..<call.endIndex
+        ))
+        let retirement = try #require(call.range(
+            of: "retireConnection(requestConnection)",
+            range: catchAll.upperBound..<call.endIndex
+        ))
+        let rethrow = try #require(call.range(
+            of: "throw error",
+            range: retirement.upperBound..<call.endIndex
+        ))
+
+        #expect(catchAll.lowerBound < retirement.lowerBound)
+        #expect(retirement.lowerBound < rethrow.lowerBound)
+        #expect(!call.contains("catch HelperClientError.timedOut"))
+    }
+
+    @Test func malformedRepliesRetireTheConnectionThatCarriedThem() throws {
+        let client = try repositoryFile("App/Sources/Helper/HelperClient.swift")
+        let call = try section(
+            of: client,
+            from: "    private func call<Response:",
+            through: "    private func callForReply("
+        )
+        let normalizedClient = normalizedWhitespace(client)
+
+        let decoder = try #require(call.range(
+            of: "IPCCoding.decode(responseType, from: data)"
+        ))
+        let malformedReply = try #require(call.range(
+            of: "throw HelperClientError.malformedReply",
+            range: decoder.upperBound..<call.endIndex
+        ))
+        let catchAll = try #require(call.range(
+            of: "        } catch {",
+            range: malformedReply.upperBound..<call.endIndex
+        ))
+        let retirement = try #require(call.range(
+            of: "retireConnection(requestConnection)",
+            range: catchAll.upperBound..<call.endIndex
+        ))
+
+        #expect(call.contains("private func call<Response: Decodable & Sendable>"))
+        #expect(decoder.lowerBound < malformedReply.lowerBound)
+        #expect(malformedReply.lowerBound < catchAll.lowerBound)
+        #expect(catchAll.lowerBound < retirement.lowerBound)
+        #expect(normalizedClient.contains(
+            "func status() async throws -> HelperStatus { try await call(HelperStatus.self)"
+        ))
+        #expect(normalizedClient.contains(
+            "private func prepareUninstall() async throws -> HelperCleanupPreparation { try await call(HelperCleanupPreparation.self)"
+        ))
+        #expect(normalizedClient.contains(
+            "async throws -> HelperReply { try await call(HelperReply.self, body) }"
+        ))
+    }
+
     @Test func clientTimesOutEveryXPCContinuationAndRetiresItsConnection() throws {
         let client = try repositoryFile("App/Sources/Helper/HelperClient.swift")
         let call = try section(
             of: client,
-            from: "    private func call(",
+            from: "    private func call<Response:",
             through: "    private func callForReply("
         )
         let replyDecoderStart = try #require(client.range(
@@ -102,7 +171,7 @@ struct HelperXPCRequestSafetyTests {
         let retirement = try section(
             of: client,
             from: "    private func retireConnection(",
-            through: "    /// One XPC round trip"
+            through: "    /// One decoded XPC round trip"
         )
 
         let timer = try #require(call.range(
@@ -118,15 +187,15 @@ struct HelperXPCRequestSafetyTests {
         let timeoutResume = try #require(call.range(
             of: "HelperClientError.timedOut(timeout)"
         ))
-        let timeoutCatch = try #require(call.range(
-            of: "catch HelperClientError.timedOut"
+        let failureCatch = try #require(call.range(
+            of: "        } catch {"
         ))
         let retirementCall = try #require(call.range(
             of: "retireConnection(requestConnection)",
-            range: timeoutCatch.upperBound..<call.endIndex
+            range: failureCatch.upperBound..<call.endIndex
         ))
-        let timeoutThrow = try #require(call.range(
-            of: "throw HelperClientError.timedOut",
+        let errorRethrow = try #require(call.range(
+            of: "throw error",
             range: retirementCall.upperBound..<call.endIndex
         ))
         let capturedInvalidation = try #require(connectionLoss.range(
@@ -163,12 +232,12 @@ struct HelperXPCRequestSafetyTests {
         #expect(normalizedCall.contains(
             "if completion.claim(.reply) { continuation.resume(returning: data) }"
         ))
-        #expect(call.contains("catch HelperClientError.timedOut"))
+        #expect(!call.contains("catch HelperClientError.timedOut"))
         #expect(timer.lowerBound < proxy.lowerBound)
         #expect(timer.lowerBound < dispatch.lowerBound)
         #expect(timeoutClaim.lowerBound < timeoutResume.lowerBound)
-        #expect(timeoutCatch.lowerBound < retirementCall.lowerBound)
-        #expect(retirementCall.lowerBound < timeoutThrow.lowerBound)
+        #expect(failureCatch.lowerBound < retirementCall.lowerBound)
+        #expect(retirementCall.lowerBound < errorRethrow.lowerBound)
         #expect(retirement.contains("handleConnectionLoss(requestConnection)"))
         #expect(capturedInvalidation.lowerBound < capturedConnectionCheck.lowerBound)
         #expect(capturedConnectionCheck.lowerBound < cachedClear.lowerBound)
@@ -179,7 +248,7 @@ struct HelperXPCRequestSafetyTests {
         #expect(connectionSetup.components(
             separatedBy: "guard let self, let fresh else { return }"
         ).count == 3)
-        #expect(replyDecoder.contains("let data = try await call(body)"))
+        #expect(replyDecoder.contains("try await call(HelperReply.self, body)"))
         #expect(client.contains("case timedOut(TimeInterval)"))
         #expect(client.contains("The helper request timed out"))
     }

@@ -342,22 +342,15 @@ final class HelperClient: HelperControlling {
     // MARK: - XPC surface
 
     func status() async throws -> HelperStatus {
-        let data = try await call { proxy, done in proxy.ping(done) }
-        guard let status = IPCCoding.decode(HelperStatus.self, from: data) else {
-            throw HelperClientError.malformedReply
+        try await call(HelperStatus.self) { proxy, done in
+            proxy.ping(done)
         }
-        return status
     }
 
     private func prepareUninstall() async throws -> HelperCleanupPreparation {
-        let data = try await call { proxy, done in proxy.prepareUninstall(done) }
-        guard let preparation = IPCCoding.decode(
-            HelperCleanupPreparation.self,
-            from: data
-        ) else {
-            throw HelperClientError.malformedReply
+        try await call(HelperCleanupPreparation.self) { proxy, done in
+            proxy.prepareUninstall(done)
         }
-        return preparation
     }
 
     func arm(_ options: HelperArmOptions) async throws -> HelperReply {
@@ -453,7 +446,7 @@ final class HelperClient: HelperControlling {
         onInterruption?()
     }
 
-    /// Retire the exact connection used by a timed-out request. Always
+    /// Retire the exact connection used by a failed request. Always
     /// invalidate that captured connection, but never clear a newer cached
     /// connection that may have replaced it while this request was suspended.
     /// Losing the current connection also invalidates the app's active helper
@@ -463,19 +456,21 @@ final class HelperClient: HelperControlling {
         handleConnectionLoss(requestConnection)
     }
 
-    /// One XPC round trip with a finite, exactly-once local completion.
-    /// Timing out retires the request's connection so helper-side connection
-    /// supervision can restore an owned override. It cannot retract a request
-    /// the helper already received, so callers still treat timeout as an
-    /// outcome-unknown failure and reconcile conservatively.
-    private func call(
+    /// One decoded XPC round trip with a finite, exactly-once local completion.
+    /// Every failure retires the request's connection so helper-side
+    /// connection supervision can restore an owned override. A transport
+    /// error, timeout, or malformed reply cannot retract a request the helper
+    /// already received, so callers treat each as an outcome-unknown failure
+    /// and reconcile conservatively.
+    private func call<Response: Decodable & Sendable>(
+        _ responseType: Response.Type,
         _ body: @escaping @Sendable (LidlessHelperXPC, @escaping @Sendable (Data) -> Void) -> Void
-    ) async throws -> Data {
+    ) async throws -> Response {
         let requestConnection = ensureConnection()
         let completion = HelperXPCRequestSafety.CompletionGate()
         let timeout = HelperXPCRequestSafety.replyTimeout
         do {
-            return try await withCheckedThrowingContinuation { continuation in
+            let data: Data = try await withCheckedThrowingContinuation { continuation in
                 // Schedule the finite boundary before asking XPC for a proxy
                 // or dispatching the remote call. No synchronous setup branch
                 // may escape without a completion path.
@@ -501,19 +496,19 @@ final class HelperClient: HelperControlling {
                     }
                 }
             }
-        } catch HelperClientError.timedOut(let timeout) {
+            guard let response = IPCCoding.decode(responseType, from: data) else {
+                throw HelperClientError.malformedReply
+            }
+            return response
+        } catch {
             retireConnection(requestConnection)
-            throw HelperClientError.timedOut(timeout)
+            throw error
         }
     }
 
     private func callForReply(
         _ body: @escaping @Sendable (LidlessHelperXPC, @escaping @Sendable (Data) -> Void) -> Void
     ) async throws -> HelperReply {
-        let data = try await call(body)
-        guard let reply = IPCCoding.decode(HelperReply.self, from: data) else {
-            throw HelperClientError.malformedReply
-        }
-        return reply
+        try await call(HelperReply.self, body)
     }
 }
