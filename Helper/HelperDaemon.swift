@@ -35,7 +35,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     /// Producer-owned declaration of the behavior actually implemented by
     /// this daemon. Keep this independent from the app's required revision so
     /// an app-side bump cannot silently make an unchanged helper compatible.
-    private static let implementedSafetyRevision = 2
+    private static let implementedSafetyRevision = 3
 
     private let queue = DispatchQueue(label: "com.lidless.helper.state")
     private let log = HelperLog()
@@ -64,6 +64,10 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     /// cleanup fails or its reply is lost, without blocking already-owned
     /// restoration.
     private var helperRemovalFence: HelperRemovalDaemonSafety.Fence = .open
+    /// Random for this process lifetime. Cleanup preparation returns this as
+    /// an opaque authorization, and commit validates it before any cleanup
+    /// mutation. A reconnect to a restarted/replaced helper cannot reuse it.
+    private let cleanupInstanceID = UUID()
 
     // Supervision clocks are monotonic (mach time), never wall-clock: an NTP
     // step or manual clock change must neither extend the unsupervised
@@ -899,9 +903,42 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         }
     }
 
-    fileprivate func handleUninstall(reply: @escaping @Sendable (Data) -> Void) {
+    fileprivate func handlePrepareUninstall(
+        reply: @escaping @Sendable (Data) -> Void
+    ) {
         queue.async { [self] in
             lastActivity = Date()
+            let authorization = HelperCleanupAuthorization(
+                helperInstanceID: cleanupInstanceID
+            )
+            reply(IPCCoding.encode(HelperCleanupPreparation(
+                ok: true,
+                authorization: authorization,
+                status: currentStatus()
+            )))
+        }
+    }
+
+    fileprivate func handleUninstall(
+        _ authorizationJSON: Data,
+        reply: @escaping @Sendable (Data) -> Void
+    ) {
+        queue.async { [self] in
+            lastActivity = Date()
+            guard let authorization = IPCCoding.decode(
+                HelperCleanupAuthorization.self,
+                from: authorizationJSON
+            ), HelperCleanupHandshakeSafety.authorizes(
+                authorization,
+                issuedBy: cleanupInstanceID
+            ) else {
+                reply(IPCCoding.encode(HelperReply(
+                    ok: false,
+                    error: "cleanup authorization was not issued by this helper process; no cleanup was attempted",
+                    status: currentStatus()
+                )))
+                return
+            }
             advanceLifecycle()
             // Monotonic for this process: any partial or ambiguous cleanup
             // outcome keeps new risk-increasing work closed. Recovery and a
@@ -966,6 +1003,19 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                 return
             }
             reply(IPCCoding.encode(HelperReply(ok: true, status: finalStatus)))
+        }
+    }
+
+    fileprivate func handleLegacyUninstall(
+        reply: @escaping @Sendable (Data) -> Void
+    ) {
+        queue.async { [self] in
+            lastActivity = Date()
+            reply(IPCCoding.encode(HelperReply(
+                ok: false,
+                error: "legacy cleanup requests are not process-bound; no cleanup was attempted",
+                status: currentStatus()
+            )))
         }
     }
 
@@ -1088,7 +1138,18 @@ final class HelperXPCBridge: NSObject, LidlessHelperXPC {
         daemon.handleScheduleWake(epoch, reply: reply)
     }
 
+    func prepareUninstall(_ reply: @escaping @Sendable (Data) -> Void) {
+        daemon.handlePrepareUninstall(reply: reply)
+    }
+
+    func commitUninstall(
+        _ authorizationJSON: Data,
+        reply: @escaping @Sendable (Data) -> Void
+    ) {
+        daemon.handleUninstall(authorizationJSON, reply: reply)
+    }
+
     func uninstall(_ reply: @escaping @Sendable (Data) -> Void) {
-        daemon.handleUninstall(reply: reply)
+        daemon.handleLegacyUninstall(reply: reply)
     }
 }

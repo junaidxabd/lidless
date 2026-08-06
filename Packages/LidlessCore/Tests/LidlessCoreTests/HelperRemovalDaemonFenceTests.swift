@@ -91,7 +91,7 @@ struct HelperRemovalDaemonFenceTests {
         let cleanup = try section(
             of: helper,
             from: "fileprivate func handleUninstall(",
-            through: "private func currentStatus()"
+            through: "fileprivate func handleLegacyUninstall("
         )
 
         #expect(helper.contains(
@@ -249,7 +249,7 @@ struct HelperRemovalDaemonFenceTests {
         let cleanup = try section(
             of: helper,
             from: "fileprivate func handleUninstall(",
-            through: "private func currentStatus()"
+            through: "fileprivate func handleLegacyUninstall("
         )
         let disableLogControl = try section(
             of: helperLog,
@@ -364,7 +364,7 @@ struct HelperRemovalDaemonFenceTests {
         let cleanup = try section(
             of: helper,
             from: "fileprivate func handleUninstall(",
-            through: "private func currentStatus()"
+            through: "fileprivate func handleLegacyUninstall("
         )
 
         let dataRemoval = try #require(cleanup.range(

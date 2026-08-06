@@ -35,7 +35,7 @@ Security system frameworks; it performs no system mutations. `CutoffEngine`
 evaluation), `ScheduleEngine` (recurring windows, midnight wrap, DST-safe),
 `DrainEstimator` (least-squares %/hr over the trailing discharge run),
 `PMSetParser` (every piece of pmset text parsing in one tested module), the
-XPC payload types, and the sentinel model. 279 deterministic tests; the
+XPC payload types, and the sentinel model. Deterministic tests cover the
 policies that decide when your battery stops draining are never buried in UI
 code.
 
@@ -160,11 +160,27 @@ encoding for XPC, sentinel, and logs); malformed input produces an error
 reply, never a crash. Every reply carries a fresh `HelperStatus` including
 the *read-back* override value. Readiness and every app-side arm, restore,
 outside-ownership, enabled-registration removal, and scheduled-wake acceptance
-boundary require both protocol v6 and the exact safety behavior revision 2.
+boundary require both protocol v6 and the exact safety behavior revision 3.
 A missing, older, or future revision is stale and cannot supply proof. The
 revision is self-reported compatibility metadata, not executable attestation
 or an installation receipt; safely replacing an already registered stale
 helper remains a separate deployment gate.
+
+Enabled-helper cleanup has the same compatibility boundary on entry, not only
+on its reply. The client asks the responder to prepare cleanup, requires the
+exact protocol and safety revision in that non-cleanup reply, and rechecks that
+launchd still classifies the service as enabled. Preparation also returns a
+random authorization bound to that helper process lifetime. The receiving
+daemon validates it before advancing lifecycle state, restoring settings,
+cancelling wakes, or removing data. A commit delivered to a restarted or
+replacement process therefore rejects before cleanup mutation. The legacy
+unbound cleanup selector is fail-closed. The token does not bind a lingering
+responder to the SMAppService registration that will later be unregistered, so
+registration/executable identity and enabled-to-enabled registration ABA remain
+open gates. This handshake is self-reported compatibility evidence, not
+attestation of installed bytes or a receipt for the registered executable;
+signed replacement and live ServiceManagement/XPC behavior remain separate
+runtime gates.
 
 ## The arming flow (exact)
 
@@ -213,7 +229,7 @@ mode (`--render-screenshots`), so the docs can never drift from the real UI.
 ## Project layout
 
 ```
-Packages/LidlessCore/    pure logic + 279 tests (swift test)
+Packages/LidlessCore/    pure logic + tests (swift test)
 App/Sources/             AppState, monitors, HelperClient, services, SwiftUI
 Helper/                  daemon (PMSet, HelperDaemon, launchd plist)
 Widget/                  WidgetKit mirror of the published snapshot

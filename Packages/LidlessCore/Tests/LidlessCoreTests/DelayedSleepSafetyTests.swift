@@ -147,7 +147,7 @@ struct DelayedSleepSafetyTests {
         let uninstall = try section(
             of: helper,
             from: "fileprivate func handleUninstall(",
-            through: "private func currentStatus()"
+            through: "fileprivate func handleLegacyUninstall("
         )
         let power = try section(
             of: helper,

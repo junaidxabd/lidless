@@ -92,4 +92,125 @@ struct HelperClientRemovalProofTests {
         #expect(!uninstall.contains("Proceed only if the override verifiably reads OFF"))
         #expect(!uninstall.contains("catch let error as NSError where error.domain == \"Lidless\""))
     }
+
+    @Test func cleanupAuthorizationIsBoundToExactCurrentResponderBeforeMutation() throws {
+        let client = try repositoryFile("App/Sources/Helper/HelperClient.swift")
+        let helper = try repositoryFile("Helper/HelperDaemon.swift")
+        let uninstall = try section(
+            of: client,
+            from: "func uninstall() async throws {",
+            through: "private nonisolated static func unregisterDaemon()"
+        )
+        let enabled = try section(
+            of: String(uninstall),
+            from: "case .enabled:",
+            through: "case .inactive:"
+        )
+
+        let invalidateCachedReadiness = try #require(enabled.range(
+            of: "installState = .unknown"
+        ))
+        let preparation = try #require(enabled.range(
+            of: "cleanupPreparation = try await prepareUninstall()"
+        ))
+        let compatibilityGate = try #require(enabled.range(
+            of: "SleepOverrideSafety.isCurrentHelper(cleanupPreparation.status)"
+        ))
+        let authorization = try #require(enabled.range(
+            of: "let cleanupAuthorization = cleanupPreparation.authorization"
+        ))
+        let registrationRecheck = try #require(enabled.range(
+            of: "guard removalRegistrationState() == registrationState else"
+        ))
+        let cleanupFence = try #require(enabled.range(
+            of: "removalFence = HelperRemovalClientSafety.beginRemoteCleanup()"
+        ))
+        let cleanupDispatch = try #require(enabled.range(
+            of: "proxy.commitUninstall("
+        ))
+        let encodedAuthorization = try #require(enabled.range(
+            of: "IPCCoding.encode(cleanupAuthorization)"
+        ))
+
+        #expect(invalidateCachedReadiness.lowerBound < preparation.lowerBound)
+        #expect(preparation.lowerBound < compatibilityGate.lowerBound)
+        #expect(compatibilityGate.lowerBound < authorization.lowerBound)
+        #expect(authorization.lowerBound < registrationRecheck.lowerBound)
+        #expect(compatibilityGate.lowerBound < registrationRecheck.lowerBound)
+        #expect(registrationRecheck.lowerBound < cleanupFence.lowerBound)
+        #expect(cleanupFence.lowerBound < cleanupDispatch.lowerBound)
+        #expect(cleanupDispatch.lowerBound < encodedAuthorization.lowerBound)
+        #expect(enabled.contains("did not request cleanup or deregistration"))
+        #expect(enabled.contains("installState = .stale("))
+        #expect(enabled.contains("installState = .notResponding("))
+        #expect(!enabled.contains("proxy.uninstall(done)"))
+        #expect(String(enabled).components(
+            separatedBy: "proxy.commitUninstall("
+        ).count == 2)
+
+        let cleanup = try section(
+            of: helper,
+            from: "fileprivate func handleUninstall(",
+            through: "fileprivate func handleLegacyUninstall("
+        )
+        let tokenDecode = try #require(cleanup.range(
+            of: "guard let authorization = IPCCoding.decode("
+        ))
+        let tokenGate = try #require(cleanup.range(
+            of: "HelperCleanupHandshakeSafety.authorizes("
+        ))
+        let lifecycleMutation = try #require(cleanup.range(of: "advanceLifecycle()"))
+        let cleanupFenceMutation = try #require(cleanup.range(
+            of: "helperRemovalFence = .cleanupStarted"
+        ))
+        let restoration = try #require(cleanup.range(of: "performRestore(record"))
+        let wakeCancellation = try #require(cleanup.range(
+            of: "try PMSet.cancelWake(rendered: existing.rendered)"
+        ))
+        let dataRemoval = try #require(cleanup.range(
+            of: "try FileManager.default.removeItem(atPath: HelperPaths.workDirectory)"
+        ))
+
+        #expect(tokenDecode.lowerBound < tokenGate.lowerBound)
+        #expect(tokenGate.lowerBound < lifecycleMutation.lowerBound)
+        #expect(tokenGate.lowerBound < cleanupFenceMutation.lowerBound)
+        #expect(tokenGate.lowerBound < restoration.lowerBound)
+        #expect(tokenGate.lowerBound < wakeCancellation.lowerBound)
+        #expect(tokenGate.lowerBound < dataRemoval.lowerBound)
+
+        let preparationHandler = try section(
+            of: helper,
+            from: "fileprivate func handlePrepareUninstall(",
+            through: "fileprivate func handleUninstall("
+        )
+        #expect(preparationHandler.contains("HelperCleanupAuthorization("))
+        #expect(preparationHandler.contains("status: currentStatus()"))
+        #expect(!preparationHandler.contains("advanceLifecycle()"))
+        #expect(!preparationHandler.contains("helperRemovalFence ="))
+        #expect(!preparationHandler.contains("performRestore("))
+        #expect(!preparationHandler.contains("PMSet.cancelWake"))
+        #expect(!preparationHandler.contains("FileManager.default.removeItem"))
+
+        let legacyHandler = try section(
+            of: helper,
+            from: "fileprivate func handleLegacyUninstall(",
+            through: "private func currentStatus()"
+        )
+        #expect(legacyHandler.contains("ok: false"))
+        #expect(legacyHandler.contains("no cleanup was attempted"))
+        #expect(!legacyHandler.contains("advanceLifecycle()"))
+        #expect(!legacyHandler.contains("helperRemovalFence ="))
+        #expect(!legacyHandler.contains("performRestore("))
+        #expect(!legacyHandler.contains("PMSet.cancelWake"))
+        #expect(!legacyHandler.contains("FileManager.default.removeItem"))
+
+        let bridge = try section(
+            of: helper,
+            from: "final class HelperXPCBridge",
+            through: "daemon.handleLegacyUninstall(reply: reply)"
+        )
+        #expect(bridge.contains("func prepareUninstall("))
+        #expect(bridge.contains("func commitUninstall("))
+        #expect(bridge.contains("func uninstall("))
+    }
 }

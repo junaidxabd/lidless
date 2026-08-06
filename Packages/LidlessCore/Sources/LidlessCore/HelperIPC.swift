@@ -34,9 +34,24 @@ public protocol LidlessHelperXPC {
     /// automation, via `pmset schedule wake`. Reply: `HelperReply`.
     func scheduleWake(_ epoch: Double, reply: @escaping @Sendable (Data) -> Void)
 
-    /// Restore all managed pmset state, remove the helper's on-disk data,
-    /// and cancel any scheduled wake. The app deregisters the daemon after
-    /// this succeeds. Reply: `HelperReply`.
+    /// Return a process-instance authorization and fresh status without any
+    /// cleanup or managed-pmset mutation. A cleanup commit from another helper
+    /// process must fail before its first cleanup mutation. Reply:
+    /// `HelperCleanupPreparation` JSON.
+    func prepareUninstall(_ reply: @escaping @Sendable (Data) -> Void)
+
+    /// Restore all managed pmset state, remove the helper's on-disk data, and
+    /// cancel any scheduled wake, but only when the encoded
+    /// `HelperCleanupAuthorization` was issued by this helper process. The app
+    /// deregisters the daemon after this succeeds. Reply: `HelperReply`.
+    func commitUninstall(
+        _ authorizationJSON: Data,
+        reply: @escaping @Sendable (Data) -> Void
+    )
+
+    /// Legacy protocol-v6 selector. Safety revision 3 helpers refuse this
+    /// unbound request before any cleanup mutation. It remains present so an
+    /// older app receives a structured failure rather than invoking cleanup.
     func uninstall(_ reply: @escaping @Sendable (Data) -> Void)
 }
 
@@ -131,6 +146,48 @@ public struct HelperReply: Codable, Sendable, Equatable {
         self.ok = ok
         self.error = error
         self.status = status
+    }
+}
+
+/// Opaque capability tying a cleanup commit to one helper process lifetime.
+/// It is not an identity attestation; its only purpose is to make a helper
+/// restart or XPC reconnect to a replacement process fail closed.
+public struct HelperCleanupAuthorization: Codable, Sendable, Equatable {
+    public var helperInstanceID: UUID
+
+    public init(helperInstanceID: UUID) {
+        self.helperInstanceID = helperInstanceID
+    }
+}
+
+/// Non-cleanup first phase of helper removal. `authorization` is present only
+/// when this process is willing to accept a matching commit.
+public struct HelperCleanupPreparation: Codable, Sendable, Equatable {
+    public var ok: Bool
+    public var error: String?
+    public var authorization: HelperCleanupAuthorization?
+    public var status: HelperStatus
+
+    public init(
+        ok: Bool,
+        error: String? = nil,
+        authorization: HelperCleanupAuthorization? = nil,
+        status: HelperStatus
+    ) {
+        self.ok = ok
+        self.error = error
+        self.authorization = authorization
+        self.status = status
+    }
+}
+
+public enum HelperCleanupHandshakeSafety {
+    /// A token issued by any other process lifetime authorizes nothing.
+    public static func authorizes(
+        _ authorization: HelperCleanupAuthorization,
+        issuedBy helperInstanceID: UUID
+    ) -> Bool {
+        authorization.helperInstanceID == helperInstanceID
     }
 }
 

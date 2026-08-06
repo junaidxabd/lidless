@@ -2469,3 +2469,202 @@ blockers; this checkpoint is not upgrade-complete and must remain
   unstaged/untracked paths are the six authenticated remainder paths. Only
   this terminal evidence entry is appended afterward; no selected product or
   test byte and no accepted verification result changed.
+- E-376 — 2026-08-06T05:27:17+0200 — Began the twenty-fifth recovery from the
+  authenticated rolling remainder manifest, whose adjacent sidecar exactly
+  matches manifest SHA-256
+  `c7cbe860130078a4e07024d3eec195819b4af00af4bacecebbe0814ce2a681ea`.
+  The canonical handoff and immutable historical manifest independently match
+  their supplied SHA-256 values. The rolling manifest is the sole state
+  authority because feature HEAD has advanced beyond starting HEAD. Before
+  this first edit, the ledger SHA-256 was
+  `1d1679510805ed8ffa785b337af7a24bb2f8017b3688f628a6b49456770543f2`;
+  its required top-level `State: IN_PROGRESS`, branch, and starting HEAD were
+  already exact. The handoff, both manifests, sidecar, progress log, decision
+  log, architecture, and design-reset brief were read in full. A tracked and
+  untracked repository-file scan found no `AGENTS.md`, `CLAUDE.md`, `CODEX.md`,
+  or `INSTRUCTIONS.md`.
+- E-377 — 2026-08-06T05:27:17+0200 — The pre-edit recovery audit reproduced
+  the exact feature canonical path, two-worktree linked topology, branch, HEAD
+  `a841913bf7d6f5779bac92e30b5d32ef7c3b0f9d`, linked Git admin/common
+  directories, clean index, and complete six-path dirty inventory. Every
+  recorded path status, regular-file type, mode, byte count, and raw SHA-256
+  matched with no extra or missing path. The NUL-delimited status SHA-256 was
+  `5cf63a070dfe49313ecf75b3b2b7c3995af41ba5f22a8c4c39523108c7863b09`
+  and the tracked binary-diff SHA-256 was
+  `9246b662e27202b4da57f7adb476aae9ab0133cae5176c50d3a8a115cc34ea6f`.
+  The main checkout was inspected read-only at canonical path
+  `/Users/junaid/Xcode-Projects/Lidless`: branch `main`, starting HEAD, clean
+  index and tracked diff, exact three-path `.playwright-mcp` inventory, status
+  SHA-256
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked binary-diff SHA-256 all match the rolling authority. No
+  mismatch was normalized or waived, and the main checkout remains untouched.
+
+## Twenty-fifth checkpoint finding / verification matrix
+
+| ID | Invariant / finding | Evidence | Verdict |
+|---|---|---|---|
+| T25-01 | An incompatible helper must not receive an unversioned cleanup mutation merely because its reply is rejected later | Cleanup is now a safety-revision-3 two-phase protocol. The client accepts preparation only from an exact protocol/revision responder and never invokes the legacy selector; missing, older, future, malformed, negative, and tokenless preparations cannot reach commit. | PASS OFFLINE — MIXED-VERSION RUNTIME GATE OPEN |
+| T25-02 | The process that reports compatibility must be the process allowed to begin cleanup | Preparation returns a random process-lifetime UUID authorization. The receiving daemon validates it before lifecycle advancement, the removal fence, restore, wake cancellation, or data deletion; a commit delivered to a restarted/replacement process fails first. Pure token tests and source-order tests cover the offline boundary. | PASS OFFLINE — LIVE RECONNECT / RESTART GATE OPEN |
+| T25-03 | Failed preparation must not leave cached `.ready` eligibility | The client sets `.unknown` before suspension, records transport failure as `.notResponding`, exact revision mismatch as `.stale`, and refusal or registration change as `.unknown`; the unresolved-removal fence is committed immediately before commit dispatch. | PASS BY STRICT COMPILE + SOURCE CONTRACT — UI / RUNTIME GATE OPEN |
+| T25-04 | Older apps must not trigger the new helper's unsafe unbound cleanup selector | Safety-revision-3 retains the protocol-v6 legacy selector solely as a structured `ok: false` response. Dedicated source assertions exclude lifecycle, fence, restore, wake, and data mutations from both preparation and the legacy handler. | PASS OFFLINE — SIGNED OLD-APP / NEW-HELPER XPC GATE OPEN |
+| T25-05 | Exact selected bytes must pass independently of the preserved remainder | Exported index tree `6df0141cc73814394ad6bdaee69bd3699cbfa12a` passed 18 related tests, all 283 exact tests, both Core configurations, strict all-product typechecking, and direct unsigned Debug/Release links. | PASS OFFLINE |
+| T25-06 | The token must not be overstated as installed-executable or registration identity | Architecture explicitly states that a lingering responder is not bound to the SMAppService registration later unregistered; enabled-to-enabled registration/executable ABA remains open. The token is process-lifetime and replayable in that trusted process, not an attestation or one-shot receipt. | OPEN GATE — CLAIM BOUNDED |
+| T25-07 | This checkpoint does not cure wake-ledger or full uninstall transaction defects | Schedule replacement/persistence/orphan reconciliation, exact external wake readback, safe stale-helper replacement, unregister timing, and real pmset/data cleanup remain outside this checkpoint. | SEPARATE SAFETY / RUNTIME GATES OPEN |
+
+### Twenty-fifth append-only evidence log (continued)
+
+- E-378 — 2026-08-06T05:56:33+0200 — Reproduced the complete preserved package
+  before accepting a claim. The literal required command first failed before
+  manifest evaluation because the default beta toolchain attempted
+  sandbox-forbidden user-cache writes (`swift-test-preserved-baseline.log`, 6
+  lines, SHA-256
+  `172259cc7c25cb91e500fbd0d9bb8b145292d2729e690d4705e0f980a63c146e`).
+  Stable Xcode 26.5 / Swift 6.3.2 with scratch/module caches routed to writable
+  locations and SwiftPM's nested sandbox disabled passed all 286 then-present
+  working-tree tests in 28 suites
+  (`swift-test-preserved-baseline-stable.log`, 733 lines, SHA-256
+  `a7a030b74ef16006044f19258ec84dace79ee41c0ab6a514a74a99e3ec06d6d6`).
+  Complete diff review and three independent read-only audits rejected the six
+  remainder files as one package and selected only the stale-helper cleanup
+  dispatch defect. The six remainder files were not edited.
+- E-379 — 2026-08-06T05:56:33+0200 — Established RED before the selected
+  production repair. The first regression proved that enabled-helper cleanup
+  lacked any exact-current preflight
+  (`swift-test-stale-cleanup-preflight-red.log`, SHA-256
+  `0c23b5a754ddbd094a501c5e8208877fcc20bc922ecc2d4f0209d6b856db9d1a`).
+  A simple status-before-cleanup implementation reached focused GREEN
+  (`swift-test-stale-cleanup-preflight-green2.log`, SHA-256
+  `9779370c45fb0dafb8fbb490635d29e79c84fe8607b3cdee38d6bee51e91b389`)
+  and a 287-test working-tree pass, but adversarial review rejected it: XPC
+  could reconnect between the two requests and dispatch cleanup to another
+  helper process. Those superseded results remain preserved and are not used
+  as final safety evidence. The hardened token RED then failed exactly at the
+  missing process-bound preparation
+  (`swift-test-cleanup-token-red.log`, 85 lines, SHA-256
+  `f50596aa7e629bd0ecf7427143aed58b5ba91788b03b1cae2f98ad659230a5f8`).
+- E-380 — 2026-08-06T05:56:33+0200 — Implemented the bounded root-cause repair.
+  Protocol v6 gains additive `prepareUninstall` and `commitUninstall` methods
+  over JSON `Data`; helper safety revision advances independently to 3.
+  Preparation returns current status plus a process-lifetime UUID, and commit
+  rejects malformed or foreign authorization before every cleanup-relevant
+  mutation. The new client invalidates cached readiness before preparation,
+  requires exact self-reported compatibility, rechecks coarse registration,
+  fences locally before commit, and has no fallback to legacy cleanup. The
+  revision-3 legacy selector replies false without cleanup mutation. This is a
+  process-receiver binding, not executable attestation or registration receipt.
+- E-381 — 2026-08-06T05:56:33+0200 — Independent adversarial reviews exposed
+  and closed the initial reconnect ABA, cached-ready regression, false
+  `.notResponding` presentation for a responding refusal, nondeterministic
+  negative UUID test, stale revision/test-count documentation, literal
+  read-only overclaim, missing legacy/preparation negative coverage, and an
+  overclaim about enabled-to-enabled replacement. Final reviewers accepted the
+  narrow offline checkpoint: a commit delivered to a different process fails
+  before cleanup. They explicitly retained registration/executable ABA,
+  signed mixed-version XPC, unsupported-selector behavior, same-process replay,
+  wake-ledger orphaning, and real cleanup/unregister as open gates. Reviewers
+  changed no file or index.
+- E-382 — 2026-08-06T05:56:33+0200 — Curated exactly ten non-ledger paths:
+  architecture, client, daemon, two Core protocol/revision sources, three
+  existing safety suites, the client proof suite, and the new pure handshake
+  suite. The six authenticated remainder paths are not staged. Before these
+  ledger entries, staged and unstaged tracked `git diff --check` passed. The
+  pre-ledger staged binary-diff SHA-256 is
+  `2561b61f608a56cd84d6bd68e3debfe2dcfa79db2b2a6066e943cdf4ebde19f5`,
+  and exported exact index tree is
+  `6df0141cc73814394ad6bdaee69bd3699cbfa12a`. Only append-only ledger bytes
+  change after that tested export; terminal review must prove every selected
+  non-ledger index blob still matches it.
+- E-383 — 2026-08-06T05:56:33+0200 — The final complete working tree passed
+  all 290 tests in 29 suites, including the seven tests supplied only by the
+  excluded remainder (`swift-test-full-working-cleanup-token-final.log`, 678
+  lines, SHA-256
+  `155ebb7d4701f335b7ca68e591832180a4e746bd09998dbddcb5d74b975c3443`).
+  The exact exported index passed 18 related cleanup/daemon/revision/delayed
+  sleep tests in 5 suites
+  (`swift-test-related-exact-cleanup-token-final.log`, 128 lines, SHA-256
+  `18104bbc44889c784d2ff9d07b42f33db8bc9b6c003ebb215dd30e6e380e218f`)
+  and all 283 exact tests in 28 suites
+  (`swift-test-full-exact-cleanup-token-final.log`, 663 lines, SHA-256
+  `77a9cbcc5b412a7ee175d8b04c54dd608684ebf04cd341df90bed158d92d3601`).
+  The pure/source tests did not run App, helper, widget, XPC, launchd, pmset, or
+  hardware behavior.
+- E-384 — 2026-08-06T05:56:33+0200 — Under the recorded Xcode 26.5 / Swift
+  6.3.2 toolchain (`toolchain-record-cleanup-token-final.log`, 8 lines,
+  SHA-256
+  `1b933d3c67d90d8838e55b720d3f34d4b7b7710ece3753caecc0af196c99df9c`),
+  exact Debug and Release `LidlessCore` builds passed with
+  `CODE_SIGNING_ALLOWED=NO`
+  (`swift-build-core-debug-exact-cleanup-token-final.log`, SHA-256
+  `d46b23cfe178c08dbb8691868c4823f997b2e648007b9557f5f7a6a5eb0ab713`;
+  Release SHA-256
+  `34227a7c6258e36d336bdf358fae70c10ebb3ae51c043abc76b23fea58962c9d`).
+  All 25 App, 4 helper, and 1 widget exact sources passed macOS 15 Swift 6
+  complete strict-concurrency typechecking with warnings-as-errors
+  (`swiftc-all-products-typecheck-exact-cleanup-token-final.log`, SHA-256
+  `bc641d58256acbe4775d68ceac16f8521165758a548a0a25d3c80082745f3af5`).
+  With signing disabled and linker ad-hoc signing suppressed, all three exact
+  source sets plus all 28 Core objects linked in Debug
+  (`direct-all-products-debug-exact-cleanup-token-final.log`, SHA-256
+  `f07b960df914ce26bf023c35cbd8a0f256482a85e72bde1d221078534eed392c`)
+  and optimized Release (SHA-256
+  `cafa172ec91dffeae716b6db74105bfdb6f08822ae5a0ba8862896a4f6247837`).
+  No product was launched.
+- E-385 — 2026-08-06T05:56:33+0200 —
+  `artifact-config-inspection-exact-cleanup-token-final.log` (396 lines,
+  SHA-256
+  `95dfc1dff5bc78e8e114ec586c7e3f151e2767285d0f722f1321f6f990cba55b`)
+  records modes, sizes, hashes, thin arm64 file types, macOS 15 build-version
+  commands, dependencies, absence of `LC_CODE_SIGNATURE`, and expected
+  unsigned codesign verdicts for all six loose Debug/Release outputs. It also
+  preserves lint/decoded App/helper/widget plist and entitlement sources,
+  source/generated-project identity bindings, exact protocol/revision
+  constants, and both fail-closed helper strings in the Debug helper. These are
+  loose unsigned executables and source configurations, not Xcode-built
+  bundles, embedded entitlements, signed identity, installed-helper freshness,
+  XPC trust, notarization, or runtime evidence.
+- E-386 — 2026-08-06T05:56:33+0200 — Reverified the feature remainder and main
+  checkout after all tests/builds in
+  `main-and-remainder-preservation-cleanup-token-precommit.log` (45 lines,
+  SHA-256
+  `55c2e4e0220b58a37aef904b7da16199242c33b9e88ee9ec47ead059727812f0`).
+  The exact topology, feature branch/precommit HEAD/common directory, empty
+  unmerged list, every remainder status/mode/size/raw hash, remainder NUL-status
+  SHA-256
+  `5cf63a070dfe49313ecf75b3b2b7c3995af41ba5f22a8c4c39523108c7863b09`,
+  and tracked binary-diff SHA-256
+  `9246b662e27202b4da57f7adb476aae9ab0133cae5176c50d3a8a115cc34ea6f`
+  match the rolling authority. Main remains `main` at starting HEAD with clean
+  index/tracked diff and the exact three `.playwright-mcp` paths; its status
+  SHA-256 remains
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`.
+- E-387 — 2026-08-06T05:56:33+0200 — No App/helper/widget process, helper
+  install/activation/registration/approval/unregister, live XPC, mutating
+  `pmset`, sleep-setting change, sleep/wake, hardware, authentication,
+  credential, plugin/provider/connector, Figma, network publication, release,
+  notarization, merge, push, deploy, or main-checkout mutation was performed.
+  Project-native Xcode build/analyze was not retried after the established
+  nested-sandbox failure and automatic LaunchServices side-effect constraint;
+  strict compiler analysis and direct unsigned builds are the bounded static
+  evidence. Safe revision-2 replacement, registration/executable identity ABA,
+  signed mixed-version XPC, process restart and replay integration,
+  wake-ledger persistence/orphan reconciliation, real pmset/data cleanup,
+  unregister behavior, sleep/wake, closed-lid hardware, notarization, and
+  release readiness remain open. The coherent checkpoint is prepared under
+  subject `safety: bind helper cleanup to responder process`; top-level
+  `State: IN_PROGRESS` is intentionally retained. After exactly one local
+  commit, the supervisor must bind the exact remaining tree into a fresh
+  rolling manifest before another invocation.
+- E-388 — 2026-08-06T05:58:59+0200 — Completed the terminal staged review in
+  `final-staged-review-cleanup-token.log` (898 lines, 50,332 bytes, SHA-256
+  `57ed8f159f62243ccd600cea61d1dfc05d375ba064038e8fbed339f3d2a6e914`).
+  The review preserves the complete staged binary diff, confirms the exact 11
+  selected paths, proves every non-ledger selected index blob byte-for-byte
+  equals the tested exact-index export, passes staged and unstaged
+  `git diff --check`, finds no unmerged entry, and leaves only the authenticated
+  four tracked plus two untracked remainder paths outside the checkpoint. The
+  pre-terminal-ledger index tree was
+  `54ac6ae7fe0dc0d270471b33d80aa1143c0aa170`; its staged binary-diff SHA-256
+  was `db2805c7ab32163db61b442e4f0db377f495aecae7d24c5a5e19128f589ee484`.
+  This E-388 append is the sole subsequent selected-byte change before the
+  final index check and commit.

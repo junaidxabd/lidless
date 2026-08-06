@@ -177,6 +177,52 @@ final class HelperClient: HelperControlling {
         let removalAction: HelperRemovalSafety.RegistrationRemovalAction
         switch registrationState {
         case .enabled:
+            // Cleanup is itself a privileged mutation. An older helper may
+            // have weaker restoration semantics, so rejecting its reply after
+            // cleanup is too late: it may already have discarded the only
+            // recovery record. Invalidate cached readiness first, then obtain
+            // a process-bound authorization from the exact-current responder.
+            installState = .unknown
+            let cleanupPreparation: HelperCleanupPreparation
+            do {
+                cleanupPreparation = try await prepareUninstall()
+            } catch {
+                installState = .notResponding(error.localizedDescription)
+                invalidateConnection()
+                throw NSError(domain: "Lidless", code: 10, userInfo: [
+                    NSLocalizedDescriptionKey: "The registered helper could not be verified before cleanup (\(error.localizedDescription)). Lidless did not request cleanup or deregistration. Keep the helper registered. If normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand), then verify it before manually replacing or removing the helper.",
+                ])
+            }
+            guard SleepOverrideSafety.isCurrentHelper(cleanupPreparation.status) else {
+                installState = .stale(
+                    helperVersion: cleanupPreparation.status.helperVersion
+                )
+                throw NSError(domain: "Lidless", code: 11, userInfo: [
+                    NSLocalizedDescriptionKey: "The registered helper did not report the exact protocol and safety revision this app requires. Lidless did not request cleanup or deregistration. Automatic replacement is not proven safe; keep the helper registered. If normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand), then verify it before manually replacing or removing the helper.",
+                ])
+            }
+            guard cleanupPreparation.ok,
+                  let cleanupAuthorization = cleanupPreparation.authorization
+            else {
+                let reason = cleanupPreparation.error
+                    ?? "the helper did not issue a cleanup authorization"
+                // The helper did respond, but the result cannot represent a
+                // usable installation or a completed cleanup preparation.
+                installState = .unknown
+                throw NSError(domain: "Lidless", code: 13, userInfo: [
+                    NSLocalizedDescriptionKey: "The registered helper refused cleanup preparation (\(reason)). Lidless did not request cleanup or deregistration. Keep the helper registered and verify normal sleep before retrying.",
+                ])
+            }
+            // The preparation await creates a reentrancy window. A changed
+            // launchd classification invalidates it before any helper cleanup
+            // mutation, just as a later change invalidates deregistration.
+            guard removalRegistrationState() == registrationState else {
+                installState = .unknown
+                invalidateConnection()
+                throw NSError(domain: "Lidless", code: 12, userInfo: [
+                    NSLocalizedDescriptionKey: "The helper registration changed during cleanup verification. Lidless did not request cleanup or deregistration; try again from a fresh state.",
+                ])
+            }
             // Commit the local fence before suspension. XPC may mutate the
             // daemon and then lose or corrupt its reply; such an outcome must
             // never leave this client eligible to install, arm, heartbeat,
@@ -185,7 +231,12 @@ final class HelperClient: HelperControlling {
             installState = .unknown
             let reply: HelperReply
             do {
-                reply = try await callForReply { proxy, done in proxy.uninstall(done) }
+                reply = try await callForReply { proxy, done in
+                    proxy.commitUninstall(
+                        IPCCoding.encode(cleanupAuthorization),
+                        reply: done
+                    )
+                }
             } catch {
                 throw NSError(domain: "Lidless", code: 3, userInfo: [
                     NSLocalizedDescriptionKey: "The helper cleanup outcome is unresolved (\(error.localizedDescription)). Lidless will not start risk-increasing privileged work. If normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand), then check registration before retrying.",
@@ -296,6 +347,17 @@ final class HelperClient: HelperControlling {
             throw HelperClientError.malformedReply
         }
         return status
+    }
+
+    private func prepareUninstall() async throws -> HelperCleanupPreparation {
+        let data = try await call { proxy, done in proxy.prepareUninstall(done) }
+        guard let preparation = IPCCoding.decode(
+            HelperCleanupPreparation.self,
+            from: data
+        ) else {
+            throw HelperClientError.malformedReply
+        }
+        return preparation
     }
 
     func arm(_ options: HelperArmOptions) async throws -> HelperReply {
