@@ -78,6 +78,12 @@ final class HelperClient: HelperControlling {
     var onInterruption: (@MainActor () -> Void)?
 
     private var connection: NSXPCConnection?
+    /// Once remote cleanup is dispatched, a missing or malformed reply cannot
+    /// distinguish "nothing happened" from "the daemon committed removal."
+    /// Keep risk-increasing work fail-closed until final inactive-registration
+    /// and normal-sleep evidence jointly resolve that ambiguity. Recovery-only
+    /// restoration and cancellation remain available.
+    private var removalFence: HelperRemovalClientSafety.Fence = .open
 
     private var service: SMAppService {
         SMAppService.daemon(plistName: LidlessIDs.helperPlistName)
@@ -86,7 +92,28 @@ final class HelperClient: HelperControlling {
     // MARK: - Install lifecycle
 
     func refreshInstallState() async {
-        switch service.status {
+        let registrationStatus = service.status
+        if removalFence == .outcomeUnresolved {
+            if registrationStatus == .notRegistered {
+                let independentlyObserved = PowerRegistry.sleepDisabled()
+                removalFence = HelperRemovalClientSafety.resolve(
+                    removalFence,
+                    registrationState: .inactive,
+                    independentlyObserved: independentlyObserved
+                )
+            }
+            guard HelperRemovalClientSafety.allows(.install, while: removalFence) else {
+                // Registration may be inactive, approval-pending, missing, or
+                // enabled here. Do not present an invented registration state.
+                installState = .unknown
+                return
+            }
+            invalidateConnection()
+            installState = .notInstalled
+            return
+        }
+
+        switch registrationStatus {
         case .notRegistered, .notFound:
             installState = .notInstalled
         case .requiresApproval:
@@ -106,6 +133,14 @@ final class HelperClient: HelperControlling {
     }
 
     func install() async throws {
+        if !HelperRemovalClientSafety.allows(.install, while: removalFence) {
+            await refreshInstallState()
+            guard HelperRemovalClientSafety.allows(.install, while: removalFence) else {
+                throw HelperClientError.rejected(
+                    "A previous helper cleanup attempt is still unresolved. Verify inactive registration and normal sleep before reinstalling."
+                )
+            }
+        }
         do {
             try service.register()
         } catch {
@@ -138,12 +173,18 @@ final class HelperClient: HelperControlling {
         let removalAction: HelperRemovalSafety.RegistrationRemovalAction
         switch registrationState {
         case .enabled:
+            // Commit the local fence before suspension. XPC may mutate the
+            // daemon and then lose or corrupt its reply; such an outcome must
+            // never leave this client eligible to install, arm, heartbeat,
+            // force sleep, or schedule a new wake.
+            removalFence = HelperRemovalClientSafety.beginRemoteCleanup()
+            installState = .unknown
             let reply: HelperReply
             do {
                 reply = try await callForReply { proxy, done in proxy.uninstall(done) }
             } catch {
                 throw NSError(domain: "Lidless", code: 3, userInfo: [
-                    NSLocalizedDescriptionKey: "The enabled helper did not return complete restoration proof (\(error.localizedDescription)). It remains installed so supervision can continue. Run \(LidlessIDs.manualFallbackCommand), then try again.",
+                    NSLocalizedDescriptionKey: "The helper cleanup outcome is unresolved (\(error.localizedDescription)). Lidless will not start risk-increasing privileged work. If normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand), then check registration before retrying.",
                 ])
             }
 
@@ -205,15 +246,21 @@ final class HelperClient: HelperControlling {
         invalidateConnection()
         let finalRegistrationState = removalRegistrationState()
         let finalSleepDisabled = PowerRegistry.sleepDisabled()
-        guard HelperRemovalCompletionSafety.isUnregisterCompletionProven(
+        let completionProven = HelperRemovalCompletionSafety.isUnregisterCompletionProven(
             registrationState: finalRegistrationState,
             independentlyObserved: finalSleepDisabled
-        ) else {
+        )
+        guard completionProven else {
             installState = .unknown
             throw NSError(domain: "Lidless", code: 9, userInfo: [
                 NSLocalizedDescriptionKey: "Helper removal could not be fully verified. The helper may already be unregistered, but Lidless could not prove both inactive registration and normal sleep. If normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand), then try again.",
             ])
         }
+        removalFence = HelperRemovalClientSafety.resolve(
+            removalFence,
+            registrationState: finalRegistrationState,
+            independentlyObserved: finalSleepDisabled
+        )
         installState = .notInstalled
     }
 
@@ -248,26 +295,33 @@ final class HelperClient: HelperControlling {
     }
 
     func arm(_ options: HelperArmOptions) async throws -> HelperReply {
-        try await callForReply { proxy, done in
+        try ensureOperationAllowed(.arm)
+        return try await callForReply { proxy, done in
             proxy.arm(IPCCoding.encode(options), reply: done)
         }
     }
 
     func heartbeat() async throws -> HelperReply {
-        try await callForReply { proxy, done in proxy.heartbeat(done) }
+        try ensureOperationAllowed(.heartbeat)
+        return try await callForReply { proxy, done in proxy.heartbeat(done) }
     }
 
     func disarm(_ options: HelperDisarmOptions) async throws -> HelperReply {
-        try await callForReply { proxy, done in
+        try ensureOperationAllowed(
+            options.forceSleep ? .forceSleep : .restoreNormalSleep
+        )
+        return try await callForReply { proxy, done in
             proxy.disarm(IPCCoding.encode(options), reply: done)
         }
     }
 
     func repairOverride() async throws -> HelperReply {
-        try await callForReply { proxy, done in proxy.repairOverride(done) }
+        try ensureOperationAllowed(.restoreNormalSleep)
+        return try await callForReply { proxy, done in proxy.repairOverride(done) }
     }
 
     func scheduleWake(_ date: Date?) async throws {
+        try ensureOperationAllowed(date == nil ? .cancelWake : .scheduleWake)
         let epoch = date?.timeIntervalSince1970 ?? 0
         let reply = try await callForReply { proxy, done in
             proxy.scheduleWake(epoch, reply: done)
@@ -275,6 +329,16 @@ final class HelperClient: HelperControlling {
         guard reply.ok else {
             throw HelperClientError.rejected(
                 reply.error ?? "The helper rejected scheduled-wake reconciliation."
+            )
+        }
+    }
+
+    private func ensureOperationAllowed(
+        _ operation: HelperRemovalClientSafety.Operation
+    ) throws {
+        guard HelperRemovalClientSafety.allows(operation, while: removalFence) else {
+            throw HelperClientError.rejected(
+                "A helper cleanup attempt has an unresolved outcome; this privileged operation is blocked until inactive registration and normal sleep are verified."
             )
         }
     }

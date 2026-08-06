@@ -216,7 +216,7 @@ struct ScheduledWakeReconciliationTests {
         )
         let scheduleCall = try section(
             of: client,
-            from: "func scheduleWake(_ date: Date?) async throws",
+            from: "    func scheduleWake(_ date: Date?) async throws {",
             through: "// MARK: - Connection plumbing"
         )
 
