@@ -4205,3 +4205,251 @@ remains authoritative.
   pre-dispatch suspension” describes the final check occurring after all such
   suspension points; it does not assert a separate equality call after each
   individual `await`.
+
+## Recovery audit and independent package review — 2026-08-06T10:41:16+0200
+
+| ID | Recovery surface | Independently reproduced evidence | Verdict |
+|---|---|---|---|
+| R33-01 | Required records and authority | The canonical handoff and original manifest reproduce their required SHA-256 values. The rolling manifest exists, its adjacent sidecar validates it as SHA-256 `c6eb3d1b5cb17e65d3b47b92c53d2c315d4b04f6946aa9bcd6601bc441b609a2`, and it is the sole recovery authority because HEAD has advanced beyond the historical starting commit. All mandated repository documents were read in full; no repository-local `AGENTS.md`, `CLAUDE.md`, `CODEX.md`, or equivalent instruction file was found. | PASS |
+| R33-02 | Feature worktree | Canonical path, linked-worktree registration, common Git directory, branch `codex/lidless-safety-repair-2026-08-04`, HEAD `c3160589638f183c7d865a44986a8be6c737fdcf`, and clean index match. The exact three-path NUL-delimited porcelain-status digest is `3a4984484500650d6b8866b3dfd45bc02ad0ff2888084f86deda5506c36e03dc`; the tracked binary-diff digest is `5bfed6a6f1b1f3578736cce1d9ae66138f0f9e0614ffc8e93d0aa80c4d6e3b82`; every recorded status/type/mode/size/raw hash matches with no extra or missing dirty path. | PASS |
+| R33-03 | Main checkout preservation | Canonical path, topology, branch `main`, HEAD `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, clean index, and empty tracked diff match. Its exact three-path NUL-delimited status digest is `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`; every recorded `.playwright-mcp` status/type/mode/size/raw hash matches. No main-checkout byte was edited. | PASS |
+| A33-01 | Complete checkpointed package | All 31 checkpoint commits and the 91-path diff from starting HEAD through `c3160589638f183c7d865a44986a8be6c737fdcf` are under fresh adversarial review. The historical original manifest is not being misapplied to this post-checkpoint state. | IN REVIEW |
+
+### Append-only evidence log (continued)
+
+- E-483 — 2026-08-06T10:41:16+0200 — Recovery completed before this first
+  edit using exactly the authenticated rolling-remainder authority. Both
+  worktrees reproduced every required identity, topology, index, status-stream,
+  binary-diff, path, type, mode, size, and raw-byte hash field. The earlier
+  false-stop evidence caused by applying the historical starting-state
+  manifest after legitimate checkpoints remains preserved; `State: IN_PROGRESS`
+  is correct under the authenticated rolling checkpoint.
+- E-484 — 2026-08-06T10:41:16+0200 — Began a fresh read-only review of the
+  complete checkpointed package and delegated three non-mutating adversarial
+  lanes covering helper recovery/storage/supervision, app recovery/XPC/live
+  proof, and helper lifecycle/release verification. No app/helper launch,
+  install, activation, registration, approval, live XPC, `pmset`, sleep-setting
+  mutation, design/Figma, plugin/connector, network, merge, push, or
+  main-checkout mutation occurred.
+
+## Checkpoint 33 — terminal helper connection loss — 2026-08-06T11:00:46+0200
+
+| ID | Finding / invariant | Exact evidence and disposition | Verdict |
+|---|---|---|---|
+| F33-01 | Helper ownership did not terminate on every documented process-loss callback | The prior daemon installed only `invalidationHandler`. The local stable SDK says a remote exit/crash invokes interruption, interruption may permit reconnection, and interruption/invalidation/reply callback ordering is not guaranteed. An armed connection could therefore lose its owning app without entering the daemon's immediate restore path. | CONFIRMED HIGH / SELECTED ROOT CAUSE |
+| F33-02 | One connection must have one fresh identity and one terminal transition | Every accepted connection now receives a fresh UUID, registers synchronously on the daemon state queue before `resume()`, and both callbacks converge on a queue-owned Set removal. Interruption first calls `invalidate()` so Foundation cannot silently retain safety ownership by reconnecting. Only the first removal may request restoration; a duplicate or reordered callback is ignored. | FIXED OFFLINE / LIVE NSXPC GATE |
+| F33-03 | A terminal connection must not arm after its loss is committed | `handleArm` now checks the UUID in the same queue-owned live set before lifecycle advancement, ownership assignment, sentinel persistence, or sleep-setting mutation. Loss-before-arm rejects; arm-before-loss is followed on the serial queue by restoration. Heartbeats remain safe through the same queue ordering and existing exact-owner check. | FIXED OFFLINE / LIVE ORDERING GATE |
+| F33-04 | Identity-collision rejection must not terminate another live connection | A rejected duplicate UUID keeps the pre-existing Set member intact and clears both token-bearing handlers before false return and before the connection is resumed. Rejection-triggered invalidation therefore cannot submit the colliding token. A pure regression pins Set cardinality and structural regressions pin cleanup ordering. | FIXED OFFLINE |
+| F33-05 | App and helper must reject implementations without this behavior | The independently produced daemon revision and app-required revision advance from 6 to 7 while the unchanged wire protocol remains 6. Tests reject stale revision 6, future revision 8, missing, malformed, and contradictory proof. | FIXED OFFLINE / STALE-HELPER REPLACEMENT OPEN |
+| V33-01 | Focused RED discriminates the old behavior | The source regression against the pre-fix daemon failed one test in one suite with eight issues: missing interruption handling, terminal invalidation, UUID/registry registration and end, restoration disposition, and removal of the count/object-address design. | PASS — RED OBSERVED |
+| V33-02 | Focused and complete working-tree tests cover the repaired group | The terminal working-tree focused run passed 19 tests in four suites. After the collision hardening, the complete suite passed 334 tests in 34 suites. | PASS FOR WORKING TREE |
+| V33-03 | Immutable staged bytes reproduce the behavioral evidence | Exact staged index tree `66d304fbae14358ec5eb64bae1554d33059329fd` passed the same 19 focused tests and all 334 package tests under the stable toolchain. | PASS FOR EXACT STAGED CODE |
+| V33-04 | Independent review challenges the selected race and repair | Three read-only review lanes found no remaining Blocker/High issue in the final checkpoint bytes. Reviews separately traced both queue orders, duplicate callbacks, non-owner loss, terminal arm admission, collision rejection, revision wiring, and release compatibility. | PASS — OFFLINE BOUNDED |
+| G33-01 | Real callback delivery and restoration remain unproved | No app/helper was launched and no live connection, helper registration, sleep-setting mutation, or crash was exercised. Real interruption/invalidation delivery, timing, reconnection, owner-loss restoration, watchdog fallback, and signed XPC trust remain explicit runtime/hardware gates. | OPEN LIVE GATE |
+| G33-02 | Revision 7 creates a stale-helper upgrade requirement | Existing revision-6 helpers are intentionally rejected. Safe replacement/removal of an already registered stale helper and truthful protocol-versus-behavior-version setup copy remain separate release-blocking work. | OPEN SEPARATE GROUP |
+| G33-03 | Other independently confirmed package defects remain separate | Crash-session journal finalization, scheduled-wake transaction durability, Homebrew raw-`launchctl` lifecycle bypass, release-artifact permission validation, and previously recorded storage/removal/live-proof groups are not changed by this checkpoint. | OPEN SEPARATE GROUPS |
+
+This checkpoint is limited to helper interruption/invalidation ownership loss,
+exactly-once connection termination, post-loss arm admission, the behavior
+revision gate, focused tests, and architecture wording. It does not claim live
+XPC, actual arm/restore, helper replacement, sleep/wake, hardware, signing,
+notarization, or release readiness. `State: IN_PROGRESS` remains authoritative.
+
+### Terminal helper connection-loss append-only evidence log (continued)
+
+- E-485 — 2026-08-06T11:00:46+0200 — Before editing production source, the
+  literal required `swift test --package-path Packages/LidlessCore` failed only
+  because the default Xcode-beta manifest compiler could not write
+  `/Users/junaid/.cache/clang/ModuleCache`; `swift-test-literal-baseline.log`
+  is six lines / 2,347 bytes, SHA-256
+  `dd9e1f94066ee692ffa1f2836ae74cc3384786e4d242abe7b51f5ee8f81f04e7`.
+  Stable Xcode with workspace-local caches and SwiftPM sandboxing disabled
+  passed the unchanged baseline's 329 tests in 33 suites;
+  `swift-test-stable-baseline.log` is 838 lines / 65,423 bytes, SHA-256
+  `60a0dbdc6cd90afda33dd9c56d08016fe4c6a748c9512c23a1c7ea684783e574`.
+- E-486 — 2026-08-06T11:00:46+0200 — The stable macOS 26.5 SDK
+  `NSXPCConnection.h` has SHA-256
+  `d34e7696e475abf3accda0a82127a61f5a95f5cb6609cdf5f57bfdea61c5fd1b`.
+  Its lines 79–88 document that remote exit/crash calls interruption, that an
+  interrupted connection may reconnect, that interruption/invalidation and
+  other callback ordering is unspecified, and that an invalid name may invoke
+  invalidation asynchronously after resume. The prior helper installed only
+  invalidation handling and tracked a reusable object address plus a count;
+  those bytes could not substantiate immediate owner-loss restoration.
+- E-487 — 2026-08-06T11:00:46+0200 — The production-source RED ran against
+  the old helper before its fix and failed one test in one suite with eight
+  issues (`helper-connection-loss-red-final.log`, 1,909 lines / 82,945 bytes,
+  SHA-256
+  `f33beaa4580d898ce22ca5d36484098778a9b82f4e241baa09dcefce2e8bdf8d`).
+  A preceding filter spelling selected zero tests and is retained only as
+  non-evidence (`helper-connection-loss-red.log`, 93 lines / 5,920 bytes,
+  SHA-256
+  `a2da3ba4df6f50a78928a88e6638c77c2b026c6c46aafd61425e5d7d45680958`).
+- E-488 — 2026-08-06T11:00:46+0200 — The bounded repair adds the pure,
+  queue-owned `HelperConnectionSupervisionSafety` registry, fresh UUID
+  identities, synchronous pre-resume registration, terminal interruption via
+  `invalidate()`, exactly-once Set removal, first-owner-loss restoration, and
+  a pre-mutation live-token arm fence. Both collision handlers are cleared on
+  duplicate registration before rejection. App-required and daemon-produced
+  behavior revisions independently advance to 7; protocol 6 is unchanged.
+- E-489 — 2026-08-06T11:00:46+0200 — Intermediate focused runs are preserved
+  but not promoted as terminal evidence: one test-macro compile mistake
+  (`helper-connection-loss-focused-green.log`, SHA-256
+  `6ccf46dd2a8d0ca41b67ac38696368e143ecb5086319fb460b57d5a76e0ba02a`),
+  one stale invalid-revision list failure
+  (`helper-connection-loss-focused-green-final.log`, SHA-256
+  `423838fd61bf04d8270f150f55ef0fc2720970be6feaeff2d405ba883ff6747a`),
+  and superseded passing runs before final collision/test tightening. The
+  terminal focused run passed 19 tests in four suites
+  (`helper-connection-loss-focused-green-terminal.log`, 68 lines / 4,979
+  bytes, SHA-256
+  `eafc7a8cc2257b9947a1f13d1c566274843b8f18ebf17962db597d65269dbcf2`).
+  The final complete working tree passed 334 tests in 34 suites
+  (`swift-test-full-working-final.log`, 776 lines / 61,798 bytes, SHA-256
+  `0ac5ae8c007c0549bbfc650c301f7d4e0724f0ddc0e60472fd65b6f0bf424f56`).
+- E-490 — 2026-08-06T11:00:46+0200 — The eight selected paths were staged
+  alone and exported as immutable index tree
+  `66d304fbae14358ec5eb64bae1554d33059329fd`. Its literal command again
+  reproduced only the default beta-toolchain cache denial
+  (`exact-literal-swift-test.log`, six lines / 2,415 bytes, SHA-256
+  `069fef54d2a90bf9c8f6f37ceeea2d5e3103d80c577999ed1f788ef240cf16d0`).
+  Stable exact-index runs passed 19 focused tests in four suites
+  (`exact-focused.log`, 139 lines / 9,497 bytes, SHA-256
+  `40159b17764e3651b7312497d58489d8fad0b94cdad2878db1e5ff191c37765a`)
+  and all 334 tests in 34 suites (`exact-full.log`, 852 lines / 66,514 bytes,
+  SHA-256
+  `e8f7fc2c3e86aad17689cdc557e25321202d4d736e4665059f8e427e9861a944`).
+- E-491 — 2026-08-06T11:00:46+0200 — Precision correction for E-490: tree
+  `66d304fbae14358ec5eb64bae1554d33059329fd` is the exact pre-final-ledger
+  index tree; its seven non-ledger checkpoint paths are the final code, test,
+  and architecture bytes. The literal command added only two ignored SwiftPM
+  markers inside the export, so a later whole-directory 144-file digest was
+  quarantined as non-authoritative. Independent projection of the Git tree
+  verified all 142 paths by type, mode, size, Git blob, and raw SHA-256 with
+  zero missing or changed records; the canonical record digest is
+  `cf2093c26a2efaa4a3fbbf85d981cde04ab63ebc68ee95363df6f903d1454137`.
+  `config-final/index-tree-142-correction.log` is 180 lines / 33,929 bytes,
+  SHA-256
+  `24fc7e30f693b434a823ba29ceaa85f4b31a4246516b0b6370af8433171d6337`.
+  A first local projection harness accidentally assigned zsh's special
+  `path` variable, lost command lookup, and stopped after two lines; that
+  non-evidence is preserved rather than promoted. All 64 production Swift
+  sources in the exact export and current tree match byte-for-byte
+  (`exact-source-index-proof.log`, nine lines / 312 bytes, SHA-256
+  `cd7f51ca7cccf3a824ac0e8ffdfaf1e1db73d454c30f6023b0e66a792bdc1d32`).
+- E-492 — 2026-08-06T11:00:46+0200 — Exact configuration checks linted and
+  decoded all six source plist/entitlement files and the project file
+  (`config-final/plist-entitlements-lint-decode.log`, 116 lines / 4,794 bytes,
+  SHA-256
+  `073b6df19ae4c5e458ce598c57a666c7b28f8a661afc8b785dd2b4a69e206bc6`).
+  Project bindings and the independent protocol-6/revision-7 producer and
+  consumer chain passed (`project-bindings-protocol-revision.log`, 267 lines /
+  13,744 bytes, SHA-256
+  `143dfb5bffcb1e920021b6c7ae3be39b1aec5c5cf2c2129c2eec8f3ddd8a0d19`).
+  Local Xcodegen 2.45.4 reproduced project, workspace, and shared scheme bytes
+  in an isolated temporary copy (`xcodegen-isolated-roundtrip.log`, 40 lines /
+  2,918 bytes, SHA-256
+  `a1c687febe536ef4775675dd7ee6f10d31edfac0dd57b4d48c0177d95e69a59d`).
+  These are source-configuration results, not proof of applied entitlements,
+  built bundle contents, signature identity, XPC trust, or runtime behavior.
+- E-493 — 2026-08-06T11:12:37+0200 — The exact pre-final-ledger tree's 64
+  production Swift sources had an identical before/after inventory, SHA-256
+  `9bcc09ca567450d05152834f4b0b2d05fa5cf673ff5979adfebb8fdfc4e1efc5`.
+  Stable `LidlessCore` Debug and optimized Release builds passed with
+  `CODE_SIGNING_ALLOWED=NO`, `CODE_SIGNING_REQUIRED=NO`, local caches, and
+  SwiftPM sandboxing disabled (`direct-compiler-final/core-debug.log`, 41
+  lines / 3,263 bytes, SHA-256
+  `6fbec97c8e362ceccea512d10f816716ce40917f787bfe4bee16f59466629e4a`;
+  Release seven lines / 1,395 bytes, SHA-256
+  `3bc032732f1fbeef0199f57261659f6000f298c853dc691f8043af02a94aa6e9`).
+  All 25 App, four helper, and one widget sources passed Swift 6 complete
+  strict-concurrency typechecking with warnings as errors
+  (`all-products-typecheck.log`, ten lines / 4,540 bytes, SHA-256
+  `82ebd0d4e9a91ba35b7807ae6bfa9e645b4e528f660cb8ea46342bdc060eb24e`).
+  All three exact source sets directly compiled and linked in Debug and
+  optimized Release with SDKROOT and `-sdk` pinned to stable macOS 26.5,
+  deployment target 15.0, signing disabled, and linker ad-hoc signing
+  suppressed (`products-debug.log`, ten lines / 29,104 bytes, SHA-256
+  `954ea230044612b61b38a1109e8be18ea1dccc3d50adb4f9d1e5dcf2765edafe`;
+  Release ten lines / 29,517 bytes, SHA-256
+  `7ef3aac0a7c181782c547e210275144d6366bceac3b667d108554ec15c79d965`).
+  No product was launched.
+- E-494 — 2026-08-06T11:12:37+0200 — Actual loose-output inspection is 175
+  lines / 16,185 bytes, SHA-256
+  `9c8270dbf20ac540f372215b08adb2151cb5cbbc0ce9ee6203136537b109ed71`:
+  all six products are thin arm64 Mach-O executables with minimum macOS 15.0 /
+  SDK 26.5, zero `LC_CODE_SIGNATURE`, and expected unsigned `codesign`
+  display/verify exits. Both helper configurations contain demangled
+  `HelperConnectionSupervisionSafety` symbols (`helper-symbols.log`, 110 lines
+  / 18,925 bytes, SHA-256
+  `66d867e471035fbdf81e4d75263d5f944e4f08060c19e2fec1f56ea6fe74e44c`).
+  The corrected 17-entry evidence manifest verifies every primary log and has
+  SHA-256
+  `98c121706692fd8e15093285e495bf74628437db15048a316606347329afbdec`.
+  Its first version was generated before the driver appended `result=PASS`;
+  that invalid manifest remains quarantined and the correction is explicit in
+  `manifest-correction.log`, SHA-256
+  `b3064b0fbb1bec945e55805f43cc8f4332900ad14ef5dca7430eaa40fdfbf2be`.
+- E-495 — 2026-08-06T11:12:37+0200 — Two earlier compiler harness attempts
+  are retained only as non-evidence. Attempt 1 omitted the `SDKROOT`
+  environment from direct `swiftc`; compilation/linking succeeded but the
+  first artifact truthfully reported LC SDK 15.0, so the harness stopped
+  (`direct-compiler-attempt-1-sdkroot-omitted/artifact-inspection.log`,
+  SHA-256
+  `e73b0a56b3cad40757cd566b505fd92cc8c8685c52abfae805b55f1bd047e649`).
+  Attempt 2 fixed SDKROOT but Bash 3.2 rejected an intentionally empty Release
+  flag array under `set -u` before a valid Release link verdict
+  (`direct-compiler-attempt-2-empty-array/products-release.log`, SHA-256
+  `03724043327f5497d4bad40acf7c1e5467fdc72fed1b40a198585db561d3223d`).
+  The terminal run rebuilt everything in a fresh directory with a nonempty
+  configuration flag set. Project-native `xcodebuild`/analyze was not retried:
+  this ledger's preserved exact-tree evidence already establishes the managed
+  nested-sandbox failure and automatic LaunchServices registration side effect.
+  Strict direct typechecking is the bounded static-analysis substitute.
+- E-496 — 2026-08-06T11:12:37+0200 — Three independent read-only reviews of
+  the final connection-loss bytes found no remaining Blocker/High issue. A
+  theoretical UUID-collision handler alias and imprecise ownership wording
+  were found and closed before the terminal tests. Reviews also confirmed that
+  the revision bump intentionally makes every installed revision-6 helper
+  stale; safe stale-helper replacement/removal remains release-blocking but is
+  a separate root-cause group. Real NSXPC callbacks, reconnection, and owner
+  loss remain live gates. The crash-session journal, scheduled-wake durability,
+  raw-`launchctl` lifecycle bypass, and release-permission findings remain open
+  and unmodified.
+- E-497 — 2026-08-06T11:12:37+0200 — All seven non-ledger checkpoint paths
+  alone have binary cached-diff SHA-256
+  `0476e745debcab4a4cd9396013d9c253e4facb71ac1e7b8c36d9cf4c46367455`
+  and NUL name-list digest
+  `fe885cdff47607c0e80972addab97e2455a15257850ff452404282d53faf6ef0`.
+  Before this final ledger append, the exact eight-path index tree was
+  `7a5de7cd9401e6a43cd5151faf0b54b2801bfdca`; the full cached binary-diff
+  digest was
+  `47dcaa1ad76a30ccd76094808fe317a996fb086f437984828384d605e9bb2ee6`
+  and the NUL name-list digest was
+  `0cb43079e7815db7cea03df04029fcb595e9832b4c629bcffab93d62cc1cbf2d`.
+  Both cached and unstaged `diff --check` passed. Final staging after this
+  append changes only this ledger; the seven executable/doc/test bytes remain
+  exactly those tested, built, inspected, and hashed above.
+- E-498 — 2026-08-06T11:12:37+0200 — Pre-commit preservation reproduced the
+  two-worktree topology, common Git directory, feature branch and parent HEAD,
+  exact eight-path staging set, and the authenticated three-file design
+  remainder. That remainder still has NUL status digest
+  `3a4984484500650d6b8866b3dfd45bc02ad0ff2888084f86deda5506c36e03dc`
+  and tracked binary-diff digest
+  `5bfed6a6f1b1f3578736cce1d9ae66138f0f9e0614ffc8e93d0aa80c4d6e3b82`;
+  every recorded mode, byte count, and raw hash matches. The main checkout is
+  still `main` at `7f17aaca11bc6228bed48b9265d63b9e576cdea7`, with clean index/tracked
+  diff and its exact three `.playwright-mcp` records, NUL status digest
+  `09f068790b258102315b5804d280fc79222a0fa7cb9ea79e2d49cb83425efd18`,
+  and empty tracked-diff digest. `precommit-preservation.log` is 60 lines /
+  4,287 bytes, SHA-256
+  `659baf985effe844968f06d213bdce857e112372244f0dc70a073204d751dc04`.
+- E-499 — 2026-08-06T11:12:37+0200 — `State: IN_PROGRESS` is retained because
+  the separate root-cause groups and every live/hardware/release gate above
+  remain open. The intended single local checkpoint subject is
+  `safety: make helper connection loss terminal`. No app/helper/product was
+  launched; no install, activation, registration, approval, live XPC,
+  `pmset`, sleep-setting mutation, sleep/wake, hardware, signing, Figma,
+  plugin/connector, network, merge, push, release, or main-checkout mutation
+  was performed. After this one commit, the supervisor must authenticate a
+  fresh rolling remainder before any later invocation.

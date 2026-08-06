@@ -21,7 +21,7 @@ public enum LidlessIDs {
     /// version, this revision advances when a safety-critical helper behavior
     /// changes. It is self-reported compatibility evidence, not a cryptographic
     /// executable identity or a replacement/install receipt.
-    public static let helperSafetyRevision = 6
+    public static let helperSafetyRevision = 7
 
     public static let appGroupID = "group.com.lidless.shared"
     public static let urlScheme = "lidless"

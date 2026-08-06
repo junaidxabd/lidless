@@ -47,7 +47,8 @@ struct HelperSafetyRevisionTests {
             .value(3),
             .value(4),
             .value(5),
-            .value(7),
+            .value(6),
+            .value(8),
         ]
         for revision in incompatible {
             let armed = try decodedReply(
@@ -117,23 +118,23 @@ struct HelperSafetyRevisionTests {
 
     @Test func currentRevisionCompletesTheSameProofAndRecoveryPaths() throws {
         let armed = try decodedReply(
-            revision: .value(6),
+            revision: .value(7),
             armed: true,
             sleepDisabled: true
         )
         let restored = try decodedReply(
-            revision: .value(6),
+            revision: .value(7),
             armed: false,
             sleepDisabled: false
         )
         let outsideOverride = try decodedReply(
-            revision: .value(6),
+            revision: .value(7),
             ok: false,
             armed: false,
             sleepDisabled: true
         )
 
-        #expect(LidlessIDs.helperSafetyRevision == 6)
+        #expect(LidlessIDs.helperSafetyRevision == 7)
         #expect(armed.status.helperSafetyRevision == LidlessIDs.helperSafetyRevision)
         #expect(SleepOverrideSafety.isCurrentHelper(armed.status))
         #expect(SleepOverrideSafety.isArmProven(armed.status))
@@ -177,7 +178,7 @@ struct HelperSafetyRevisionTests {
 
     @Test func revisionEncodingIsExplicitAndWireCompatible() throws {
         let current = try decodedReply(
-            revision: .value(6),
+            revision: .value(7),
             armed: true,
             sleepDisabled: true
         )
@@ -196,7 +197,7 @@ struct HelperSafetyRevisionTests {
 
         let wrongType = try JSONSerialization.data(withJSONObject: [
             "helperVersion": 6,
-            "helperSafetyRevision": "6",
+            "helperSafetyRevision": "7",
             "armed": false,
             "sleepDisabled": false,
         ])
@@ -217,7 +218,7 @@ struct HelperSafetyRevisionTests {
         let client = try repositoryFile("App/Sources/Helper/HelperClient.swift")
         let simulation = try repositoryFile("App/Sources/Simulation/Simulation.swift")
 
-        #expect(ids.contains("public static let helperSafetyRevision = 6"))
+        #expect(ids.contains("public static let helperSafetyRevision = 7"))
         #expect(ipc.contains("helperSafetyRevision: Int?,"))
         #expect(!ipc.contains(
             "helperSafetyRevision: Int? = LidlessIDs.helperSafetyRevision"

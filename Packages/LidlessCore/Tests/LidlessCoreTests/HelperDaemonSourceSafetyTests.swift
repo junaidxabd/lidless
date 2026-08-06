@@ -127,10 +127,14 @@ struct HelperDaemonSourceSafetyTests {
         )
 
         #expect(arm.contains("HelperSessionOwnershipSafety.armDisposition("))
+        #expect(arm.contains("connectionSupervision.contains(connectionID)"))
         #expect(arm.contains("hasActiveSession: sentinel != nil"))
         #expect(arm.contains("case .rejectActiveSession:"))
         #expect(!arm.contains("if var current = sentinel"))
         #expect(!arm.contains("re-armed"))
+        let liveConnectionAdmission = try #require(arm.range(
+            of: "connectionSupervision.contains(connectionID)"
+        ))
         let armAdmission = try #require(arm.range(
             of: "HelperSessionOwnershipSafety.armDisposition("
         ))
@@ -140,6 +144,7 @@ struct HelperDaemonSourceSafetyTests {
         let successfulArmReply = try #require(arm.range(
             of: "let result = HelperReply(ok: true, status: status)"
         ))
+        #expect(liveConnectionAdmission.lowerBound < armAdmission.lowerBound)
         #expect(armAdmission.lowerBound < sentinelWrite.lowerBound)
         #expect(armAdmission.lowerBound < ownerAssignment.lowerBound)
         #expect(armAdmission.lowerBound < overrideMutation.lowerBound)
@@ -152,7 +157,7 @@ struct HelperDaemonSourceSafetyTests {
         )
         #expect(activeArmRejection.contains("return"))
 
-        #expect(heartbeat.contains("connectionID: ObjectIdentifier"))
+        #expect(heartbeat.contains("connectionID: UUID"))
         #expect(heartbeat.contains(
             "HelperSessionOwnershipSafety.heartbeatDisposition("
         ))
@@ -193,10 +198,10 @@ struct HelperDaemonSourceSafetyTests {
             through: "// MARK: - Per-connection XPC facade"
         )
         let ownerIdentityCheck = try #require(connectionEnd.range(
-            of: "connectionID == armedConnectionID"
+            of: "connectionSupervision.end("
         ))
         let invalidationRestore = try #require(connectionEnd.range(
-            of: "performRestore(sentinel, reason: \"app connection invalidated\")"
+            of: "performRestore(sentinel, reason: \"supervising app connection ended\")"
         ))
         #expect(ownerIdentityCheck.lowerBound < invalidationRestore.lowerBound)
         #expect(ipc.contains(

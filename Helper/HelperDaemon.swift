@@ -19,8 +19,8 @@ private let kIOMessageSystemHasPoweredOn: UInt32 = 0xE000_0300
 ///  1. Sentinel-first ordering: the on-disk sentinel (with everything needed
 ///     to undo) is written *before* the override is enabled, removed *after*
 ///     it is restored.
-///  2. Connection supervision: the arming app connection invalidating (quit,
-///     crash) restores immediately.
+///  2. Connection supervision: the arming app connection interrupting or
+///     invalidating requests immediate restoration exactly once.
 ///  3. Watchdog: no heartbeat within TTL restores (app alive but wedged).
 ///  4. launchd configuration: `KeepAlive.PathState` on the sentinel requests
 ///     relaunch while the override may be on; `RunAtLoad` requests a boot
@@ -37,7 +37,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     /// Producer-owned declaration of the behavior actually implemented by
     /// this daemon. Keep this independent from the app's required revision so
     /// an app-side bump cannot silently make an unchanged helper compatible.
-    private static let implementedSafetyRevision = 6
+    private static let implementedSafetyRevision = 7
     private static let maximumSentinelBytes = 64 * 1024
 
     private struct StorageError: LocalizedError {
@@ -60,10 +60,10 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
     // Session state (queue-only).
     private var sentinel: OverrideSentinel?
-    /// Identity of the connection that armed the current session; identity
-    /// (not the object) is all supervision needs, and it's Sendable.
-    private var armedConnectionID: ObjectIdentifier?
-    private var activeConnections = 0
+    /// Fresh process-local identities avoid object-address reuse when a late
+    /// callback from an old connection races a newly accepted connection.
+    private var armedConnectionID: UUID?
+    private var connectionSupervision = HelperConnectionSupervisionSafety<UUID>()
     private var lastActivity = Date()
 
     /// A restore that failed; retried on every tick until it succeeds.
@@ -271,7 +271,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
         // Idle exit: nothing armed, nothing pending, nobody connected.
         // launchd restarts us on the next XPC lookup or at boot.
-        if sentinel == nil, restorePending == nil, activeConnections == 0,
+        if sentinel == nil, restorePending == nil, connectionSupervision.isEmpty,
            Date().timeIntervalSince(lastActivity) > 180 {
             log.info("idle — exiting (launchd is configured for on-demand launch)")
             exit(0)
@@ -762,7 +762,11 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         }
     }
 
-    fileprivate func handleArm(_ options: HelperArmOptions, connectionID: ObjectIdentifier, reply: @escaping @Sendable (Data) -> Void) {
+    fileprivate func handleArm(_ options: HelperArmOptions, connectionID: UUID, reply: @escaping @Sendable (Data) -> Void) {
+        guard connectionSupervision.contains(connectionID) else {
+            reply(replyData(ok: false, error: "the requesting connection already ended; refusing to arm"))
+            return
+        }
         advanceLifecycle()
         guard HelperTerminationSafety.allows(.arm, whileTerminationRequested: terminationRequested) else {
             reply(replyData(ok: false, error: "helper termination is pending; refusing to arm"))
@@ -1139,7 +1143,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         }
     }
 
-    fileprivate func enqueueArm(_ optionsJSON: Data, connectionID: ObjectIdentifier, reply: @escaping @Sendable (Data) -> Void) {
+    fileprivate func enqueueArm(_ optionsJSON: Data, connectionID: UUID, reply: @escaping @Sendable (Data) -> Void) {
         queue.async { [self] in
             lastActivity = Date()
             guard let options = IPCCoding.decode(HelperArmOptions.self, from: optionsJSON) else {
@@ -1150,7 +1154,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         }
     }
 
-    fileprivate func handleHeartbeat(connectionID: ObjectIdentifier, reply: @escaping @Sendable (Data) -> Void) {
+    fileprivate func handleHeartbeat(connectionID: UUID, reply: @escaping @Sendable (Data) -> Void) {
         queue.async { [self] in
             lastActivity = Date()
             guard HelperRemovalDaemonSafety.allows(.heartbeat, while: helperRemovalFence) else {
@@ -1562,29 +1566,56 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         }
         newConnection.setCodeSigningRequirement(requirement)
 
-        let connectionID = ObjectIdentifier(newConnection)
+        let connectionID = UUID()
         newConnection.exportedInterface = NSXPCInterface(with: LidlessHelperXPC.self)
         newConnection.exportedObject = HelperXPCBridge(daemon: self, connectionID: connectionID)
+        newConnection.interruptionHandler = { [weak self, weak newConnection] in
+            // Interruption is terminal for a safety-owning connection even
+            // though Foundation may otherwise allow it to reconnect.
+            newConnection?.invalidate()
+            self?.connectionEnded(connectionID)
+        }
         newConnection.invalidationHandler = { [weak self] in
             self?.connectionEnded(connectionID)
         }
-        // Count the connection before resuming it: a fast invalidation must
-        // never decrement before the increment lands.
-        queue.async { [self] in
-            activeConnections += 1
-            lastActivity = Date()
+        // Register synchronously before resume so even an immediate
+        // interruption/invalidation can only remove a live identity.
+        let registered = queue.sync { [self] in
+            let inserted = connectionSupervision.register(connectionID)
+            if inserted { lastActivity = Date() }
+            return inserted
+        }
+        guard registered else {
+            // A rejected connection must not retain callbacks carrying the
+            // colliding identity: its later invalidation could otherwise end
+            // the already-registered connection that owns that identity.
+            newConnection.interruptionHandler = nil
+            newConnection.invalidationHandler = nil
+            log.critical("rejecting connection: process-local identity collision")
+            return false
         }
         newConnection.resume()
         return true
     }
 
-    private func connectionEnded(_ connectionID: ObjectIdentifier) {
+    private func connectionEnded(_ connectionID: UUID) {
         queue.async { [self] in
-            activeConnections = max(0, activeConnections - 1)
+            let disposition = connectionSupervision.end(
+                connectionID,
+                owner: armedConnectionID,
+                hasActiveSession: sentinel != nil
+            )
+            guard disposition != .ignoreDuplicate else { return }
             lastActivity = Date()
-            if connectionID == armedConnectionID, let sentinel {
-                log.critical("supervising app connection invalidated while armed — restoring normal sleep")
-                performRestore(sentinel, reason: "app connection invalidated")
+            switch disposition {
+            case .ignoreDuplicate:
+                break
+            case .connectionEnded:
+                break
+            case .restoreOwnedSession:
+                guard let sentinel else { return }
+                log.critical("supervising app connection ended while armed — restoring normal sleep")
+                performRestore(sentinel, reason: "supervising app connection ended")
             }
         }
     }
@@ -1597,9 +1628,9 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 /// identity (for supervision) without touching `NSXPCConnection.current`.
 final class HelperXPCBridge: NSObject, LidlessHelperXPC {
     private let daemon: HelperDaemon
-    private let connectionID: ObjectIdentifier
+    private let connectionID: UUID
 
-    init(daemon: HelperDaemon, connectionID: ObjectIdentifier) {
+    init(daemon: HelperDaemon, connectionID: UUID) {
         self.daemon = daemon
         self.connectionID = connectionID
     }
