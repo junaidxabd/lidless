@@ -66,6 +66,11 @@
   Focused coverage passed 20 tests in 2 suites, full Debug and Release each
   passed 442 tests in 44 suites, and two complete render passes matched at
   `4363524e2ba85990bcf36706c1c2e4eb278eb237fcaa2ef88e99d5c250bef661`.
+- Closed a VoiceOver ambiguity in populated Schedules: each enable switch now
+  names its own days and time range instead of announcing the generic `Enable
+  schedule`. The 3-issue RED became 10 focused passes; full Debug and Release
+  each passed 443 tests in 44 suites. The semantic-only change recompiled the
+  full visual harness and preserved the exact `4363524e…` matrix hash.
 - A fresh uniquely identified simulation build ran without helper or power
   mutation and exposed its status item through the accessibility tree. This
   desktop session nevertheless created zero inspectable windows for every

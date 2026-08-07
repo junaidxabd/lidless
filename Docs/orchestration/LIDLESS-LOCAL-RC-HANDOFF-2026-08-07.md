@@ -23,7 +23,7 @@ Task-contract branch: `codex/lidless-completion-clean2-2026-08-07`
 Task-contract start: `b093e3d`
 
 The founder explicitly authorized feature-branch commits and pushes. The
-implementation checkpoints through `ee608a6` are on
+implementation checkpoints through `b3002f1` are on
 `origin/codex/lidless-completion-clean2-2026-08-07`; main was not merged or
 pushed. The latest visual-regression checkpoint is `f34550c`. Continue using
 only this task-owned repository and feature branch.
@@ -92,6 +92,8 @@ architecture, or the founder's latest dark-only direction.
   maximum text sizing while its Cancel/Save actions remain pinned.
 - Populated History is now also captured at maximum text size in the minimum
   window; its selected row, stat cards, chart, and audit copy remain unclipped.
+- Every populated Schedule enable switch now announces the days and time range
+  it controls instead of an ambiguous generic label.
 
 ## Fast local re-verification
 
@@ -109,7 +111,7 @@ plutil -lint App/Resources/Info.plist \
   Scripts/ExportOptions.plist
 ```
 
-The post-UI Debug and independent Release SwiftPM runs each passed **442 tests
+The post-UI Debug and independent Release SwiftPM runs each passed **443 tests
 in 44 suites**. Strict Swift 6 compilation with complete concurrency and
 warnings-as-errors passed for app, helper, and widget. The unsigned Debug Xcode
 graph passed after the charging/editor functional changes. After the final
