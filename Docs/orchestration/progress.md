@@ -4,6 +4,37 @@
 
 ---
 
+## 2026-08-04 — Safety repair + design reset discovery
+
+### Safety repair (isolated branch; not installed or merged)
+
+- Branch: `codex/lidless-safety-repair-2026-08-04` in a dedicated worktree.
+- Sleep override arming/restoration now require exact readable proof; unknown
+  state never becomes success. Recovery remains visible and retries until normal
+  sleep is verified.
+- XPC peer trust now fails closed without a signed same-team app identity.
+- Helper protocol is v6; widget and app expose unknown/unverified state.
+- 164 core tests pass. Debug and Release unsigned compile checks and Debug static
+  analysis pass. Signed runtime/helper activation remains deliberately untested.
+
+### Design reset Phase 0
+
+- Created a blank Figma draft:
+  https://www.figma.com/design/YkIFq8wiDpjYBwxpyO56LQ
+- Inspected the empty file, available fonts, and Apple macOS libraries. No canvas
+  objects, variables, styles, or components have been created yet.
+- The founder's current from-scratch instruction supersedes the prior eye,
+  Happy Mac, aurora, glow, rounded-type, dark-only direction.
+- Approval brief: `tasks/2026-08-04-design-reset-brief.md`.
+- Next: founder approves or revises the direction; then build Figma foundations,
+  components, core states, and overview before any SwiftUI visual rewrite.
+
+### External gates still untouched
+
+- No VM resume, Apple ID sign-in, Messages/iMessage setup, group creation, bot
+  send, analytics authentication, provider configuration, connector setup,
+  install, merge, push, or deployment.
+
 ## 2026-07-17 — Session 1 (full build + design exploration)
 
 ### Shipped (pushed to https://github.com/junaidxabd/lidless, main, CI green)

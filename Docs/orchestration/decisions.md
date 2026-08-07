@@ -48,6 +48,20 @@ materials. Next session starts with the taste board, not with more effects.
 - Face size / screen hue / panel darkness fine-tuning after seeing the full state set.
 - Repo home: stays on junaidxabd or transfers to nugvue.
 
+## Design reset (2026-08-04; supersedes v4 visually)
+
+The founder subsequently said the Lidless UI was disliked and asked for a new
+design from scratch. That current instruction supersedes the v4 visual direction
+above, including its Happy Mac mascot, eye metaphor, aurora/glow treatment,
+SF Rounded typography, and dark-mode lock. The history remains here so rejected
+ideas are not accidentally rediscovered and presented as new.
+
+The replacement direction is a quiet, adaptive, native macOS safety instrument:
+state before brand, visible verification, one primary action, sparse semantic
+color, SF Pro, native materials, and no decorative hero. The exact Phase 0 brief
+is in `tasks/2026-08-04-design-reset-brief.md`. Figma foundations and screens are
+approval-gated; no SwiftUI visual implementation starts first.
+
 ## Earlier (implementation phase)
 - Swift 6.0 compatibility required (CI = Xcode 16.4) — avoid 6.3-only inference; the one
   divergence hit: sending non-Sendable `SMAppService` through `self` into async work
