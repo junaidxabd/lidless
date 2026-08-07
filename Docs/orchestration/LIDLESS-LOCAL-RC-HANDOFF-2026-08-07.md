@@ -23,7 +23,7 @@ Task-contract branch: `codex/lidless-completion-clean2-2026-08-07`
 Task-contract start: `b093e3d`
 
 The founder explicitly authorized feature-branch commits and pushes. The
-checkpoint `05bcc62` is on
+checkpoint `da83b67` is on
 `origin/codex/lidless-completion-clean2-2026-08-07`; main was not merged or
 pushed. Continue using only this task-owned repository and feature branch.
 
@@ -75,6 +75,9 @@ architecture, or the founder's latest dark-only direction.
   safety controls explicit to accessibility, suppressed simulation-only
   notification/widget side effects, added useful chart summaries, and fixed
   selected History at the minimum supported window size.
+- The Overview evidence matrix now covers verifying, restoring, and every arm
+  confirmation/refusal at minimum/default/wide sizes, with a dedicated
+  transition contact sheet.
 
 ## Fast local re-verification
 
@@ -92,13 +95,13 @@ plutil -lint App/Resources/Info.plist \
   Scripts/ExportOptions.plist
 ```
 
-The post-UI Debug and independent Release SwiftPM runs each passed **436 tests
+The post-UI Debug and independent Release SwiftPM runs each passed **437 tests
 in 44 suites**. Strict Swift 6 compilation with complete concurrency and
 warnings-as-errors passed for app, helper, and widget. Full unsigned Xcode
 Debug, Release, and static-analysis graphs also passed with the embedded helper
 and widget present. XcodeGen regenerated with an identical project hash. The
 complete visual artifact hash
-`8de659865694fcc31223b3a26aeeacd02a4ab25216f12ab44276c4341a3dec7d`
+`be5a9c9684787e50b5bb630fb5bdf564ba2f24971c31f2c7a52a509e0f4bbe2e`
 was stable across consecutive full renders.
 
 Independent product, engineering, and safety reviewers found and verified the
@@ -113,9 +116,11 @@ local verification boundary.
 The full unsigned Xcode graph is now locally green. That proves compilation,
 analysis, and unsigned bundle layout only; it does not prove signing,
 entitlements at runtime, helper trust, privileged behavior, or notarization.
-The desktop locked before the live menu-bar popover interaction could be
-completed, so that bounded UI pass remains pending when the local session is
-available.
+The app ran in a unique simulation-only bundle and exposed its status item,
+but this desktop session created zero inspectable app windows for every
+shell-launched app tested, including Finder and Preview. Temporary activation
+experiments were reverted. A bounded live popover pass remains pending in a
+normal interactive window-server session.
 
 ## Remaining gates
 
@@ -140,6 +145,7 @@ clear durable evidence, remove launchd supervision, or treat the manual
 
 - [`menu-contact-sheet.png`](../screenshots/menu-contact-sheet.png)
 - [`window-contact-sheet.png`](../screenshots/window-contact-sheet.png)
+- [`window-transition-contact-sheet.png`](../screenshots/window-transition-contact-sheet.png)
 - [`secondary-contact-sheet.png`](../screenshots/secondary-contact-sheet.png)
 - [`onboarding-contact-sheet.png`](../screenshots/onboarding-contact-sheet.png)
 - [`widget-contact-sheet.png`](../screenshots/widget-contact-sheet.png)

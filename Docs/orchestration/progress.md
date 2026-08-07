@@ -26,6 +26,16 @@
 - Full unsigned Xcode Debug, Release, and static-analysis graphs passed with
   embedded helper/widget layout checks; XcodeGen remained byte-clean; shell
   syntax, property-list linting, and diff hygiene passed.
+- Closed a visual-evidence blind spot after the checkpoint: verification,
+  restoration, and all four arm confirmation/refusal states now render in the
+  real Overview shell at minimum/default/wide sizes. The new transition sheet
+  was inspected at original detail, two complete renders were byte-identical,
+  and Debug/Release now pass 437 tests in 44 suites.
+- A fresh uniquely identified simulation build ran without helper or power
+  mutation and exposed its status item through the accessibility tree. This
+  desktop session nevertheless created zero inspectable windows for every
+  shell-launched app tested, including Finder and Preview; multiple temporary
+  activation experiments did not change that result and were fully reverted.
 
 ### Still active
 
@@ -35,8 +45,10 @@
   product refinement, not a safety-state defect, and will be implemented only
   after design approval and then rerun through the full matrix.
 - The desktop locked before a live menu-bar popover interaction could be
-  completed. All deterministic menu states were rendered and inspected, but a
-  fresh live popover pass remains pending when the local session is available.
+  completed. The later unlocked session still refused to surface app-owned
+  windows from shell-launched processes. All deterministic menu states were
+  rendered and inspected, but a fresh live popover pass remains pending in a
+  normal interactive window-server session.
 
 ## 2026-08-07 — Dark-only local release candidate
 
