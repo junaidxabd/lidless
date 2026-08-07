@@ -23,7 +23,7 @@ Task-contract branch: `codex/lidless-completion-clean2-2026-08-07`
 Task-contract start: `b093e3d`
 
 The founder explicitly authorized feature-branch commits and pushes. The
-implementation checkpoints through `de19688` are on
+implementation checkpoints through `ee608a6` are on
 `origin/codex/lidless-completion-clean2-2026-08-07`; main was not merged or
 pushed. Continue using only this task-owned repository and feature branch.
 
@@ -85,6 +85,10 @@ architecture, or the founder's latest dark-only direction.
   Simulator states. Battery-dependent controls disable, history and floor
   semantics become explicitly inactive, and the state is covered at every
   supported Overview width plus a dedicated Simulator render.
+- Charging and battery-power simulation states are mutually consistent;
+  charging removes the drain claim and marks the floor paused on power across
+  the menu and every Overview width. The schedule editor now scrolls under
+  maximum text sizing while its Cancel/Save actions remain pinned.
 
 ## Fast local re-verification
 
@@ -102,13 +106,16 @@ plutil -lint App/Resources/Info.plist \
   Scripts/ExportOptions.plist
 ```
 
-The post-UI Debug and independent Release SwiftPM runs each passed **439 tests
+The post-UI Debug and independent Release SwiftPM runs each passed **441 tests
 in 44 suites**. Strict Swift 6 compilation with complete concurrency and
-warnings-as-errors passed for app, helper, and widget. Full unsigned Xcode
-Debug, Release, and static-analysis graphs also passed with the embedded helper
-and widget present. XcodeGen regenerated with an identical project hash. The
+warnings-as-errors passed for app, helper, and widget. The unsigned Debug Xcode
+graph passed after the charging/editor functional changes. After the final
+layout-height tightening, macOS file coordination hung subsequent Xcode
+invocations before project loading, including a fresh isolated regenerated
+project; exact-source Release/analyze is therefore pending rather than claimed.
+XcodeGen still regenerated with an identical project hash. The
 complete visual artifact hash
-`c23c3864d44f5d73433de497145c3522c1d948190ffafe5822958c302de67184`
+`1b8baea4cbc4c9436b08c317c6705e6ec465cc0fae5b8bea82fba65987c5ed26`
 was stable across consecutive full renders.
 
 Independent product, engineering, and safety reviewers found and verified the
@@ -120,14 +127,22 @@ local verification boundary.
 
 ## Current local limitation
 
-The full unsigned Xcode graph is now locally green. That proves compilation,
-analysis, and unsigned bundle layout only; it does not prove signing,
+The last full unsigned Xcode graph is locally green; the current exact source
+is directly compiled and visually rendered, but its final Release/analyze
+rerun remains blocked before project loading by macOS file coordination. The
+last full graph proves analysis and unsigned bundle layout for its checkpoint;
+the current direct checks prove source compilation only. Neither proves signing,
 entitlements at runtime, helper trust, privileged behavior, or notarization.
 The app ran in a unique simulation-only bundle and exposed its status item,
 but this desktop session created zero inspectable app windows for every
 shell-launched app tested, including Finder and Preview. Temporary activation
 experiments were reverted. A bounded live popover pass remains pending in a
 normal interactive window-server session.
+
+The ignored diagnostic copy at
+`build/xcode-verify-roots/ui-stress-serial` is about 2.3 GB. It contains only a
+task-local project copy and build caches; automated destructive cleanup was
+blocked, so a later local cleanup may remove that exact directory.
 
 ## Remaining gates
 

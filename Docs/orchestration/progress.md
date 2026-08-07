@@ -45,6 +45,20 @@
   in 44 suites; unsigned Xcode Debug, Release, and analysis all passed. Two
   complete visual renders were byte-identical at
   `c23c3864d44f5d73433de497145c3522c1d948190ffafe5822958c302de67184`.
+- The next adversarial sweep found two additional UI defects. The Simulator
+  could represent the contradictory state `charging` while `on battery`, and
+  Overview showed the configured battery floor as active while the Mac was on
+  external power. Those states now normalize, charging suppresses the drain
+  claim, and Overview says `Paused on power`. The schedule editor also moved
+  from a fixed non-scrolling stack to a bounded scrolling sheet with pinned
+  Cancel/Save actions, adaptive time controls, and maximum-text-size evidence.
+  The 17-issue RED became 38 focused passes; complete Debug and Release runs
+  each passed 441 tests in 44 suites; two full visual renders matched at
+  `1b8baea4cbc4c9436b08c317c6705e6ec465cc0fae5b8bea82fba65987c5ed26`.
+  Project regeneration remained byte-identical. A full Debug Xcode graph passed
+  before the final layout-height tightening; subsequent Xcode commands hung in
+  macOS file coordination before reading even a freshly regenerated isolated
+  project, so no current exact-source Release/analyzer result is claimed.
 - A fresh uniquely identified simulation build ran without helper or power
   mutation and exposed its status item through the accessibility tree. This
   desktop session nevertheless created zero inspectable windows for every
