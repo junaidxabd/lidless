@@ -18,6 +18,7 @@ private let sheets = [
         images: [
             "menu-verified-normal.png",
             "menu-no-battery.png",
+            "menu-charging.png",
             "menu-verifying-arm.png",
             "menu-verified-armed.png",
             "menu-restoring.png",
@@ -34,7 +35,7 @@ private let sheets = [
     Sheet(
         filename: "window-contact-sheet.png",
         width: 1_500,
-        height: 1_850,
+        height: 2_200,
         columns: 3,
         images: [
             "window-minimum-verified-normal.png",
@@ -43,6 +44,9 @@ private let sheets = [
             "window-minimum-no-battery.png",
             "window-default-no-battery.png",
             "window-wide-no-battery.png",
+            "window-minimum-charging.png",
+            "window-default-charging.png",
+            "window-wide-charging.png",
             "window-minimum-verified-armed.png",
             "window-default-verified-armed.png",
             "window-wide-verified-armed.png",
@@ -83,7 +87,7 @@ private let sheets = [
     Sheet(
         filename: "secondary-contact-sheet.png",
         width: 1_500,
-        height: 1_480,
+        height: 1_850,
         columns: 3,
         images: [
             "secondary-cutoffs-default.png",
@@ -97,6 +101,7 @@ private let sheets = [
             "secondary-history-selected-wide.png",
             "secondary-setup-simulated.png",
             "secondary-simulator-default.png",
+            "secondary-simulator-charging.png",
             "secondary-simulator-no-battery.png",
         ]
     ),
@@ -115,12 +120,13 @@ private let sheets = [
     Sheet(
         filename: "accessibility-contact-sheet.png",
         width: 1_500,
-        height: 650,
-        columns: 3,
+        height: 1_200,
+        columns: 2,
         images: [
             "accessibility-menu-long-error.png",
             "accessibility-window-minimum-confirmation.png",
             "accessibility-onboarding-recovery.png",
+            "accessibility-schedule-editor.png",
         ]
     ),
     Sheet(

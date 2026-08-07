@@ -19,8 +19,16 @@ final class SimulationController {
         }
     }
     var batteryPercent: Double = 68
-    var onBattery = true
-    var charging = false
+    var onBattery = true {
+        didSet {
+            if onBattery { charging = false }
+        }
+    }
+    var charging = false {
+        didSet {
+            if charging { onBattery = false }
+        }
+    }
     /// Simulated drain speed while discharging.
     var drainPerHour: Double = 9
     /// Simulated seconds that pass per real second (speed up overnight runs).

@@ -36,6 +36,7 @@ struct InstrumentRenderBanner {
 enum InstrumentRenderScenario: String, CaseIterable {
     case verifiedNormal
     case noBattery
+    case charging
     case verifyingArm
     case confirmationOK
     case confirmationLowBattery
@@ -51,6 +52,7 @@ enum InstrumentRenderScenario: String, CaseIterable {
     static let panelMatrix: [InstrumentRenderScenario] = [
         .verifiedNormal,
         .noBattery,
+        .charging,
         .verifyingArm,
         .confirmationOK,
         .confirmationLowBattery,
@@ -67,6 +69,7 @@ enum InstrumentRenderScenario: String, CaseIterable {
     static let shellMatrix: [InstrumentRenderScenario] = [
         .verifiedNormal,
         .noBattery,
+        .charging,
         .verifiedArmed,
         .outsideOverride,
         .unknown,
@@ -88,6 +91,7 @@ enum InstrumentRenderScenario: String, CaseIterable {
         switch self {
         case .verifiedNormal,
              .noBattery,
+             .charging,
              .confirmationOK,
              .confirmationLowBattery,
              .confirmationFloorRefusal,
@@ -113,6 +117,7 @@ enum InstrumentRenderScenario: String, CaseIterable {
         switch self {
         case .verifiedNormal: "menu-verified-normal.png"
         case .noBattery: "menu-no-battery.png"
+        case .charging: "menu-charging.png"
         case .verifyingArm: "menu-verifying-arm.png"
         case .confirmationOK: "menu-confirmation-ok.png"
         case .confirmationLowBattery: "menu-confirmation-low-battery.png"
@@ -131,6 +136,7 @@ enum InstrumentRenderScenario: String, CaseIterable {
         switch self {
         case .verifiedNormal: "verified-normal"
         case .noBattery: "no-battery"
+        case .charging: "charging"
         case .verifyingArm: "verifying-arm"
         case .confirmationOK: "confirmation-ok"
         case .confirmationLowBattery: "confirmation-low-battery"
@@ -165,6 +171,8 @@ enum InstrumentRenderScenario: String, CaseIterable {
             "The system override is off and normal sleep is verified."
         case .noBattery:
             "Normal sleep is verified. This Mac has no internal battery."
+        case .charging:
+            "Normal sleep is verified. This Mac is connected to power and charging."
         case .verifiedArmed:
             "A verified Lidless session owns the active sleep override."
         case .verifyingArm:
@@ -313,6 +321,7 @@ enum InstrumentRenderScenario: String, CaseIterable {
 
     var batteryCaption: String {
         if self == .noBattery { return "No battery" }
+        if self == .charging { return "Charging" }
         return presentation == .unknown ? "Unverified" : "On battery"
     }
 
@@ -320,6 +329,8 @@ enum InstrumentRenderScenario: String, CaseIterable {
         switch self {
         case .noBattery:
             "powerplug"
+        case .charging:
+            "battery.100percent.bolt"
         case .confirmationLowBattery, .confirmationFloorRefusal:
             "battery.25percent"
         case .unknown, .longError:
@@ -330,7 +341,9 @@ enum InstrumentRenderScenario: String, CaseIterable {
     }
 
     var drainValue: String {
-        presentation == .unknown || self == .noBattery ? "—" : "9.0%/hr"
+        presentation == .unknown || self == .noBattery || self == .charging
+            ? "—"
+            : "9.0%/hr"
     }
 
     var thermalValue: String {
@@ -559,7 +572,9 @@ enum ScreenshotRenderer {
     ) {
         let hasInternalBattery = scenario != .noBattery
         simulation.hasInternalBattery = hasInternalBattery
-        if hasInternalBattery {
+        if scenario == .charging {
+            simulation.charging = true
+        } else if hasInternalBattery {
             simulation.onBattery = true
             simulation.charging = false
         }
@@ -703,6 +718,15 @@ enum ScreenshotRenderer {
         )
 
         if let simulation = state.simulation {
+            simulation.charging = true
+            state.refreshSimulationBatteryForRendering()
+            try write(
+                secondaryPane(SimulatorPane(), state: state, size: defaultSize),
+                to: outputDirectory.appendingPathComponent(
+                    "secondary-simulator-charging.png"
+                )
+            )
+
             simulation.hasInternalBattery = false
             state.refreshSimulationBatteryForRendering()
             try write(
@@ -754,6 +778,17 @@ enum ScreenshotRenderer {
             ),
             to: outputDirectory.appendingPathComponent(
                 "accessibility-onboarding-recovery.png"
+            )
+        )
+
+        try write(
+            hostedImage(
+                ScheduleWindowEditor(window: .weeknights()) { _ in }
+                    .environment(\.dynamicTypeSize, .accessibility5),
+                size: ScheduleEditorLayout.size
+            ),
+            to: outputDirectory.appendingPathComponent(
+                "accessibility-schedule-editor.png"
             )
         )
     }

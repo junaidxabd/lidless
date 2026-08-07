@@ -72,7 +72,13 @@ private struct SimulatorControls: View {
                             .accessibilityValue(chargeAccessibilityValue)
                     }
                     Toggle("On battery power", isOn: $simulation.onBattery)
+                        .accessibilityHint(
+                            "Moves the simulated power source off AC and stops charging"
+                        )
                     Toggle("Charging", isOn: $simulation.charging)
+                        .accessibilityHint(
+                            "Moves the simulated power source to AC when enabled"
+                        )
                     LabeledContent(drainLabel) {
                         Slider(value: $simulation.drainPerHour, in: 0...40, step: 0.5)
                             .frame(maxWidth: 260)

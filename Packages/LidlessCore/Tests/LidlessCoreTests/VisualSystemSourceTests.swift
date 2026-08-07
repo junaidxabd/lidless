@@ -41,6 +41,7 @@ struct VisualSystemSourceTests {
         for scenario in [
             "case verifiedNormal",
             "case noBattery",
+            "case charging",
             "case verifyingArm",
             "case confirmationOK",
             "case confirmationLowBattery",
@@ -59,6 +60,7 @@ struct VisualSystemSourceTests {
         for filename in [
             "menu-verified-normal.png",
             "menu-no-battery.png",
+            "menu-charging.png",
             "menu-verifying-arm.png",
             "menu-confirmation-ok.png",
             "menu-confirmation-low-battery.png",
@@ -158,6 +160,7 @@ struct VisualSystemSourceTests {
             "accessibility-menu-long-error.png",
             "accessibility-window-minimum-confirmation.png",
             "accessibility-onboarding-recovery.png",
+            "accessibility-schedule-editor.png",
         ] {
             #expect(renderer.contains(filename))
             #expect(contactSheet.contains(filename))

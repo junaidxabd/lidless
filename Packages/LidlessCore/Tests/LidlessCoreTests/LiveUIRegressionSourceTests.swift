@@ -134,6 +134,28 @@ struct LiveUIRegressionSourceTests {
         #expect(history.contains("VStack(spacing: Theme.s2)"))
     }
 
+    @Test func scheduleEditorKeepsActionsReachableAtMaximumTextSize() throws {
+        let schedules = try repositoryFile(
+            "App/Sources/UI/Main/SchedulesPane.swift"
+        )
+        let renderer = try repositoryFile(
+            "App/Sources/Services/ScreenshotRenderer.swift"
+        )
+        let contactSheet = try repositoryFile(
+            "Scripts/VisualQA/ContactSheet.swift"
+        )
+
+        #expect(schedules.contains("enum ScheduleEditorLayout"))
+        #expect(schedules.contains("struct ScheduleWindowEditor"))
+        #expect(schedules.contains("ScrollView {"))
+        #expect(schedules.contains("ViewThatFits(in: .horizontal)"))
+        #expect(schedules.contains("private var actionBar: some View"))
+        #expect(schedules.contains(".frame(width: ScheduleEditorLayout.width"))
+        #expect(renderer.contains("accessibility-schedule-editor.png"))
+        #expect(renderer.contains("ScheduleWindowEditor("))
+        #expect(contactSheet.contains("accessibility-schedule-editor.png"))
+    }
+
     private func repositoryFile(_ relativePath: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         let fileManager = FileManager.default

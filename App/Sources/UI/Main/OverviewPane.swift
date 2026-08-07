@@ -380,11 +380,13 @@ struct OverviewContent: View {
 
     private var batteryFloorDescription: String {
         if renderScenario == .noBattery { return "Inactive" }
+        if renderScenario == .charging { return "Paused on power" }
         if renderScenario != nil { return "Request at 20%" }
         let config = state.effectiveConfig
         guard config.batteryFloorEnabled, state.battery.state != .noBattery else {
             return "Inactive"
         }
+        if state.battery.state == .ac { return "Paused on power" }
         return "Request at \(config.batteryFloorPercent)%"
     }
 
@@ -415,10 +417,14 @@ struct OverviewContent: View {
 
     private var activeFloor: Int? {
         if renderScenario != nil {
-            return presentation == .unknown || renderScenario == .noBattery ? nil : 20
+            return presentation == .unknown
+                || renderScenario == .noBattery
+                || renderScenario == .charging
+                ? nil
+                : 20
         }
         let config = state.effectiveConfig
-        return config.batteryFloorEnabled && state.battery.state != .noBattery
+        return config.batteryFloorEnabled && state.battery.state == .battery
             ? config.batteryFloorPercent
             : nil
     }

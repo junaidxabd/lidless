@@ -144,52 +144,94 @@ struct SchedulesPane: View {
 
 // MARK: - Editor sheet
 
+enum ScheduleEditorLayout {
+    static let width: CGFloat = 460
+    static let height: CGFloat = 400
+    static let size = CGSize(width: width, height: height)
+}
+
 struct ScheduleWindowEditor: View {
     @State var window: ScheduleWindow
     let onSave: (ScheduleWindow) -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.s4) {
-            Text("Schedule Window")
-                .font(.title3.weight(.semibold))
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.s4) {
+                    Text("Schedule Window")
+                        .font(.title3.weight(.semibold))
 
-            VStack(alignment: .leading, spacing: Theme.s2) {
-                Text("Repeats on")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                WeekdayPicker(selection: $window.weekdays)
-                Text("Days refer to when the window starts — a Friday 11 PM window runs into Saturday morning.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
+                    VStack(alignment: .leading, spacing: Theme.s2) {
+                        Text("Repeats on")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        WeekdayPicker(selection: $window.weekdays)
+                        Text("Days refer to when the window starts — a Friday 11 PM window runs into Saturday morning.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
 
-            HStack(spacing: Theme.s4) {
-                DatePicker("Starts", selection: hmBinding($window.start), displayedComponents: .hourAndMinute)
-                DatePicker("Ends", selection: hmBinding($window.end), displayedComponents: .hourAndMinute)
-            }
-            if window.wrapsMidnight {
-                Label("Ends the next day", systemImage: "moon.stars")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack {
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Spacer()
-                Button("Save") {
-                    onSave(window)
-                    dismiss()
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: Theme.s4) {
+                            startPicker
+                            endPicker
+                        }
+                        VStack(alignment: .leading, spacing: Theme.s3) {
+                            startPicker
+                            endPicker
+                        }
+                    }
+                    if window.wrapsMidnight {
+                        Label("Ends the next day", systemImage: "moon.stars")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .disabled(window.weekdays.isEmpty)
+                .padding(Theme.s6)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+
+            Divider()
+            actionBar
         }
-        .padding(Theme.s6)
-        .frame(width: 420)
+        .frame(width: ScheduleEditorLayout.width, height: ScheduleEditorLayout.height)
         .background(Theme.canvas)
+    }
+
+    private var startPicker: some View {
+        DatePicker(
+            "Starts",
+            selection: hmBinding($window.start),
+            displayedComponents: .hourAndMinute
+        )
+    }
+
+    private var endPicker: some View {
+        DatePicker(
+            "Ends",
+            selection: hmBinding($window.end),
+            displayedComponents: .hourAndMinute
+        )
+    }
+
+    private var actionBar: some View {
+        HStack {
+            Button("Cancel") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+            Spacer()
+            Button("Save") {
+                onSave(window)
+                dismiss()
+            }
+            .keyboardShortcut(.defaultAction)
+            .buttonStyle(.borderedProminent)
+            .disabled(window.weekdays.isEmpty)
+        }
+        .padding(.horizontal, Theme.s6)
+        .padding(.vertical, Theme.s4)
+        .background(Theme.surface)
     }
 
     private func hmBinding(_ source: Binding<HMTime>) -> Binding<Date> {
@@ -223,7 +265,7 @@ struct WeekdayPicker: View {
                 } label: {
                     Text(Calendar.current.veryShortWeekdaySymbols[day - 1])
                         .font(.callout.weight(.semibold))
-                        .frame(width: 32, height: 32)
+                        .frame(width: 36, height: 36)
                         .background(
                             isOn ? Theme.verifiedActive : Theme.surfaceElevated,
                             in: Circle()

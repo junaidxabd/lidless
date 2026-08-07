@@ -453,6 +453,28 @@ struct BatteryTelemetrySafetyTests {
         }
     }
 
+    @Test func chargingSimulationAndOverviewCannotClaimAnActiveBatteryFloor() throws {
+        let simulation = try repositoryFile("App/Sources/Simulation/Simulation.swift")
+        let overview = try repositoryFile("App/Sources/UI/Main/OverviewPane.swift")
+        let renderer = try repositoryFile("App/Sources/Services/ScreenshotRenderer.swift")
+        let contactSheet = try repositoryFile("Scripts/VisualQA/ContactSheet.swift")
+
+        #expect(simulation.contains("if onBattery { charging = false }"))
+        #expect(simulation.contains("if charging { onBattery = false }"))
+        #expect(overview.contains("Paused on power"))
+        #expect(overview.contains("renderScenario == .charging"))
+
+        for filename in [
+            "menu-charging.png",
+            "window-minimum-charging.png",
+            "window-default-charging.png",
+            "window-wide-charging.png",
+            "secondary-simulator-charging.png",
+        ] {
+            #expect(renderer.contains(filename) || contactSheet.contains(filename))
+        }
+    }
+
     @Test func batteryOnlyPresetCannotArmWithoutAnInternalBattery() throws {
         let app = try repositoryFile("App/Sources/AppState.swift")
         let begin = try section(
