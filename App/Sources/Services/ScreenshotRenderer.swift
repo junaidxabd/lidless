@@ -35,6 +35,7 @@ struct InstrumentRenderBanner {
 /// persist, and are admitted only by the guarded simulation renderer below.
 enum InstrumentRenderScenario: String, CaseIterable {
     case verifiedNormal
+    case verifyingArm
     case confirmationOK
     case confirmationLowBattery
     case confirmationFloorRefusal
@@ -48,6 +49,7 @@ enum InstrumentRenderScenario: String, CaseIterable {
 
     static let panelMatrix: [InstrumentRenderScenario] = [
         .verifiedNormal,
+        .verifyingArm,
         .confirmationOK,
         .confirmationLowBattery,
         .confirmationFloorRefusal,
@@ -67,6 +69,18 @@ enum InstrumentRenderScenario: String, CaseIterable {
         .unknown,
     ]
 
+    /// Transient and decision states have taller, more variable content than
+    /// the steady-state overview. Render each at every supported shell size so
+    /// confirmations and progress affordances cannot silently clip.
+    static let shellTransitionMatrix: [InstrumentRenderScenario] = [
+        .verifyingArm,
+        .restoring,
+        .confirmationOK,
+        .confirmationLowBattery,
+        .confirmationFloorRefusal,
+        .confirmationThermalRefusal,
+    ]
+
     var presentation: SleepPresentationState {
         switch self {
         case .verifiedNormal,
@@ -76,6 +90,8 @@ enum InstrumentRenderScenario: String, CaseIterable {
              .confirmationThermalRefusal,
              .helperSetup:
             .verifiedNormal
+        case .verifyingArm:
+            .verifyingArm
         case .verifiedArmed:
             .verifiedArmed
         case .restoring:
@@ -92,6 +108,7 @@ enum InstrumentRenderScenario: String, CaseIterable {
     var panelFilename: String {
         switch self {
         case .verifiedNormal: "menu-verified-normal.png"
+        case .verifyingArm: "menu-verifying-arm.png"
         case .confirmationOK: "menu-confirmation-ok.png"
         case .confirmationLowBattery: "menu-confirmation-low-battery.png"
         case .confirmationFloorRefusal: "menu-confirmation-floor-refusal.png"
@@ -108,7 +125,13 @@ enum InstrumentRenderScenario: String, CaseIterable {
     var slug: String {
         switch self {
         case .verifiedNormal: "verified-normal"
+        case .verifyingArm: "verifying-arm"
+        case .confirmationOK: "confirmation-ok"
+        case .confirmationLowBattery: "confirmation-low-battery"
+        case .confirmationFloorRefusal: "confirmation-floor-refusal"
+        case .confirmationThermalRefusal: "confirmation-thermal-refusal"
         case .verifiedArmed: "verified-armed"
+        case .restoring: "restoring"
         case .outsideOverride: "outside-override"
         case .unknown: "unknown"
         default: rawValue
@@ -136,6 +159,8 @@ enum InstrumentRenderScenario: String, CaseIterable {
             "The system override is off and normal sleep is verified."
         case .verifiedArmed:
             "A verified Lidless session owns the active sleep override."
+        case .verifyingArm:
+            "Lidless requested keep-awake and is waiting for current proof."
         case .restoring:
             "The restore request is active. Keep Lidless open until proof completes."
         case .outsideOverride:
@@ -262,7 +287,7 @@ enum InstrumentRenderScenario: String, CaseIterable {
 
     var primaryActionAvailable: Bool {
         switch self {
-        case .restoring, .helperSetup:
+        case .verifyingArm, .restoring, .helperSetup:
             false
         default:
             confirmation == nil
@@ -411,6 +436,15 @@ enum ScreenshotRenderer {
 
         for size in ShellRenderSize.allCases {
             for scenario in InstrumentRenderScenario.shellMatrix {
+                try write(
+                    shell(state, scenario: scenario, size: size.size),
+                    to: outputDirectory.appendingPathComponent(
+                        size.filename(for: scenario)
+                    )
+                )
+            }
+
+            for scenario in InstrumentRenderScenario.shellTransitionMatrix {
                 try write(
                     shell(state, scenario: scenario, size: size.size),
                     to: outputDirectory.appendingPathComponent(

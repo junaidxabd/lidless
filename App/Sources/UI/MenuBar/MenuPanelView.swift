@@ -483,7 +483,7 @@ struct MenuPanelContent: View {
 
 // MARK: - Deterministic confirmation surface
 
-private struct RenderArmConfirmationCard: View {
+struct RenderArmConfirmationCard: View {
     let confirmation: InstrumentRenderConfirmation
 
     private var tint: Color {

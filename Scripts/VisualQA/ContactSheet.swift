@@ -17,6 +17,7 @@ private let sheets = [
         columns: 3,
         images: [
             "menu-verified-normal.png",
+            "menu-verifying-arm.png",
             "menu-verified-armed.png",
             "menu-restoring.png",
             "menu-outside-override.png",
@@ -47,6 +48,32 @@ private let sheets = [
             "window-minimum-unknown.png",
             "window-default-unknown.png",
             "window-wide-unknown.png",
+        ]
+    ),
+    Sheet(
+        filename: "window-transition-contact-sheet.png",
+        width: 1_500,
+        height: 2_200,
+        columns: 3,
+        images: [
+            "window-minimum-verifying-arm.png",
+            "window-default-verifying-arm.png",
+            "window-wide-verifying-arm.png",
+            "window-minimum-restoring.png",
+            "window-default-restoring.png",
+            "window-wide-restoring.png",
+            "window-minimum-confirmation-ok.png",
+            "window-default-confirmation-ok.png",
+            "window-wide-confirmation-ok.png",
+            "window-minimum-confirmation-low-battery.png",
+            "window-default-confirmation-low-battery.png",
+            "window-wide-confirmation-low-battery.png",
+            "window-minimum-confirmation-floor-refusal.png",
+            "window-default-confirmation-floor-refusal.png",
+            "window-wide-confirmation-floor-refusal.png",
+            "window-minimum-confirmation-thermal-refusal.png",
+            "window-default-confirmation-thermal-refusal.png",
+            "window-wide-confirmation-thermal-refusal.png",
         ]
     ),
     Sheet(

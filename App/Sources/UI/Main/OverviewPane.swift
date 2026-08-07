@@ -28,7 +28,9 @@ struct OverviewContent: View {
         VStack(alignment: .leading, spacing: Theme.s4) {
             statusCard
 
-            if renderScenario == nil, let pending = state.pendingArm {
+            if let confirmation = renderScenario?.confirmation {
+                RenderArmConfirmationCard(confirmation: confirmation)
+            } else if let pending = state.pendingArm {
                 ArmConfirmCard(pending: pending)
             }
 

@@ -40,6 +40,7 @@ struct VisualSystemSourceTests {
 
         for scenario in [
             "case verifiedNormal",
+            "case verifyingArm",
             "case confirmationOK",
             "case confirmationLowBattery",
             "case confirmationFloorRefusal",
@@ -56,6 +57,7 @@ struct VisualSystemSourceTests {
 
         for filename in [
             "menu-verified-normal.png",
+            "menu-verifying-arm.png",
             "menu-confirmation-ok.png",
             "menu-confirmation-low-battery.png",
             "menu-confirmation-floor-refusal.png",
@@ -104,6 +106,45 @@ struct VisualSystemSourceTests {
         #expect(renderer.contains("for size in ShellRenderSize.allCases"))
         #expect(renderer.contains("for scenario in InstrumentRenderScenario.shellMatrix"))
         #expect(renderer.contains("MainWindowView(renderScenario: scenario)"))
+    }
+
+    @Test func overviewTransitionEvidenceCoversProgressAndConfirmationsAtEverySize() throws {
+        let menu = try repositoryFile("App/Sources/UI/MenuBar/MenuPanelView.swift")
+        let overview = try repositoryFile("App/Sources/UI/Main/OverviewPane.swift")
+        let renderer = try repositoryFile("App/Sources/Services/ScreenshotRenderer.swift")
+        let contactSheet = try repositoryFile("Scripts/VisualQA/ContactSheet.swift")
+
+        #expect(renderer.contains("case verifyingArm"))
+        #expect(renderer.contains("static let shellTransitionMatrix"))
+        for scenario in [
+            ".verifyingArm",
+            ".restoring",
+            ".confirmationOK",
+            ".confirmationLowBattery",
+            ".confirmationFloorRefusal",
+            ".confirmationThermalRefusal",
+        ] {
+            #expect(renderer.contains(scenario))
+        }
+
+        #expect(overview.contains("if let confirmation = renderScenario?.confirmation"))
+        #expect(overview.contains("RenderArmConfirmationCard(confirmation: confirmation)"))
+        #expect(menu.contains("struct RenderArmConfirmationCard: View"))
+        #expect(!menu.contains("private struct RenderArmConfirmationCard: View"))
+
+        for slug in [
+            "verifying-arm",
+            "restoring",
+            "confirmation-ok",
+            "confirmation-low-battery",
+            "confirmation-floor-refusal",
+            "confirmation-thermal-refusal",
+        ] {
+            for size in ["minimum", "default", "wide"] {
+                #expect(contactSheet.contains("window-\(size)-\(slug).png"))
+            }
+        }
+        #expect(contactSheet.contains("window-transition-contact-sheet.png"))
     }
 
     @Test func longErrorFixtureCannotClaimVerifiedNormalState() throws {
