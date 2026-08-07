@@ -25,7 +25,8 @@ Task-contract start: `b093e3d`
 The founder explicitly authorized feature-branch commits and pushes. The
 implementation checkpoints through `ee608a6` are on
 `origin/codex/lidless-completion-clean2-2026-08-07`; main was not merged or
-pushed. Continue using only this task-owned repository and feature branch.
+pushed. The latest visual-regression checkpoint is `f34550c`. Continue using
+only this task-owned repository and feature branch.
 
 ## Read this order
 
@@ -89,6 +90,8 @@ architecture, or the founder's latest dark-only direction.
   charging removes the drain claim and marks the floor paused on power across
   the menu and every Overview width. The schedule editor now scrolls under
   maximum text sizing while its Cancel/Save actions remain pinned.
+- Populated History is now also captured at maximum text size in the minimum
+  window; its selected row, stat cards, chart, and audit copy remain unclipped.
 
 ## Fast local re-verification
 
@@ -106,7 +109,7 @@ plutil -lint App/Resources/Info.plist \
   Scripts/ExportOptions.plist
 ```
 
-The post-UI Debug and independent Release SwiftPM runs each passed **441 tests
+The post-UI Debug and independent Release SwiftPM runs each passed **442 tests
 in 44 suites**. Strict Swift 6 compilation with complete concurrency and
 warnings-as-errors passed for app, helper, and widget. The unsigned Debug Xcode
 graph passed after the charging/editor functional changes. After the final
@@ -115,7 +118,7 @@ invocations before project loading, including a fresh isolated regenerated
 project; exact-source Release/analyze is therefore pending rather than claimed.
 XcodeGen still regenerated with an identical project hash. The
 complete visual artifact hash
-`1b8baea4cbc4c9436b08c317c6705e6ec465cc0fae5b8bea82fba65987c5ed26`
+`4363524e2ba85990bcf36706c1c2e4eb278eb237fcaa2ef88e99d5c250bef661`
 was stable across consecutive full renders.
 
 Independent product, engineering, and safety reviewers found and verified the

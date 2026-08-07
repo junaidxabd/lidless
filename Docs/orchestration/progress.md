@@ -59,6 +59,13 @@
   before the final layout-height tightening; subsequent Xcode commands hung in
   macOS file coordination before reading even a freshly regenerated isolated
   project, so no current exact-source Release/analyzer result is claimed.
+- Added the remaining dense split-view stress case: populated History at the
+  minimum window under maximum text sizing. The first contract run recorded 2
+  RED assertions for missing evidence; the rendered row, selection, stat cards,
+  chart, and audit copy were all unclipped, so no product change was needed.
+  Focused coverage passed 20 tests in 2 suites, full Debug and Release each
+  passed 442 tests in 44 suites, and two complete render passes matched at
+  `4363524e2ba85990bcf36706c1c2e4eb278eb237fcaa2ef88e99d5c250bef661`.
 - A fresh uniquely identified simulation build ran without helper or power
   mutation and exposed its status item through the accessibility tree. This
   desktop session nevertheless created zero inspectable windows for every
