@@ -17,17 +17,11 @@ public enum LidlessIDs {
     public static let helperVersion = 6
 
     /// Exact behavior contract required before this app accepts helper status
-    /// as arm, restore, ownership, or removal proof. Unlike the wire protocol
+    /// as arm, restore, or ownership proof. Unlike the wire protocol
     /// version, this revision advances when a safety-critical helper behavior
     /// changes. It is self-reported compatibility evidence, not a cryptographic
     /// executable identity or a replacement/install receipt.
-    public static let helperSafetyRevision = 7
-
-    /// The only non-current behavior revision whose complete cleanup path has
-    /// been reviewed for automatic replacement by revision 7. This is an
-    /// explicit pin, not `helperSafetyRevision - 1`: a later revision bump
-    /// must not silently admit a predecessor that has not been reviewed.
-    public static let reviewedStaleReplacementSafetyRevision = 6
+    public static let helperSafetyRevision = 8
 
     public static let appGroupID = "group.com.lidless.shared"
     public static let urlScheme = "lidless"
@@ -47,7 +41,30 @@ public enum HelperPaths {
     public static let workDirectory =
         "\(workDirectoryParent)/\(workDirectoryName)"
     public static let sentinelFilename = "override-active"
+    public static let durableMutationMarkerFilename = "mutation-in-flight.json"
+    public static let scheduledWakeReconciliationMarkerFilename =
+        "scheduled-wake-recovery-required.json"
+    public static let scheduledWakeLedgerFilename = "scheduled-wake.json"
     /// Bound by tests to com.lidless.helper.plist (KeepAlive.PathState).
     public static let sentinel = "\(workDirectory)/\(sentinelFilename)"
+    public static let durableMutationMarker =
+        "\(workDirectory)/\(durableMutationMarkerFilename)"
+    public static let scheduledWakeReconciliationMarker =
+        "\(workDirectory)/\(scheduledWakeReconciliationMarkerFilename)"
     public static let log = "\(workDirectory)/helper.log"
+}
+
+/// A child process cannot survive a machine reboot. Process restart alone is
+/// not equivalent: a reparented child from the same boot may still complete a
+/// privileged mutation after its original helper exits.
+public enum DurableMutationRecoverySafety {
+    public static func priorChildExitIsProven(
+        markerBootSessionUUID: UUID?,
+        currentBootSessionUUID: UUID?
+    ) -> Bool {
+        guard let markerBootSessionUUID, let currentBootSessionUUID else {
+            return false
+        }
+        return markerBootSessionUUID != currentBootSessionUUID
+    }
 }

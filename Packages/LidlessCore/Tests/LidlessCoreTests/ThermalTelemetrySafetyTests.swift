@@ -144,6 +144,110 @@ struct ThermalTelemetrySafetyTests {
         ))
     }
 
+    @Test func criticalProcessPressureFiresWithoutDebounce() {
+        var protected = config()
+        protected.thermalStrikesRequired = 5
+
+        let result = CutoffEngine.evaluate(
+            config: protected,
+            armedAt: now,
+            now: now,
+            battery: battery(),
+            thermal: reading(),
+            processThermal: .critical,
+            thermalStrikes: 0,
+            calendar: calendar
+        )
+
+        #expect(result.fired == [
+            .thermal(detail: "System thermal state critical"),
+        ])
+        #expect(result.thermalViolation)
+    }
+
+    @Test func seriousProcessPressureRetainsConfiguredDebounce() {
+        var protected = config()
+        protected.thermalStrikesRequired = 5
+
+        let result = CutoffEngine.evaluate(
+            config: protected,
+            armedAt: now,
+            now: now,
+            battery: battery(),
+            thermal: reading(),
+            processThermal: .serious,
+            thermalStrikes: 0,
+            calendar: calendar
+        )
+
+        #expect(result.fired.isEmpty)
+        #expect(result.thermalViolation)
+    }
+
+    @Test func seriousPressureFailsClosedWhenWallClockMovesBackward() {
+        var tracker = ThermalStrikeTracker()
+        var protected = config()
+        protected.thermalStrikesRequired = 5
+
+        #expect(tracker.observe(
+            config: protected,
+            thermal: reading(),
+            processThermal: .serious,
+            at: now
+        ) == 1)
+
+        let rolledBack = now.addingTimeInterval(-1)
+        let strikeCount = tracker.observe(
+            config: protected,
+            thermal: reading(sampledAt: rolledBack),
+            processThermal: .serious,
+            at: rolledBack
+        )
+        #expect(strikeCount == protected.thermalStrikesRequired)
+
+        let result = CutoffEngine.evaluate(
+            config: protected,
+            armedAt: rolledBack,
+            now: rolledBack,
+            battery: battery(),
+            thermal: reading(sampledAt: rolledBack),
+            processThermal: .serious,
+            thermalStrikes: max(0, strikeCount - 1),
+            calendar: calendar
+        )
+        #expect(result.fired == [
+            .thermal(detail: "System thermal state serious"),
+        ])
+    }
+
+    @Test func criticalProcessPressureFiresAlongsideUnavailablePMSetEvidence() {
+        var protected = config()
+        protected.thermalStrikesRequired = 5
+        let unavailable: [ThermalReading?] = [
+            nil,
+            reading(sampledAt: now.addingTimeInterval(-24 * 60 * 60)),
+        ]
+
+        for sample in unavailable {
+            let result = CutoffEngine.evaluate(
+                config: protected,
+                armedAt: now,
+                now: now,
+                battery: battery(),
+                thermal: sample,
+                processThermal: .critical,
+                thermalStrikes: 0,
+                calendar: calendar
+            )
+
+            #expect(result.fired == [
+                .thermal(detail: "System thermal state critical"),
+                .thermalTelemetryUnavailable,
+            ])
+            #expect(result.thermalViolation)
+        }
+    }
+
     @Test func disabledGuardDoesNotInventAThermalFailure() {
         let result = evaluation(thermal: nil, thermalEnabled: false)
         #expect(result.fired.isEmpty)

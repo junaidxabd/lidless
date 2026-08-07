@@ -7,15 +7,18 @@ struct SimulatorPane: View {
     @Environment(AppState.self) private var state
 
     var body: some View {
-        if let simulation = state.simulation {
-            SimulatorControls(simulation: simulation)
-        } else {
-            ContentUnavailableView(
-                "Simulation is off",
-                systemImage: "slider.horizontal.3",
-                description: Text("Relaunch Lidless with --simulate to use the simulator.")
-            )
+        Group {
+            if let simulation = state.simulation {
+                SimulatorControls(simulation: simulation)
+            } else {
+                ContentUnavailableView(
+                    "Simulation is off",
+                    systemImage: "slider.horizontal.3",
+                    description: Text("Relaunch Lidless with --simulate to use the simulator.")
+                )
+            }
         }
+        .background(Theme.canvas)
     }
 }
 
@@ -35,16 +38,22 @@ private struct SimulatorControls: View {
                 LabeledContent("Charge: \(Int(simulation.batteryPercent))%") {
                     Slider(value: $simulation.batteryPercent, in: 0...100, step: 1)
                         .frame(maxWidth: 260)
+                        .accessibilityLabel("Simulated battery charge")
+                        .accessibilityValue("\(Int(simulation.batteryPercent)) percent")
                 }
                 Toggle("On battery power", isOn: $simulation.onBattery)
                 Toggle("Charging", isOn: $simulation.charging)
                 LabeledContent("Drain rate: \(String(format: "%.1f", simulation.drainPerHour))%/hr") {
                     Slider(value: $simulation.drainPerHour, in: 0...40, step: 0.5)
                         .frame(maxWidth: 260)
+                        .accessibilityLabel("Simulated battery drain rate")
+                        .accessibilityValue("\(String(format: "%.1f", simulation.drainPerHour)) percent per hour")
                 }
                 LabeledContent("Time scale: \(Int(simulation.timeScale))×") {
                     Slider(value: $simulation.timeScale, in: 1...600, step: 1)
                         .frame(maxWidth: 260)
+                        .accessibilityLabel("Simulation time scale")
+                        .accessibilityValue("\(Int(simulation.timeScale)) times")
                 }
             }
 
@@ -62,6 +71,8 @@ private struct SimulatorControls: View {
                         step: 5
                     )
                     .frame(maxWidth: 260)
+                    .accessibilityLabel("Simulated CPU speed limit")
+                    .accessibilityValue("\(simulation.cpuSpeedLimit) percent")
                 }
                 Picker("Process thermal state", selection: $simulation.processLevel) {
                     Text("Nominal").tag(ProcessThermalLevel.nominal)
@@ -95,6 +106,7 @@ private struct SimulatorControls: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
+        .background(Theme.canvas)
         .navigationTitle("Simulator")
     }
 }

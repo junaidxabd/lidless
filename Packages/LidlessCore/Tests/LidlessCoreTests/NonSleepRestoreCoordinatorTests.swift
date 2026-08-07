@@ -266,7 +266,11 @@ struct NonSleepRestoreCoordinatorTests {
     }
 
     @Test func revisionMismatchCanRestoreButCannotAuthorizeForceSleep() {
-        for revision: Int? in [nil, 6, 8] {
+        for revision: Int? in [
+            nil,
+            6,
+            LidlessIDs.helperSafetyRevision - 1,
+        ] {
             let staleReply = HelperReply(
                 ok: true,
                 status: HelperStatus(
@@ -537,8 +541,11 @@ struct NonSleepRestoreCoordinatorTests {
         #expect(beginArm.contains("guard !terminationPending"))
         #expect(confirmArm.contains("guard !terminationPending"))
         #expect(schedule.contains("guard !terminationPending"))
-        #expect(uninstall.contains("HelperRemovalAppSafety.canProceedRemoval("))
-        #expect(uninstall.contains("hasPendingRestore: pendingRestore != nil"))
+        #expect(uninstall.contains("Automatic helper cleanup is disabled"))
+        #expect(uninstall.contains("No state was changed"))
+        #expect(!uninstall.contains("HelperRemovalAppSafety"))
+        #expect(!uninstall.contains("pendingRestore"))
+        #expect(!uninstall.contains("await"))
         #expect(app.contains("? \"Sleep requested\" : \"Keep-awake ended\""))
         #expect(!app.contains("? \"Going to sleep\" : \"Keep-awake ended\""))
         #expect(app.contains("pending.notificationTitle = \"Keep-awake ended\""))
@@ -622,7 +629,7 @@ struct NonSleepRestoreCoordinatorTests {
         #expect(repair.contains("pendingArm == nil"))
         #expect(repair.contains("pendingRestore == nil"))
         #expect(repair.contains("armRequestsInFlight == 0"))
-        #expect(repair.contains("!uninstallInProgress"))
+        #expect(repair.contains("!helperRegistrationInProgress"))
         #expect(repair.contains("await refreshHelperInstallState()"))
         #expect(repair.contains("helperState.isRecoveryUsable"))
         #expect(repair.contains("refreshedSleepOverride() == true"))
@@ -662,13 +669,10 @@ struct NonSleepRestoreCoordinatorTests {
             "sleepTerminationGeneration = nil\n"
                 + "                    sleepTerminationActuation = nil"
         ))
-        #expect(uninstall.contains("uninstallInProgress = true"))
-        #expect(uninstall.contains("beginHelperLifecycleOperation()"))
-        #expect(uninstall.contains(
-            "defer {\n"
-                + "            endHelperLifecycleOperation()\n"
-                + "            uninstallInProgress = false\n"
-                + "        }"
-        ))
+        #expect(uninstall.contains("Automatic helper cleanup is disabled"))
+        #expect(!uninstall.contains("helperRegistrationInProgress = true"))
+        #expect(!uninstall.contains("beginHelperLifecycleOperation()"))
+        #expect(!uninstall.contains("helper.repairOverride"))
+        #expect(!uninstall.contains("helper.disarm"))
     }
 }

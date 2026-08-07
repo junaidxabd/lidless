@@ -26,9 +26,71 @@ public struct CutoffConfig: Codable, Sendable, Equatable {
 
     public init() {}
 
+    private enum CodingKeys: String, CodingKey {
+        case batteryFloorEnabled
+        case batteryFloorPercent
+        case thermalEnabled
+        case thermalSpeedLimitFloor
+        case thermalStrikesRequired
+        case durationEnabled
+        case durationSeconds
+        case offTimeEnabled
+        case offTime
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        var value = CutoffConfig()
+        value.batteryFloorEnabled = try container.decode(
+            Bool.self,
+            forKey: .batteryFloorEnabled
+        )
+        value.batteryFloorPercent = try container.decode(
+            Int.self,
+            forKey: .batteryFloorPercent
+        )
+        value.thermalEnabled = try container.decode(
+            Bool.self,
+            forKey: .thermalEnabled
+        )
+        value.thermalSpeedLimitFloor = try container.decode(
+            Int.self,
+            forKey: .thermalSpeedLimitFloor
+        )
+        value.thermalStrikesRequired = try container.decode(
+            Int.self,
+            forKey: .thermalStrikesRequired
+        )
+        value.durationEnabled = try container.decode(
+            Bool.self,
+            forKey: .durationEnabled
+        )
+        value.durationSeconds = try container.decode(
+            TimeInterval.self,
+            forKey: .durationSeconds
+        )
+        value.offTimeEnabled = try container.decode(
+            Bool.self,
+            forKey: .offTimeEnabled
+        )
+        value.offTime = try container.decode(HMTime.self, forKey: .offTime)
+        self = value.normalized()
+    }
+
     /// Arm-time guardrails (not persisted knobs; fixed product behavior).
     public static let armRefusalMargin = 2      // refuse to arm at/below floor + margin while discharging
     public static let armLowBatteryWarning = 30 // explicit warning below this percent
+}
+
+public extension HMTime {
+    /// Clamp persisted or externally supplied wall-clock components to values
+    /// that can be represented safely by `Calendar`.
+    func normalized() -> HMTime {
+        HMTime(
+            hour: min(max(hour, 0), 23),
+            minute: min(max(minute, 0), 59)
+        )
+    }
 }
 
 // MARK: - Session behavior (side effects, not cutoff decisions)
@@ -82,9 +144,23 @@ public struct SessionOverrides: Codable, Sendable, Equatable {
 }
 
 extension CutoffConfig {
+    /// Normalize every externally writable cutoff value before policy code
+    /// performs arithmetic or asks system date APIs to interpret it.
+    public func normalized() -> CutoffConfig {
+        var value = self
+        value.batteryFloorPercent = min(max(value.batteryFloorPercent, 5), 50)
+        value.thermalSpeedLimitFloor = min(max(value.thermalSpeedLimitFloor, 20), 90)
+        value.thermalStrikesRequired = min(max(value.thermalStrikesRequired, 1), 5)
+        value.durationSeconds = value.durationSeconds.isFinite
+            ? min(max(value.durationSeconds, 30 * 60), 24 * 3600)
+            : 24 * 3600
+        value.offTime = value.offTime.normalized()
+        return value
+    }
+
     /// The config actually in force for a session: base + overrides.
     public func applying(_ overrides: SessionOverrides?) -> CutoffConfig {
-        guard let o = overrides else { return self }
+        guard let o = overrides else { return normalized() }
         var c = self
         if let v = o.batteryFloorEnabled { c.batteryFloorEnabled = v }
         if let v = o.batteryFloorPercent { c.batteryFloorPercent = v }
@@ -92,7 +168,7 @@ extension CutoffConfig {
         if let v = o.durationSeconds { c.durationSeconds = v }
         if let v = o.offTimeEnabled { c.offTimeEnabled = v }
         if let v = o.offTime { c.offTime = v }
-        return c
+        return c.normalized()
     }
 }
 

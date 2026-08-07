@@ -12,7 +12,7 @@ struct LaunchReconciliationTests {
             hasPendingRestore: false,
             armRequestsInFlight: 0,
             terminationPending: false,
-            uninstallInProgress: false,
+            helperRegistrationInProgress: false,
             sleepTerminationInProgress: false,
             helperReachable: true,
             helperProofEpoch: 11,
@@ -203,7 +203,7 @@ struct LaunchReconciliationTests {
         ))
     }
 
-    @Test func terminationRemovalSleepAndPendingRecoveryFailClosed() {
+    @Test func terminationRegistrationSleepAndPendingRecoveryFailClosed() {
         var changed = quiescent
         changed.terminationPending = true
         #expect(LaunchReconciliationSafety.decide(
@@ -214,7 +214,7 @@ struct LaunchReconciliationTests {
         ) == .abandon)
 
         changed = quiescent
-        changed.uninstallInProgress = true
+        changed.helperRegistrationInProgress = true
         #expect(LaunchReconciliationSafety.decide(
             initial: quiescent,
             current: changed,
@@ -283,7 +283,9 @@ struct LaunchReconciliationTests {
         #expect(context.contains("hasPendingRestore: pendingRestore != nil"))
         #expect(context.contains("armRequestsInFlight: armRequestsInFlight"))
         #expect(context.contains("terminationPending: terminationPending"))
-        #expect(context.contains("uninstallInProgress: uninstallInProgress"))
+        #expect(context.contains(
+            "helperRegistrationInProgress: helperRegistrationInProgress"
+        ))
         #expect(context.contains("sleepTerminationInProgress: sleepTerminationGeneration != nil"))
         #expect(context.contains("helperReachable: helperState.isRecoveryUsable"))
         #expect(!context.contains("helperReachable: helperState.isReachable"))
@@ -385,13 +387,12 @@ struct LaunchReconciliationTests {
         let installBegin = try #require(install.range(of: "beginHelperLifecycleOperation()"))
         let installEnd = try #require(install.range(of: "endHelperLifecycleOperation()"))
         let installAwait = try #require(install.range(of: "try await helper.install()"))
-        let uninstallBegin = try #require(uninstall.range(of: "beginHelperLifecycleOperation()"))
-        let uninstallEnd = try #require(uninstall.range(of: "endHelperLifecycleOperation()"))
-        let uninstallAwait = try #require(uninstall.range(of: "await disarm()"))
         #expect(installBegin.lowerBound < installEnd.lowerBound)
         #expect(installEnd.lowerBound < installAwait.lowerBound)
-        #expect(uninstallBegin.lowerBound < uninstallEnd.lowerBound)
-        #expect(uninstallEnd.lowerBound < uninstallAwait.lowerBound)
+        #expect(uninstall.contains("Automatic helper cleanup is disabled"))
+        #expect(uninstall.contains("No state was changed"))
+        #expect(!uninstall.contains("beginHelperLifecycleOperation()"))
+        #expect(!uninstall.contains("await"))
 
         #expect(app.contains("private func refreshHelperInstallState() async"))
         #expect(app.contains("helperLifecycleOperationsInFlight += 1"))

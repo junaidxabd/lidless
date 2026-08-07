@@ -466,6 +466,77 @@ struct PMSetParserTests {
         #expect(PMSetParser.parseCustom(text) == ["AC Power": [:]])
     }
 
+    @Test("strict custom parsing preserves recognized valid output")
+    func strictCustomValidOutput() throws {
+        #expect(try PMSetParser.parseCustomStrict(Self.customBothSections)
+            == PMSetParser.parseCustom(Self.customBothSections))
+
+        let withUnknownButWellFormedSettings = """
+            Battery Power:
+             Sleep On Power Button 1
+             future-setting value
+            Future Power:
+             future-setting another-value
+            """
+        #expect(try PMSetParser.parseCustomStrict(withUnknownButWellFormedSettings) == [
+            "Battery Power": [
+                "Sleep On Power Button": "1",
+                "future-setting": "value",
+            ],
+            "Future Power": ["future-setting": "another-value"],
+        ])
+    }
+
+    @Test("strict custom parsing rejects malformed lines")
+    func strictCustomRejectsMalformedLines() {
+        let cases: [(String, PMSetParser.CustomOutputError)] = [
+            ("lowpowermode 1\nBattery Power:\n lowpowermode 0", .malformedLine(1)),
+            ("Battery Power:\n orphan\n lowpowermode 0", .malformedLine(2)),
+            ("Battery Power:\n AC Power:\n lowpowermode 0", .malformedLine(2)),
+            (":\n lowpowermode 0", .malformedLine(1)),
+        ]
+
+        for (text, expected) in cases {
+            do {
+                _ = try PMSetParser.parseCustomStrict(text)
+                #expect(Bool(false), "Malformed custom output must not parse")
+            } catch let error as PMSetParser.CustomOutputError {
+                #expect(error == expected)
+            } catch {
+                #expect(Bool(false), "Unexpected error: \(error)")
+            }
+        }
+    }
+
+    @Test("strict custom parsing rejects duplicate keys and repeated sections")
+    func strictCustomRejectsAmbiguousStructure() {
+        let cases: [(String, PMSetParser.CustomOutputError)] = [
+            (
+                "Battery Power:\n lowpowermode 1\n lowpowermode 1",
+                .duplicateKey(section: "Battery Power", key: "lowpowermode")
+            ),
+            (
+                "Battery Power:\n lowpowermode 1\n lowpowermode 0",
+                .duplicateKey(section: "Battery Power", key: "lowpowermode")
+            ),
+            (
+                "Battery Power:\n lowpowermode 1\nBattery Power:\n lowpowermode 0",
+                .duplicateSection("Battery Power")
+            ),
+        ]
+
+        for (text, expected) in cases {
+            do {
+                _ = try PMSetParser.parseCustomStrict(text)
+                #expect(Bool(false), "Ambiguous custom output must not parse")
+            } catch let error as PMSetParser.CustomOutputError {
+                #expect(error == expected)
+            } catch {
+                #expect(Bool(false), "Unexpected error: \(error)")
+            }
+        }
+    }
+
     // MARK: - intSetting
 
     @Test("intSetting(lowpowermode) returns per-section integers")

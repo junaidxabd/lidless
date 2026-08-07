@@ -41,7 +41,7 @@ struct HelperDaemonSourceSafetyTests {
         let verifiedArm = try section(
             of: source,
             from: "let armReadback = PMSet.readSleepDisabled()",
-            through: "// Best-effort extras"
+            through: "private func rejectPreparedArm("
         )
         let heartbeat = try section(
             of: source,
@@ -65,12 +65,12 @@ struct HelperDaemonSourceSafetyTests {
         #expect(!source.contains("timeout: TimeInterval = 20"))
     }
 
-    @Test func supervisionPrecedesEnableAndSuccessPrecedesOptionalWork() throws {
+    @Test func supervisionPrecedesEnableAndManagedProofPrecedesSuccess() throws {
         let source = try repositoryFile("Helper/HelperDaemon.swift")
         let freshArm = try section(
             of: source,
             from: "// Fresh arm.",
-            through: "// Best-effort extras"
+            through: "private func rejectPreparedArm("
         )
 
         let sentinelWrite = try #require(freshArm.range(of: "try writeSentinel(record)"))
@@ -80,12 +80,22 @@ struct HelperDaemonSourceSafetyTests {
         ))
         let memoryOwner = try #require(freshArm.range(of: "sentinel = record"))
         let enable = try #require(freshArm.range(of: "try PMSet.setSleepDisabled(true)"))
+        let managedApply = try #require(freshArm.range(
+            of: "try PMSet.apply(managedActivationPlan)"
+        ))
+        let managedProof = try #require(freshArm.range(
+            of: "target: .activation",
+            range: managedApply.upperBound..<freshArm.endIndex
+        ))
         let proof = try #require(freshArm.range(of: "SleepOverrideSafety.isArmProven(result)"))
         let successReply = try #require(freshArm.range(of: "reply(IPCCoding.encode(result))"))
 
         #expect(sentinelWrite.lowerBound < memoryOwner.lowerBound)
         #expect(ownershipConfirmation.lowerBound < memoryOwner.lowerBound)
         #expect(memoryOwner.lowerBound < enable.lowerBound)
+        #expect(enable.lowerBound < managedApply.lowerBound)
+        #expect(managedApply.lowerBound < managedProof.lowerBound)
+        #expect(managedProof.lowerBound < proof.lowerBound)
         #expect(enable.lowerBound < proof.lowerBound)
         #expect(proof.lowerBound < successReply.lowerBound)
     }
@@ -304,7 +314,11 @@ struct HelperDaemonSourceSafetyTests {
         let pathState = try #require(
             keepAlive["PathState"] as? [String: Bool]
         )
-        #expect(pathState == [HelperPaths.sentinel: true])
+        #expect(pathState == [
+            HelperPaths.sentinel: true,
+            HelperPaths.durableMutationMarker: true,
+            HelperPaths.scheduledWakeReconciliationMarker: true,
+        ])
         #expect(source.contains("HelperPaths.sentinelFilename"))
         #expect(!source.contains("private static let sentinelFilename"))
 

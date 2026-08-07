@@ -226,7 +226,7 @@ struct SleepStatePresentationTests {
         let publisher = try repositoryFile("App/Sources/Services/WidgetPublisher.swift")
         let simulation = try repositoryFile("App/Sources/Simulation/Simulation.swift")
         let widget = try repositoryFile("Widget/Sources/LidlessWidget.swift")
-        let glassSwitch = try repositoryFile("App/Sources/UI/MenuBar/GlassSwitch.swift")
+        let components = try repositoryFile("App/Sources/UI/Components.swift")
         let menuPanel = try repositoryFile("App/Sources/UI/MenuBar/MenuPanelView.swift")
         let overview = try repositoryFile("App/Sources/UI/Main/OverviewPane.swift")
 
@@ -255,7 +255,7 @@ struct SleepStatePresentationTests {
         )
         #expect(usability.contains("case .ready, .simulated: true"))
         #expect(!usability.contains(".stale"))
-        #expect(glassSwitch.contains("guard !busy, actionAvailable else"))
+        #expect(components.contains(".disabled(!actionAvailable || semantic == .progress)"))
         #expect(menuPanel.contains("armed: state.sleepPresentation == .verifiedArmed"))
         #expect(menuPanel.contains("actionAvailable: state.phase == .armed"))
         #expect(menuPanel.contains("else if state.sleepPresentation == .verifiedNormal"))

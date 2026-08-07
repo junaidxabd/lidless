@@ -14,6 +14,7 @@ DIST=dist
 ARCHIVE="$DIST/Lidless.xcarchive"
 APP="$DIST/export/Lidless.app"
 MODE=${1:-prepare}
+RELEASE_ARCHITECTURES="arm64 x86_64"
 
 validate_version() {
     [[ "$1" =~ ^[0-9A-Za-z][0-9A-Za-z._+-]*$ ]] || {
@@ -32,7 +33,9 @@ prepare)
 
     echo "==> Archiving Lidless $VERSION (Release)"
     /usr/bin/xcodebuild -project Lidless.xcodeproj -scheme Lidless \
-        -configuration Release archive -archivePath "$ARCHIVE" | /usr/bin/tail -5
+        -configuration Release -destination 'generic/platform=macOS' \
+        -archivePath "$ARCHIVE" ARCHS="$RELEASE_ARCHITECTURES" \
+        ONLY_ACTIVE_ARCH=NO archive | /usr/bin/tail -5
 
     echo "==> Exporting with Developer ID signing"
     # -exportArchive re-signs for distribution; zipping the raw archive product

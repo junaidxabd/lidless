@@ -4,6 +4,75 @@
 
 ---
 
+## 2026-08-07 — Dark-only local release candidate
+
+### Product and visual system
+
+- Rebuilt every shipping surface as a fixed-dark native macOS safety
+  instrument. Removed the rejected eye/character, aurora, glow, draggable glass
+  switch, SF Rounded, and decorative hero language from app, widget, icon,
+  screenshot tooling, and public copy.
+- Added explicit verified-normal, verified-armed, restoring, outside-override,
+  stale/unverified, helper-setup, confirmation, refusal, and long-error states.
+- Stale widget snapshots now suppress old telemetry and say only that current
+  sleep and battery evidence is unknown; snapshot age never infers that the app
+  stopped running.
+- Added a complete checked-in render pipeline for 11 canonical menu states, a
+  12-combination responsive window matrix, 7 secondary panes, 4 onboarding
+  states, 4 widget states, 10 icon sizes, and 6 contact sheets.
+- Regenerated the complete PNG set twice with identical combined hash
+  `29ebab464ccf83376b0b9d8ef21d7e50057d57b4851e2b69bbcd0d55b14f07b0`
+  and inspected every contact sheet at original detail.
+
+### Safety, engineering, and release policy
+
+- Normalized configuration and hardened battery/thermal evidence, arm
+  confirmation, cutoff ordering, critical pressure, and clock rollback.
+- Hardened helper admission, request completion, bounded child reaping,
+  sentinel/watchdog/termination behavior, durable boot-bound mutation
+  uncertainty, and launchd recovery witnesses.
+- Rebuilt scheduled wakes as a fail-closed parser plus durable intent/readback/
+  cancellation ledger with duplicate and crash/reboot reconciliation.
+- Made config/session persistence failures explicit; first-checkpoint failure
+  now restores instead of presenting armed, every new arm is fenced by prior
+  unresolved evidence, finalized records outrank stale journals, corrupt
+  history bytes are preserved, failed clearing restores rows for retry, and a
+  later save cannot hide the unresolved load error behind the active arm fence.
+- Disabled automatic stale-helper replacement and cleanup. Dead removal policy
+  code is gone; compatibility entry points refuse without real or simulated
+  mutation.
+- Hardened CI/release permissions, checkout credential behavior,
+  universal-architecture verification ordering, exact three-path launchd
+  recovery validation, and deterministic fixtures.
+- Removed the unmarked stale `ARCHITECTURE 2.md`; a source contract now permits
+  only the canonical root `ARCHITECTURE.md`.
+
+### Fresh verification
+
+- Final repository-local Core run: 429 tests in 43 suites passed.
+- New pristine cache/scratch run: 429 tests in 43 suites passed.
+- SwiftPM Release-configuration run: 429 tests in 43 suites passed.
+- Strict Swift 6, complete-concurrency, warnings-as-errors compilation passed
+  for app, helper, and widget sources.
+- XcodeGen regeneration produced an identical project hash.
+- Shell syntax and all product/release property lists passed.
+- Full Xcode Debug/Release/analyze remains environment-blocked before target
+  compilation by the managed nested package sandbox; no success is claimed.
+- Independent product, engineering, and safety review findings were reproduced,
+  fixed, and re-reviewed; no Critical or Important local-boundary finding
+  remains.
+- Signing, helper approval, live power/system mutations, crash/reboot/sleep and
+  hardware tests, WidgetKit hosting, accessibility input QA, notarization, and
+  release remain fresh-authorization gates.
+
+### Durable handoff
+
+- Verification: `../verification/local-rc-2026-08-07.md`
+- Live/recovery plan: `../verification/recovery-and-live-validation.md`
+- Successor handoff: `LIDLESS-LOCAL-RC-HANDOFF-2026-08-07.md`
+- The 2026-08-04 adaptive/light direction is historical and superseded by the
+  current dark-only authority in `decisions.md`.
+
 ## 2026-08-04 — Safety repair + design reset discovery
 
 ### Safety repair (isolated branch; not installed or merged)

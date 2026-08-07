@@ -5,6 +5,7 @@ import LidlessCore
 /// form, advanced knobs behind disclosure — no settings sprawl.
 struct CutoffsPane: View {
     @Environment(AppState.self) private var state
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         @Bindable var config = state.config
@@ -12,7 +13,7 @@ struct CutoffsPane: View {
             Section {
                 Toggle(isOn: $config.cutoffs.batteryFloorEnabled) {
                     Text("Battery floor")
-                    Text("Restores normal sleep when the battery reaches the floor while discharging. Plugging in pauses it.")
+                    Text("Lidless requests normal sleep when a verified discharging reading reaches the floor. Plugging in pauses this cutoff.")
                 }
                 if config.cutoffs.batteryFloorEnabled {
                     LabeledContent("Floor: \(config.cutoffs.batteryFloorPercent)%") {
@@ -34,7 +35,7 @@ struct CutoffsPane: View {
             Section {
                 Toggle(isOn: $config.cutoffs.thermalEnabled) {
                     Text("Thermal protection")
-                    Text("Forces sleep if the machine reports a thermal warning or heavy CPU throttling — the safety net for a closed laptop in a bag.")
+                    Text("Ends keep-awake when macOS reports a thermal warning or sustained CPU throttling. This guard is not proof that a closed or bagged Mac is thermally safe.")
                 }
                 if config.cutoffs.thermalEnabled {
                     DisclosureGroup("Advanced") {
@@ -69,7 +70,7 @@ struct CutoffsPane: View {
 
                 Toggle(isOn: $config.cutoffs.offTimeEnabled) {
                     Text("Off-time")
-                    Text("Sleeps at a wall-clock time, tonight or tomorrow — whichever comes first after arming.")
+                    Text("Ends keep-awake at the next matching wall-clock time.")
                 }
                 if config.cutoffs.offTimeEnabled {
                     DatePicker(
@@ -88,8 +89,8 @@ struct CutoffsPane: View {
 
             Section {
                 Toggle(isOn: $config.behavior.sleepOnCutoff) {
-                    Text("Sleep at cutoff")
-                    Text("Actively puts the Mac to sleep when a cutoff fires and the lid is closed (otherwise it just re-enables normal sleep).")
+                    Text("Request sleep at cutoff")
+                    Text("With the lid closed, Lidless first requests and verifies normal sleep, then asks macOS to sleep. Hardware behavior still requires independent verification.")
                 }
                 Toggle(isOn: $config.behavior.notifyOnStateChanges) {
                     Text("Notify on arm, disarm & cutoff")
@@ -120,7 +121,8 @@ struct CutoffsPane: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .navigationTitle("Cutoffs")
-        .animation(Theme.springQuick, value: config.cutoffs)
+        .background(Theme.canvas)
+        .animation(reduceMotion ? nil : Theme.quickTransition, value: config.cutoffs)
     }
 
     private func hmBinding(_ source: Binding<HMTime>) -> Binding<Date> {

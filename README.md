@@ -4,11 +4,13 @@
 
 <h1 align="center">Lidless</h1>
 <p align="center"><b>Awake with the lid closed.</b><br>
-A native macOS menu bar app that keeps your MacBook fully running while closed — on battery, no external display — with layered restoration safeguards.</p>
+A native macOS dark safety instrument for requesting and verifying a supervised lid-close sleep override.</p>
 
 <p align="center">
   <img src="Docs/screenshots/menu-armed.png" width="330" alt="Lidless menu panel while armed">
 </p>
+
+Visual screenshots are interface evidence only; they do not prove helper installation, signed runtime behavior, hardware cutoffs, or restoration on a real Mac.
 
 ---
 
@@ -24,14 +26,14 @@ Built for two kinds of people:
 - **One deliberate control.** A power-style arming button in the menu bar panel. A floor-protected arm requires readable battery evidence, and a thermal-protected arm requires a fresh, structurally meaningful `pmset` sample without an active threshold violation or serious system pressure. Unavailable or already-hot thermal evidence refuses the arm; below 30% battery you get an explicit warning, and at/under the floor it refuses.
 - **Cutoffs** (each optional, sensible defaults): battery floor (default 10%, suspended while charging; telemetry loss starts verified restoration), thermal protection (`pmset -g therm` warning level / CPU throttling plus `ProcessInfo` pressure, source-aware debounce; missing, structurally invalid, future-dated, or more than 180-second-old `pmset` evidence starts verified restoration), duration limit, wall-clock off-time. Recognized malformed or contradictory `pmset` fields invalidate the whole sample. Restoration remains pending until normal sleep is proven.
 - **Quick-arm presets**: *Until 7 AM* · *4 hours* · *Until 20%* (the battery-only preset is unavailable on a machine proven to have no internal battery).
-- **Schedules**: recurring windows (weeknights 11 PM–7 AM), automatic arm/disarm, RTC wake registered before each window so a sleeping Mac can wake itself and arm (best effort).
+- **Schedules**: recurring windows (weeknights 11 PM–7 AM), automatic arm/disarm, and an RTC-wake transaction with a fail-closed parser, durable intent, exact readback, duplicate cancellation, and crash/restart reconciliation. Real `pmset` scheduling remains an OS/runtime gate.
 - **Low Power Mode & network keep-alive** while armed, both restored to their prior values on disarm.
-- **Intended cutoff sequence**: prove normal-sleep restoration, then notify and request `sleepnow` only with the lid closed. Terminal completion and duplicate-sleep suppression remain under safety review.
+- **Cutoff sequence**: prove normal-sleep restoration, then notify and request `sleepnow` only with the lid closed. Generation-bound local policy prevents stale or duplicate follow-ups; real sleep-transition behavior remains a hardware gate.
 - **Session history** with a battery-drain sparkline per session and full curves in detail view.
 - **Widget surface** designed to mirror armed state and battery projection with a Disarm link; signed app-group behavior remains a live gate.
-- **State clarity is a design goal.** The menu bar and main window distinguish normal and armed states, but unknown/out-of-band presentation is still under safety review and must not be inferred as complete from screenshots.
+- **Proof-first states.** The menu bar, main window, onboarding, and widget distinguish verified normal, verified armed, restoring, outside override, stale helper, and unverified state. Unknown evidence never borrows a reassuring status.
 - **Dry-run mode**: `Lidless --simulate` runs the entire app — arming flow, cutoff engine, notifications — against simulated battery/thermal inputs, with a Simulator pane. No root, no system changes.
-- **A living interface.** Locked to dark mode by design: a drifting aurora carries the app's mood, and the arming control is a literal eye — drowsy and blinking while dormant, wide open, glowing, and *unblinking* while on watch. Every state change springs; Reduce Motion is fully respected.
+- **A quiet native control center.** The dark-only interface uses native type, system symbols, semantic state color, and explicit proof text. Motion is restrained and Reduce Motion is respected.
 
 <p align="center">
   <img src="Docs/screenshots/menu-confirm.png" width="300" alt="Arming confirmation with projection">
@@ -43,22 +45,23 @@ Built for two kinds of people:
 Overriding lid-close sleep requires root, so Lidless splits in two:
 
 - **The app** (what you see): monitors battery via IOKit power-source events, polls thermals, runs the pure decision engine, and holds zero privileges.
-- **The helper** (`LidlessHelper`, ~700 lines you can audit): a launchd daemon managed through `SMAppService`. Its narrow root surface manages `disablesleep`, optional `sleepnow`, Low Power Mode, `tcpkeepalive`, scheduled wakes, and recovery. It makes **no** cutoff decisions; it actuates, reads the power-management registry back, and is designed around one invariant:
+- **The helper** (`LidlessHelper`): a launchd daemon managed through `SMAppService`. Its narrow root surface manages `disablesleep`, optional `sleepnow`, Low Power Mode, `tcpkeepalive`, scheduled wakes, and recovery. It makes **no** cutoff decisions; it actuates, reads system state back, and is designed around one invariant:
 
 > **The sleep override must never outlive supervision.**
 
-The checkpointed helper keeps recovery pending until an exact registry readback
-proves normal sleep. These are the mechanisms under review, not claims of
+The local release candidate keeps recovery pending until exact evidence proves
+normal sleep and any helper-owned obligations are reconciled. These mechanisms
+are covered by deterministic and source-contract tests; they are not claims of
 signed-runtime, crash, reboot, sleep/wake, or hardware validation:
 
 | Trigger | Mechanism and current evidence boundary |
 |---|---|
-| Cutoff, disarm, or quit | The app requests restoration; terminal completion and app/helper reconciliation remain under safety review |
+| Cutoff, disarm, or quit | Generation-bound app coordination keeps the session pending until helper and independent registry evidence prove normal sleep |
 | App crash or hang | Helper invalidation and watchdog paths request restoration; real XPC failure behavior remains a live gate |
-| Helper crash while armed | The sentinel configures `KeepAlive.PathState`; actual launchd relaunch behavior remains a live gate |
-| Power loss or reboot | The sentinel and `RunAtLoad` provide a recovery path; reboot recovery remains a hardware gate |
+| Helper crash while armed | Sentinel and mutation markers configure `KeepAlive.PathState`; actual launchd relaunch behavior remains a live gate |
+| Power loss or reboot | Durable witnesses and `RunAtLoad` provide a recovery path; reboot recovery remains a hardware gate |
 | Sleep transition while armed | The helper's sleep observer requests restoration; sleep/wake behavior remains a hardware gate |
-| `pmset` failure | With trusted storage, the sentinel remains on disk and in-process retry state stays active; the storage-invalid fallback can be memory-only, and live compounded-failure recovery is not established offline |
+| `pmset` timeout/failure | Bounded children, durable mutation uncertainty, and retry state prevent an unobserved outcome from being called safe; real compounded-failure behavior is not established offline |
 
 The keystone is a **sentinel file** (`/var/db/lidless/override-active`) written *before* the override is enabled. After Lidless mutates the system it is deleted only after a verified restore; an unused prepared marker may be removed after a proven pre-mutation rejection. It records the prior power-mode and `tcpkeepalive` values. A legacy `disablesleep` field remains decodable, but current recovery deliberately restores ordinary sleep (`disablesleep 0`) rather than preserving an outside override.
 
@@ -92,11 +95,11 @@ xcodebuild -project Lidless.xcodeproj -scheme Lidless \
 
 Unsigned output is compile evidence only: do not run it with the privileged helper. Runtime candidates require one real Apple signing team with the app, widget, helper identifiers, and app-group capability configured. Helper approval, signed XPC trust, and app-group behavior still require separate live validation.
 
-Useful targets: `make test` (the deterministic core suite), `make simulate` (signed dry-run mode), and `make screenshots` (signed simulation-driven documentation renders).
+Useful targets: `make test` (the deterministic core suite), `make simulate` (signed dry-run mode), `make screenshots` (the built app's simulation renderer), and `make visual-evidence` (the complete repository-local app/widget/icon matrix and all contact sheets, with no helper installation or system mutation).
 
 ## Uninstall
 
-The current **Setup & Help → Uninstall Lidless…** path is still under fail-closed safety review. Do not treat it as proof that normal sleep was restored or helper supervision was retained. Verify the registry state independently before removing supervision; if state is uncertain, use the manual fallback above. Live `SMAppService` uninstall behavior remains a separate gate.
+Public cleanup, replacement, and uninstall controls are intentionally disabled. Their app entry points and compatibility XPC selectors are mutation-free refusals, because removing launchd supervision without a signed, revision-specific procedure would weaken recovery. Before any future removal, verify registry state independently; if state is uncertain, use the manual fallback above. A signed, tested removal workflow remains separate work.
 
 ## Signing & notarization
 
@@ -113,6 +116,12 @@ For distribution:
 ## Architecture
 
 The interesting parts — app ↔ helper split, XPC hardening (peer code-signing requirements), the exact arming flow, failure-recovery design, and what's tested — are documented in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+The current local-candidate verdict, exact evidence, hashes, blocked checks, and
+remaining live gates are recorded in
+[Docs/verification/local-rc-2026-08-07.md](Docs/verification/local-rc-2026-08-07.md).
+The durable successor entry point is
+[Docs/orchestration/LIDLESS-LOCAL-RC-HANDOFF-2026-08-07.md](Docs/orchestration/LIDLESS-LOCAL-RC-HANDOFF-2026-08-07.md).
 
 ## License
 

@@ -139,9 +139,8 @@ struct HelperXPCRequestSafetyTests {
         #expect(normalizedClient.contains(
             "func status() async throws -> HelperStatus { try await call(HelperStatus.self)"
         ))
-        #expect(normalizedClient.contains(
-            "private func prepareUninstall() async throws -> HelperCleanupPreparation { try await call(HelperCleanupPreparation.self)"
-        ))
+        #expect(!normalizedClient.contains("private func prepareUninstall()"))
+        #expect(!normalizedClient.contains("proxy.prepareUninstall"))
         #expect(normalizedClient.contains(
             "async throws -> HelperReply { try await call(HelperReply.self, body) }"
         ))

@@ -69,3 +69,39 @@ approval-gated; no SwiftUI visual implementation starts first.
 - Zero-account default build: Manual + ad-hoc signing, entitlements commented out; widget
   shows placeholder until team-signed (documented in README).
 - Simulation mode uses ephemeral stores — dry-run must never touch real config/history.
+
+## Local RC decisions (2026-08-07; current authority)
+
+These decisions supersede every older visual direction above while preserving
+that history as a record of rejected work.
+
+- **Dark-only, native safety instrument.** The 2026-08-04 adaptive/light idea
+  was superseded by the founder's latest dark-only instruction. The shipping
+  surfaces use fixed dark semantic tokens, native type and symbols, restrained
+  motion, strong hierarchy, and explicit proof language.
+- **No character or eye motif.** The eye, Happy Mac, aurora, glow, draggable
+  glass switch, and SF Rounded system were removed from app, widget, icon,
+  screenshot generator, and public copy. The replacement icon is a restrained
+  closed-laptop seam that survives the complete 16–1024 px asset set.
+- **One canonical primary action.** Normal, armed, restoring, outside-override,
+  stale, and unknown presentations map to one truthful action model. Unknown or
+  stale evidence never receives an optimistic control or progress treatment.
+- **All stale helpers are terminal.** No stale revision is advertised as
+  replaceable. Automatic cleanup, replacement, and uninstall are disabled;
+  compatibility selectors remain only as side-effect-free refusals. Keeping
+  the helper registered preserves launchd recovery supervision until a signed,
+  revision-specific removal procedure is reviewed live.
+- **Durable uncertainty beats inferred absence.** Privileged child mutations
+  persist a synchronized marker with boot-session identity. Scheduled wakes
+  use a strict parser, a phase ledger, and a separate launchd reconciliation
+  witness. Crash recovery cancels uncertain or duplicate observations instead
+  of promoting them from disk state.
+- **Persistence failures are product state.** Config, history, and active-session
+  writes return explicit results. An orphan session journal stays durable until
+  helper reconciliation selects a truthful end reason; history is saved before
+  the journal is cleared.
+- **Local RC is not a release.** Offline tests, strict typechecks, unsigned
+  builds, static analysis, and rendered UI evidence may establish a local
+  candidate. Signing, helper approval, live `pmset`, launchd/reboot/sleep tests,
+  WidgetKit hosting, accessibility input QA, notarization, publication, and any
+  system mutation remain separate gates.

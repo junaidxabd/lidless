@@ -239,6 +239,68 @@ struct ManagedSettingRestorationSafetyTests {
         ))
     }
 
+    @Test func activationRequiresFreshExactReadableProofForEveryTarget() throws {
+        let record = sentinel(
+            lowPowerModeKey: "lowpowermode",
+            lowPowerMode: ["Battery Power": 0, "AC Power": 0],
+            tcpKeepAlive: ["AC Power": 0]
+        )
+        let exact = """
+        Battery Power:
+         lowpowermode 1
+        AC Power:
+         lowpowermode 1
+         tcpkeepalive 1
+        """
+
+        #expect(ManagedSettingRestorationSafety.isProven(
+            for: record,
+            target: .activation,
+            fromCustom: exact
+        ))
+        for invalid in [
+            nil,
+            exact.replacingOccurrences(of: "tcpkeepalive 1", with: ""),
+            exact.replacingOccurrences(
+                of: "lowpowermode 1",
+                with: "lowpowermode 0",
+                options: [],
+                range: exact.range(of: "lowpowermode 1")
+            ),
+            exact.replacingOccurrences(of: "tcpkeepalive 1", with: "tcpkeepalive on"),
+        ] as [String?] {
+            #expect(!ManagedSettingRestorationSafety.isProven(
+                for: record,
+                target: .activation,
+                fromCustom: invalid
+            ))
+        }
+    }
+
+    @Test func captureAndProofRejectMalformedOrAmbiguousCustomOutput() {
+        let record = sentinel(
+            lowPowerModeKey: "lowpowermode",
+            lowPowerMode: ["Battery Power": 0]
+        )
+        let untrustworthy = [
+            "Battery Power:\n lowpowermode 0\n orphan",
+            "Battery Power:\n lowpowermode 1\n lowpowermode 0",
+            "Battery Power:\n lowpowermode 1\nBattery Power:\n lowpowermode 0",
+        ]
+
+        for text in untrustworthy {
+            #expect(ManagedSettingRestorationSafety.capturedPriors(
+                for: "lowpowermode",
+                fromCustom: text
+            ) == nil)
+            #expect(!ManagedSettingRestorationSafety.isProven(
+                for: record,
+                target: .restoration,
+                fromCustom: text
+            ))
+        }
+    }
+
     @Test func noManagedPriorsNeedNoCustomReadback() throws {
         let plan = try #require(ManagedSettingRestorationSafety.plan(
             for: sentinel(),
@@ -247,6 +309,11 @@ struct ManagedSettingRestorationSafetyTests {
         #expect(plan.isEmpty)
         #expect(ManagedSettingRestorationSafety.isRestorationProven(
             for: sentinel(),
+            fromCustom: nil
+        ))
+        #expect(ManagedSettingRestorationSafety.isProven(
+            for: sentinel(),
+            target: .activation,
             fromCustom: nil
         ))
     }
@@ -286,7 +353,7 @@ struct ManagedSettingRestorationSafetyTests {
         #expect(arm.contains("let managedActivationPlan"))
         #expect(arm.contains("try PMSet.apply(managedActivationPlan)"))
         #expect(arm.contains(
-            "ManagedSettingRestorationSafety.maximumScopeCommandCount"
+            "HelperSupervisionTiming.maximumArmTransactionCommandCount"
         ))
         #expect(!arm.contains("try PMSet.run([\"-a\""))
         #expect(recovery.contains("let fallback = OverrideSentinel("))
@@ -305,6 +372,37 @@ struct ManagedSettingRestorationSafetyTests {
         ))
         let sentinelWrite = try #require(arm.range(of: "try writeSentinel(record)"))
         #expect(activationPlan.lowerBound < sentinelWrite.lowerBound)
+
+        let activationApply = try #require(arm.range(
+            of: "try PMSet.apply(managedActivationPlan)"
+        ))
+        let afterEnableProof = arm[try #require(arm.range(
+            of: "let armReadback = PMSet.readSleepDisabled()"
+        )).upperBound..<activationApply.lowerBound]
+        let freshPriorReadback = try #require(afterEnableProof.range(
+            of: "try PMSet.readCustom()"
+        ))
+        let freshPriorProof = try #require(afterEnableProof.range(
+            of: "target: .restoration"
+        ))
+        #expect(freshPriorReadback.lowerBound < freshPriorProof.lowerBound)
+        #expect(afterEnableProof.contains(
+            "captured managed settings changed while preparing to arm"
+        ))
+        let afterActivationApply = arm[activationApply.upperBound...]
+        let activationReadback = try #require(afterActivationApply.range(
+            of: "try PMSet.readCustom()"
+        ))
+        let activationProof = try #require(afterActivationApply.range(
+            of: "target: .activation"
+        ))
+        let successReply = try #require(arm.range(
+            of: "reply(IPCCoding.encode(result))"
+        ))
+        #expect(activationApply.lowerBound < activationReadback.lowerBound)
+        #expect(activationReadback.lowerBound < activationProof.lowerBound)
+        #expect(activationProof.lowerBound < successReply.lowerBound)
+        #expect(!arm.contains("Best-effort extras"))
 
         let plan = try #require(restore.range(of: "let managedRestorationPlan"))
         let apply = try #require(restore.range(

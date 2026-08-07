@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import LidlessCore
 
-@Suite("Stale helper replacement safety")
+@Suite("Stale helper recovery and admission safety")
 struct StaleHelperReplacementSafetyTests {
     private func reply(
         version: Int = LidlessIDs.helperVersion,
@@ -55,7 +55,12 @@ struct StaleHelperReplacementSafetyTests {
     }
 
     @Test func sameWireVersionMismatchCanOnlyCompleteDeRiskingTwoSourceProof() {
-        let revisions: [Int?] = [nil, 6, 8]
+        let revisions: [Int?] = [
+            nil,
+            6,
+            LidlessIDs.helperSafetyRevision - 1,
+            LidlessIDs.helperSafetyRevision + 1,
+        ]
 
         for revision in revisions {
             let restored = reply(revision: revision)
@@ -99,15 +104,6 @@ struct StaleHelperReplacementSafetyTests {
             ) == .complete)
             #expect(gate.isCompleted(generation))
 
-            let expectedRemoval: HelperRemovalSafety.RegistrationRemovalAction? =
-                revision == LidlessIDs.reviewedStaleReplacementSafetyRevision
-                    ? .unregister
-                    : nil
-            #expect(HelperRemovalSafety.removalAction(
-                .enabled,
-                helperReply: restored,
-                independentlyObserved: false
-            ) == expectedRemoval)
         }
     }
 
@@ -123,12 +119,6 @@ struct StaleHelperReplacementSafetyTests {
                 restored,
                 independentlyObserved: false
             ))
-            #expect(HelperRemovalSafety.removalAction(
-                .enabled,
-                helperReply: restored,
-                independentlyObserved: false
-            ) == nil)
-
             var gate = NonSleepRestoreGate()
             let generation = gate.begin()
             #expect(gate.evaluateBaseProof(
@@ -141,44 +131,20 @@ struct StaleHelperReplacementSafetyTests {
         }
     }
 
-    @Test func destructiveCleanupRequiresAnExplicitlyReviewedRevision() {
-        let rejectedRevisions: [Int?] = [nil, 0, 1, 2, 3, 4, 5, 8]
+    @Test func publicCleanupIsUnavailableForEveryRevision() throws {
+        let client = try repositoryFile("App/Sources/Helper/HelperClient.swift")
+        let uninstall = try section(
+            of: client,
+            from: "func uninstall() async throws {",
+            through: "// MARK: - XPC surface"
+        )
 
-        for revision in rejectedRevisions {
-            let restored = reply(revision: revision)
-
-            // Exact-wire two-source restoration remains available because it
-            // only proves normal sleep. Destructive cleanup/deregistration
-            // additionally requires behavior that this app explicitly
-            // reviewed, not merely a compatible Codable shape.
-            #expect(SleepOverrideSafety.isRestoreProven(
-                restored,
-                independentlyObserved: false
-            ))
-            #expect(!SleepOverrideSafety.isReviewedCleanupCompatibleHelper(
-                restored.status
-            ))
-            #expect(HelperRemovalSafety.removalAction(
-                .enabled,
-                helperReply: restored,
-                independentlyObserved: false
-            ) == nil)
-        }
-
-        for revision in [
-            LidlessIDs.reviewedStaleReplacementSafetyRevision,
-            LidlessIDs.helperSafetyRevision,
-        ] {
-            let restored = reply(revision: revision)
-            #expect(SleepOverrideSafety.isReviewedCleanupCompatibleHelper(
-                restored.status
-            ))
-            #expect(HelperRemovalSafety.removalAction(
-                .enabled,
-                helperReply: restored,
-                independentlyObserved: false
-            ) == .unregister)
-        }
+        #expect(uninstall.contains("Automatic helper cleanup is disabled"))
+        #expect(uninstall.contains("Keep the helper registered"))
+        #expect(!uninstall.contains("await"))
+        #expect(!uninstall.contains("unregister"))
+        #expect(!client.contains("isReviewedCleanupCompatibleHelper"))
+        #expect(!client.contains("reviewedStaleReplacementSafetyRevision"))
     }
 
     @Test func malformedStaleRestoreCannotBorrowIndependentRegistryProof() {
@@ -197,16 +163,15 @@ struct StaleHelperReplacementSafetyTests {
                 candidate,
                 independentlyObserved: false
             ))
-            #expect(HelperRemovalSafety.removalAction(
-                .enabled,
-                helperReply: candidate,
-                independentlyObserved: false
-            ) == nil)
         }
     }
 
     @Test func failedArmMayUseStructuralStaleStatusDespiteANegativeOperationResult() {
-        for revision: Int? in [nil, 6, 8] {
+        for revision: Int? in [
+            nil,
+            6,
+            LidlessIDs.helperSafetyRevision - 1,
+        ] {
             let negativeReply = reply(revision: revision, ok: false)
 
             // Operation completion still requires `ok`, while failed-arm
@@ -432,15 +397,13 @@ struct StaleHelperReplacementSafetyTests {
         #expect(entry.contains("Force-quitting"))
         #expect(!entry.contains("Quitting stays blocked while this session is unresolved"))
 
-        // Ending the app's connection is exactly what a Lidless helper treats
-        // as a restoration trigger (`HelperConnectionSupervisionSafety.end` →
-        // `.restoreOwnedSession`), so claiming force-quit changes nothing is
-        // both false and discouraging of the most useful action available.
+        // The incompatible responder cannot be trusted to honor the current
+        // connection-loss contract. Copy must describe force-quit as an
+        // unverified state change, never as recovery proof or a safe remedy.
         #expect(!entry.contains("will not change the current sleep setting"))
-        #expect(entry.contains("cannot make the sleep setting worse"))
-        #expect(entry.contains(
-            "a signal a Lidless helper treats as a reason to restore normal sleep"
-        ))
+        #expect(entry.contains("Force-quitting ends app-side verification"))
+        #expect(entry.contains("it is not proof of recovery"))
+        #expect(entry.contains("may change helper behavior"))
         // The fenced responder's wire protocol is by definition unverifiable,
         // so the copy must not assert what this particular helper will do.
         #expect(!entry.contains("the helper's own watchdog"))
@@ -472,19 +435,17 @@ struct StaleHelperReplacementSafetyTests {
         #expect(!repair.contains("Open Setup for emergency sleep recovery. Keep the helper registered and contact Lidless support for a separately reviewed removal procedure.\"\n            requestMainWindow()"))
         #expect(repair.contains("requestMainWindow(pane: .setup)"))
 
-        // Routing to Setup makes the removal refusal reachable straight from
-        // the fenced state, where "while recovery continues" is false: recovery
-        // has terminally stopped. The refusal itself is correct; only its
-        // reason must match.
+        // Public cleanup is now an unconditional mutation-free refusal, so it
+        // cannot misdescribe a fenced recovery state or drop supervision.
         let uninstall = try section(
             of: app,
             from: "func uninstall() async -> String?",
             through: "// MARK: - Login item"
         )
-        #expect(uninstall.contains("automaticRecoveryStopped"))
-        #expect(!uninstall.contains(
-            "return \"Normal sleep has not been verified yet. Lidless is keeping the helper installed while recovery continues.\""
-        ))
+        #expect(uninstall.contains("Automatic helper cleanup is disabled"))
+        #expect(uninstall.contains("No state was changed"))
+        #expect(!uninstall.contains("await"))
+        #expect(!uninstall.contains("automaticRecoveryStopped"))
     }
 
     /// The monitor's post-sleep guard must re-check the fence itself rather
@@ -528,36 +489,24 @@ struct StaleHelperReplacementSafetyTests {
         #expect(!scope.contains("helperLifecycleOperationsInFlight"))
     }
 
-    /// Most removal failures prove that no cleanup and no deregistration were
-    /// requested — their own message says so. The alert must not then tell the
-    /// user to disbelieve it and steer them toward manually removing a helper
-    /// that is provably intact, since manual removal is what strips launchd's
-    /// supervision.
-    @Test func removalFailureGuidanceMatchesWhatTheCodePathProves() throws {
+    /// The shipped client has no automatic cleanup execution path. Its public
+    /// compatibility method refuses synchronously and keeps launchd recovery
+    /// supervision intact.
+    @Test func removalEntryPointIsAnUnconditionalRefusal() throws {
         let client = try repositoryFile("App/Sources/Helper/HelperClient.swift")
-        let app = try repositoryFile("App/Sources/AppState.swift")
-        let setup = try repositoryFile("App/Sources/UI/Main/SetupPane.swift")
-
-        #expect(client.contains("static let didNotStartKey"))
-        // Every provably-no-mutation path is tagged; the ambiguous ones are not.
         let uninstall = try section(
             of: client,
             from: "func uninstall() async throws {",
-            through: "private func removalRegistrationState()"
+            through: "// MARK: - XPC surface"
         )
-        #expect(uninstall.contains("HelperRemovalFailureInfo.didNotStartKey: true"))
-
-        #expect(app.contains("HelperRemovalFailureInfo.didNotStartKey"))
-        #expect(app.contains("did not request cleanup or deregistration"))
-        // The blanket contradiction must no longer be appended to every failure.
-        #expect(!setup.contains(
-            "Do not assume the helper is still installed after an error."
-        ))
-
-        let architecture = try repositoryFile("ARCHITECTURE.md")
-        #expect(architecture.contains(
-            "must not tell the user to disbelieve it"
-        ))
+        #expect(uninstall.contains("throw HelperClientError.rejected("))
+        #expect(uninstall.contains("Automatic helper cleanup is disabled"))
+        #expect(uninstall.contains("Keep the helper registered"))
+        #expect(!uninstall.contains("await"))
+        #expect(!uninstall.contains("commitUninstall"))
+        #expect(!uninstall.contains("unregister"))
+        #expect(!client.contains("private func uninstall("))
+        #expect(!client.contains("unregisterDaemon"))
     }
 
     /// `.unknown` is now a concluded verdict, so the surfaces that were written
@@ -579,20 +528,19 @@ struct StaleHelperReplacementSafetyTests {
         let bannerMessage = try section(
             of: menu,
             from: "private var helperBannerMessage: String {",
-            through: "// MARK: - Hero"
+            through: "// MARK: Proof summary"
         )
         let unknownArm = try #require(bannerMessage.range(of: "case .unknown:"))
         let genericFallback = try #require(bannerMessage.range(
-            of: "default: \"Helper setup needed.\""
+            of: "default:\n            \"Helper setup is required.\""
         ))
         #expect(unknownArm.lowerBound < genericFallback.lowerBound)
         #expect(menu.contains("helperBannerIsTerminal"))
         #expect(menu.contains("\"Open Setup…\""))
     }
 
-    /// A non-reviewed stale revision is terminal: no automatic path exists.
-    /// Setup must not mark it with the circular-arrows "update in progress"
-    /// glyph that the reviewed-predecessor case legitimately uses.
+    /// Every stale revision is terminal because no public replacement path is
+    /// shipped. None may be dressed as retryable progress.
     @Test func terminalStaleRevisionIsNotRenderedAsRetryableProgress() throws {
         let setup = try repositoryFile("App/Sources/UI/Main/SetupPane.swift")
         let icon = try section(
@@ -600,38 +548,28 @@ struct StaleHelperReplacementSafetyTests {
             from: "private var statusIcon: some View {",
             through: "private var statusTitle: String {"
         )
-        // The progress glyph must be reachable only through the reviewed
-        // replacement predicate; the remaining `.stale` values are terminal
-        // and must carry the warning glyph instead.
         #expect(icon.contains(
             "case .stale:\n"
                 + "                Image(systemName: \"exclamationmark.triangle.fill\")"
         ))
-        #expect(icon.contains("isReviewedStaleReplacementCompatible("))
-        let progressGlyph = try #require(icon.range(
-            of: "arrow.triangle.2.circlepath"
-        ))
-        let reviewedGate = try #require(icon.range(
-            of: "isReviewedStaleReplacementCompatible("
-        ))
-        #expect(reviewedGate.lowerBound < progressGlyph.lowerBound)
+        #expect(!icon.contains("arrow.triangle.2.circlepath"))
+        #expect(!setup.contains("isReviewedStaleReplacementCompatible("))
+        #expect(setup.contains("Public replacement disabled"))
     }
 
-    /// "Replace Helper…" is an irreversible remove-then-reinstall: it commits
-    /// remote cleanup (cancelling helper-managed wakes, restoring other
-    /// settings, deleting helper data), deregisters, and only then registers
-    /// again — and a failed register leaves no helper registered. Both surfaces
-    /// must disclose that before the user commits.
-    @Test func replacementDisclosesItsDestructiveRemoveThenInstallSequence() throws {
+    /// A stale helper must not expose a one-click replace/remove action because
+    /// no automatic cleanup procedure is shipped.
+    @Test func replacementSurfacesExposeNoDestructiveAction() throws {
         let setup = try repositoryFile("App/Sources/UI/Main/SetupPane.swift")
         let onboarding = try repositoryFile(
             "App/Sources/UI/Onboarding/OnboardingView.swift"
         )
 
         for surface in [setup, onboarding] {
-            #expect(surface.contains("removes the current helper"))
-            #expect(surface.contains("cancels its scheduled wakes"))
-            #expect(surface.contains("no helper registered"))
+            #expect(!surface.contains("Replace Helper"))
+            #expect(!surface.contains("Remove Helper"))
+            #expect(!surface.contains("state.uninstall"))
+            #expect(surface.contains("reviewed procedure"))
         }
     }
 
@@ -644,7 +582,7 @@ struct StaleHelperReplacementSafetyTests {
         let scheduleWake = try section(
             of: client,
             from: "func scheduleWake(_ date: Date?) async throws {",
-            through: "private func ensureOperationAllowed("
+            through: "// MARK: - Connection plumbing"
         )
         // An explicit negative reply stays `.rejected`; a refused-but-possibly
         // applied reply must not reuse that error case.
@@ -749,8 +687,8 @@ struct StaleHelperReplacementSafetyTests {
         #expect(setup.contains("case .unknown: \"Helper status unverified\""))
         #expect(setup.contains("case .unknown:\n            Button(\"Re-check\")"))
         #expect(onboarding.contains("case .checking:"))
-        #expect(onboarding.contains("Text(\"Checking helper…\")"))
-        #expect(onboarding.contains("Text(\"Helper status unverified\")"))
+        #expect(onboarding.contains("case .checking: \"Checking helper\""))
+        #expect(onboarding.contains("case .unknown: \"Helper status is unverified\""))
 
         // The unclassified state is never usable, reachable, or eligible for
         // de-risking recovery dispatch.
@@ -780,7 +718,7 @@ struct StaleHelperReplacementSafetyTests {
         ))
     }
 
-    @Test func appRecoveryAndReplacementUseTheNarrowCompatibilityBoundary() throws {
+    @Test func appRecoveryUsesTheNarrowCompatibilityBoundaryWhileReplacementStaysDisabled() throws {
         let client = try repositoryFile("App/Sources/Helper/HelperClient.swift")
         let app = try repositoryFile("App/Sources/AppState.swift")
         let setup = try repositoryFile("App/Sources/UI/Main/SetupPane.swift")
@@ -797,7 +735,7 @@ struct StaleHelperReplacementSafetyTests {
         let uninstall = try section(
             of: client,
             from: "func uninstall() async throws {",
-            through: "private func removalRegistrationState()"
+            through: "// MARK: - XPC surface"
         )
         let repair = try section(
             of: app,
@@ -848,46 +786,26 @@ struct StaleHelperReplacementSafetyTests {
         let freshClassification = try #require(install.range(
             of: "await refreshInstallState()"
         ))
-        let reviewedRevisionGate = try #require(install.range(
-            of: "SleepOverrideSafety.isReviewedStaleReplacementCompatible("
+        let staleRefusal = try #require(install.range(
+            of: "case .stale(let helperVersion, let helperSafetyRevision):"
         ))
-        let verifiedRemoval = try #require(install.range(
-            of: "let cleanupOutcome = try await uninstall("
-        ))
-        #expect(install.contains("expectedCleanupTarget: HelperCleanupTarget("))
         let registration = try #require(install.range(
             of: "try service.register()"
         ))
-        #expect(freshClassification.lowerBound < reviewedRevisionGate.lowerBound)
-        #expect(reviewedRevisionGate.lowerBound < verifiedRemoval.lowerBound)
-        #expect(verifiedRemoval.lowerBound < registration.lowerBound)
+        #expect(freshClassification.lowerBound < staleRefusal.lowerBound)
+        #expect(staleRefusal.lowerBound < registration.lowerBound)
+        #expect(install.contains("Automatic replacement and cleanup are disabled"))
+        #expect(!install.contains("await uninstall("))
+        #expect(!install.contains("HelperCleanupTarget"))
         #expect(install.contains("LidlessIDs.manualFallbackCommand"))
         #expect(install.contains("case .ready, .simulated:"))
         #expect(install.contains("case .requiresApproval:"))
 
-        let cleanupCompatibilityGate = try #require(uninstall.range(
-            of: "SleepOverrideSafety.isReviewedCleanupCompatibleHelper("
-        ))
-        #expect(uninstall[cleanupCompatibilityGate.upperBound...].contains(
-            "cleanupPreparation.status"
-        ))
-        #expect(uninstall.contains(
-            "SleepOverrideSafety.isCurrentHelper(cleanupPreparation.status)"
-        ))
-        #expect(install.contains(
-            "case .replacementNoLongerNeeded:\n"
-                + "                return"
-        ))
-        #expect(uninstall.contains(
-            "expectedCleanupTarget.matches(cleanupPreparation.status)"
-        ))
-        let targetRecheck = try #require(uninstall.range(
-            of: "expectedCleanupTarget.matches(cleanupPreparation.status)"
-        ))
-        let cleanupCommit = try #require(uninstall.range(
-            of: "proxy.commitUninstall("
-        ))
-        #expect(targetRecheck.lowerBound < cleanupCommit.lowerBound)
+        #expect(uninstall.contains("throw HelperClientError.rejected("))
+        #expect(uninstall.contains("Automatic helper cleanup is disabled"))
+        #expect(!uninstall.contains("await"))
+        #expect(!uninstall.contains("commitUninstall"))
+        #expect(!uninstall.contains("unregister"))
 
         #expect(repair.contains("await refreshHelperInstallState()"))
         #expect(repair.contains("helperState.isRecoveryUsable"))
@@ -906,7 +824,7 @@ struct StaleHelperReplacementSafetyTests {
             of: "endHelperLifecycleOperation()"
         ))
         let exclusionRelease = try #require(appInstall.range(
-            of: "uninstallInProgress = false"
+            of: "helperRegistrationInProgress = false"
         ))
         #expect(wakeInvalidation.lowerBound < lifecycleRelease.lowerBound)
         #expect(lifecycleRelease.lowerBound < exclusionRelease.lowerBound)
@@ -1091,28 +1009,27 @@ struct StaleHelperReplacementSafetyTests {
         #expect(client.contains("func recordRecoveryOnlyStatus("))
         #expect(client.contains("guard epoch == installStateEpoch else { return }"))
 
-        #expect(setup.contains("Helper safety update required"))
-        #expect(setup.contains("Automatic replacement is unavailable"))
-        #expect(setup.contains("Replace Helper…"))
+        #expect(setup.contains("requires a reviewed removal procedure"))
+        #expect(setup.contains("Public cleanup and replacement are disabled"))
+        #expect(!setup.contains("Replace Helper…"))
         #expect(setup.contains("if let error = state.lastError"))
-        #expect(onboarding.contains("Helper safety update required"))
-        #expect(onboarding.contains("no reviewed automatic cleanup path"))
-        #expect(onboarding.contains("Replace Helper…"))
-        #expect(onboarding.contains("if let error = state.lastError"))
+        #expect(onboarding.contains("Helper revision does not match"))
+        #expect(onboarding.contains("does not have a public cleanup path"))
+        #expect(!onboarding.contains("Replace Helper…"))
+        #expect(onboarding.contains("No public replacement"))
         #expect(client.contains(
             "case stale(helperVersion: Int, helperSafetyRevision: Int?)"
         ))
-        #expect(setup.contains("Emergency sleep recovery only"))
-        #expect(setup.contains("Reviewed removal procedure required"))
+        #expect(setup.contains("Emergency sleep recovery"))
         #expect(setup.contains("Text(\"Emergency sleep recovery\")"))
         #expect(!setup.contains("Manual fallback"))
         #expect(!setup.contains("one command undoes everything"))
-        #expect(onboarding.contains("Emergency sleep recovery only"))
+        #expect(onboarding.contains("Emergency recovery"))
         #expect(onboarding.contains("Helper installed and responding"))
         #expect(!onboarding.contains("Helper installed and verified"))
         #expect(client.contains("separately reviewed"))
-        #expect(setup.contains("separately reviewed"))
-        #expect(onboarding.contains("separately reviewed"))
+        #expect(setup.contains("reviewed procedure"))
+        #expect(onboarding.contains("reviewed procedure"))
         #expect(architecture.contains("must stay registered"))
         #expect(!client.contains("matching Lidless version"))
         #expect(!setup.contains("matching Lidless version"))
@@ -1121,11 +1038,9 @@ struct StaleHelperReplacementSafetyTests {
         #expect(!app.contains("matching-version removal"))
         #expect(!client.contains("before manual replacement"))
         #expect(!client.contains("before manually replacing or removing"))
-        #expect(setup.contains("request and retry restoration"))
         #expect(!setup.contains("every code path it has"))
-        #expect(onboarding.contains("Layered recovery"))
-        #expect(onboarding.contains("requests and retries"))
-        #expect(onboarding.contains("verify the result"))
+        #expect(onboarding.contains("Recovery requires proof"))
+        #expect(onboarding.contains("reports recovery only after current registry evidence verifies it"))
         #expect(!onboarding.contains("Never stranded"))
         #expect(!onboarding.contains("can't outlive Lidless"))
         #expect(!onboarding.contains("Every failure path restores"))
@@ -1145,10 +1060,9 @@ struct StaleHelperReplacementSafetyTests {
         #expect(setup.contains("case .unknown:\n            Button(\"Re-check\")"))
         #expect(!setup.contains("case .unknown: \"Checking…\""))
         #expect(!setup.contains("case .unknown:\n            ProgressView()"))
-        #expect(onboarding.contains("Text(\"Helper status unverified\")"))
+        #expect(onboarding.contains("case .unknown: \"Helper status is unverified\""))
         #expect(onboarding.contains(
-            "case .unknown:\n"
-                + "                Image(systemName: \"exclamationmark.triangle.fill\")"
+            "case .stale, .notResponding, .unknown: \"exclamationmark.triangle.fill\""
         ))
         // A concluded `.unknown` verdict must never be dressed as progress.
         // The pre-classification `.checking` state legitimately shows a
@@ -1161,6 +1075,6 @@ struct StaleHelperReplacementSafetyTests {
         #expect(!onboardingUnknownCase.contains("ProgressView("))
         #expect(!onboardingUnknownCase.contains("Checking helper…"))
         #expect(setup.contains("classification is unavailable"))
-        #expect(onboarding.contains("classification is unavailable"))
+        #expect(onboarding.contains("will not assume the helper is absent or safe to replace"))
     }
 }

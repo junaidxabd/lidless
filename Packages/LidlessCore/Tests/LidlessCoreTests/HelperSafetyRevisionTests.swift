@@ -48,7 +48,8 @@ struct HelperSafetyRevisionTests {
             .value(4),
             .value(5),
             .value(6),
-            .value(8),
+            .value(7),
+            .value(9),
         ]
         for revision in incompatible {
             let armed = try decodedReply(
@@ -117,38 +118,28 @@ struct HelperSafetyRevisionTests {
             ) == .retry)
             #expect(gate.owns(generation))
 
-            let expectedRemoval: HelperRemovalSafety.RegistrationRemovalAction? =
-                restored.status.helperSafetyRevision
-                    == LidlessIDs.reviewedStaleReplacementSafetyRevision
-                    ? .unregister
-                    : nil
-            #expect(HelperRemovalSafety.removalAction(
-                .enabled,
-                helperReply: restored,
-                independentlyObserved: false
-            ) == expectedRemoval)
         }
     }
 
     @Test func currentRevisionCompletesTheSameProofAndRecoveryPaths() throws {
         let armed = try decodedReply(
-            revision: .value(7),
+            revision: .value(8),
             armed: true,
             sleepDisabled: true
         )
         let restored = try decodedReply(
-            revision: .value(7),
+            revision: .value(8),
             armed: false,
             sleepDisabled: false
         )
         let outsideOverride = try decodedReply(
-            revision: .value(7),
+            revision: .value(8),
             ok: false,
             armed: false,
             sleepDisabled: true
         )
 
-        #expect(LidlessIDs.helperSafetyRevision == 7)
+        #expect(LidlessIDs.helperSafetyRevision == 8)
         #expect(armed.status.helperSafetyRevision == LidlessIDs.helperSafetyRevision)
         #expect(SleepOverrideSafety.isCurrentHelper(armed.status))
         #expect(SleepOverrideSafety.isArmProven(armed.status))
@@ -183,16 +174,11 @@ struct HelperSafetyRevisionTests {
         ) == .complete)
         #expect(gate.isCompleted(generation))
 
-        #expect(HelperRemovalSafety.removalAction(
-            .enabled,
-            helperReply: restored,
-            independentlyObserved: false
-        ) == .unregister)
     }
 
     @Test func revisionEncodingIsExplicitAndWireCompatible() throws {
         let current = try decodedReply(
-            revision: .value(7),
+            revision: .value(8),
             armed: true,
             sleepDisabled: true
         )
@@ -211,7 +197,7 @@ struct HelperSafetyRevisionTests {
 
         let wrongType = try JSONSerialization.data(withJSONObject: [
             "helperVersion": 6,
-            "helperSafetyRevision": "7",
+            "helperSafetyRevision": "8",
             "armed": false,
             "sleepDisabled": false,
         ])
@@ -232,7 +218,7 @@ struct HelperSafetyRevisionTests {
         let client = try repositoryFile("App/Sources/Helper/HelperClient.swift")
         let simulation = try repositoryFile("App/Sources/Simulation/Simulation.swift")
 
-        #expect(ids.contains("public static let helperSafetyRevision = 7"))
+        #expect(ids.contains("public static let helperSafetyRevision = 8"))
         #expect(ipc.contains("helperSafetyRevision: Int?,"))
         #expect(!ipc.contains(
             "helperSafetyRevision: Int? = LidlessIDs.helperSafetyRevision"
@@ -279,7 +265,7 @@ struct HelperSafetyRevisionTests {
         let scheduleWake = try section(
             of: client,
             from: "    func scheduleWake(_ date: Date?) async throws {",
-            through: "private func ensureOperationAllowed("
+            through: "// MARK: - Connection plumbing"
         )
         #expect(scheduleWake.contains(
             "SleepOverrideSafety.isCurrentHelper(reply.status)"

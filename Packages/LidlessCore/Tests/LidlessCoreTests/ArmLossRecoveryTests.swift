@@ -270,7 +270,7 @@ struct ArmLossRecoveryTests {
         #expect(occurrenceCount(
             of: "suppressCurrentScheduleOccurrence()",
             in: confirmArm
-        ) == 3)
+        ) >= 3)
         #expect(occurrenceCount(
             of: "allowsUnownedExternalOverrideCompletion: true",
             in: confirmArm

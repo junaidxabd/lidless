@@ -60,6 +60,15 @@ final class AppState {
 
     var helperState: HelperInstallState { helper.installState }
 
+    /// No new arm may replace a prior session journal or proceed while its
+    /// durability is unknown. Restore/disarm remains available independently.
+    var sessionEvidenceRequiresReconciliation: Bool {
+        launchReconciliationInFlight
+            || sessionStore.unresolvedSession != nil
+            || sessionStore.lastLoadResult.errorMessage != nil
+            || sessionStore.lastSaveResult.errorMessage != nil
+    }
+
     // MARK: - Session state machine
 
     enum Phase: Equatable {
@@ -139,6 +148,9 @@ final class AppState {
         /// actually complete; unattended cutoff/recovery callers do not.
         var waitsForCompletion = false
         var endReason: SessionEndReason?
+        /// A launch orphan remains outside live session state until a current
+        /// helper reply selects its truthful terminal reason.
+        var orphanEndReason: SessionEndReason? = nil
         var notificationTitle: String?
         var notificationBody: String?
         var notificationSound: Bool
@@ -156,10 +168,10 @@ final class AppState {
     /// arm work cannot cross the quit decision.
     private var terminationPending = false
     private var terminationRestoreGeneration: NonSleepRestoreGeneration?
-    /// Fences new work routed through this AppState while helper removal is
-    /// suspended. This is process-local admission control only; it cannot
+    /// Fences new work routed through this AppState while a helper registration
+    /// request is suspended. This process-local admission control cannot
     /// cancel an already-dispatched XPC call or constrain another process.
-    private var uninstallInProgress = false
+    private var helperRegistrationInProgress = false
 
     /// Incremented to ask the menu-bar bridge to open the main window.
     private(set) var mainWindowRequestToken = 0
@@ -227,6 +239,7 @@ final class AppState {
         }
 
         wire()
+        surfacePersistenceErrors()
     }
 
     private func wire() {
@@ -251,6 +264,7 @@ final class AppState {
     }
 
     func start() {
+        surfacePersistenceErrors()
         notifications.activate()
         batteryMonitor.start()
         thermalMonitor.start()
@@ -303,7 +317,7 @@ final class AppState {
         helperLifecycleEpoch &+= 1
     }
 
-    /// A user-initiated install/replace/remove passes through intermediate
+    /// A user-initiated registration passes through intermediate
     /// unclassified states by design. Surfacing them as terminal helper
     /// warnings would flash a false verdict mid-operation. Deliberately scoped
     /// to those flows — `installHelper()` holds the same exclusion — and not to
@@ -311,11 +325,11 @@ final class AppState {
     /// folding that in would mute a real warning for the whole XPC timeout,
     /// which is longest exactly when the helper is wedged.
     var helperLifecycleWorkInProgress: Bool {
-        uninstallInProgress
+        helperRegistrationInProgress
     }
 
     private func refreshHelperInstallState() async -> Bool {
-        guard !uninstallInProgress else { return false }
+        guard !helperRegistrationInProgress else { return false }
         beginHelperLifecycleOperation()
         defer { endHelperLifecycleOperation() }
         await helper.refreshInstallState()
@@ -545,10 +559,11 @@ final class AppState {
                        ),
                        armRequestsInFlight == 0 {
                         let endedSession = currentSession != nil
+                        var persistenceError: String?
                         pendingRestore = nil
                         stopRestoreMonitor()
                         if endedSession {
-                            finalizeSession(endReason: .systemSlept)
+                            persistenceError = finalizeSession(endReason: .systemSlept)
                         } else {
                             stopHeartbeat()
                         }
@@ -556,7 +571,7 @@ final class AppState {
                         sleepTerminationActuation = nil
                         sleepTerminationIncompatibleWireStatus = nil
                         phase = .disarmed
-                        lastError = nil
+                        lastError = persistenceError
                         systemMonitor?.refresh()
                         refreshSystemFlags()
                         if endedSession,
@@ -602,11 +617,11 @@ final class AppState {
     var statusHeadline: String {
         switch sleepPresentation {
         case .verifiedNormal: "Sleeping normally"
-        case .verifyingArm: "Verifying sleep override…"
-        case .verifiedArmed: "Staying awake"
-        case .restoring: "Restoring sleep…"
-        case .outsideOverride: "Sleep is disabled"
-        case .unknown: "Sleep state unknown"
+        case .verifyingArm: "Verifying keep-awake…"
+        case .verifiedArmed: "Keeping this Mac awake"
+        case .restoring: "Restoring normal sleep…"
+        case .outsideOverride: "Sleep override outside Lidless"
+        case .unknown: "System sleep is unverified"
         }
     }
 
@@ -681,11 +696,12 @@ final class AppState {
 
     var menuBarSystemImage: String {
         switch sleepPresentation {
-        case .verifiedNormal: "eye.slash"
-        case .verifyingArm: "eye"
-        case .verifiedArmed: "eye.fill"
-        case .restoring, .outsideOverride, .unknown:
-            "eye.trianglebadge.exclamationmark"
+        case .verifiedNormal: "moon.zzz"
+        case .verifyingArm: "hourglass"
+        case .verifiedArmed: "bolt"
+        case .restoring: "arrow.triangle.2.circlepath"
+        case .outsideOverride: "exclamationmark.triangle"
+        case .unknown: "questionmark.circle"
         }
     }
 
@@ -771,8 +787,12 @@ final class AppState {
     }
 
     func beginArmFlow(preset: ArmPreset? = nil) {
+        guard !sessionEvidenceRequiresReconciliation else {
+            lastError = "Lidless is finishing session-evidence reconciliation. Keep Awake will be available after the prior record is durable."
+            return
+        }
         guard !terminationPending,
-              !uninstallInProgress,
+              !helperRegistrationInProgress,
               phase == .disarmed,
               pendingArm == nil
         else { return }
@@ -833,6 +853,27 @@ final class AppState {
             scheduleOccurrence = nil
         }
         pendingArm = nil
+    }
+
+    /// Clear history transactionally. A failed write restores the in-memory
+    /// rows so the user can retry without restarting and surfaces the error at
+    /// the same product boundary as every other persistence operation.
+    @discardableResult
+    func clearSessionHistory() -> Bool {
+        let previousSaveError = sessionStore.lastSaveResult.errorMessage
+        let result = sessionStore.clearHistory()
+        if let message = result.errorMessage {
+            lastError = message
+            return false
+        }
+        if sessionStore.lastLoadResult.errorMessage != nil {
+            // Clearing valid history does not repair an unreadable session
+            // journal. Keep the fail-closed admission reason visible.
+            surfacePersistenceErrors()
+        } else if let previousSaveError, lastError == previousSaveError {
+            lastError = config.lastPersistenceError
+        }
+        return true
     }
 
     func refreshPendingProjection() {
@@ -921,11 +962,17 @@ final class AppState {
 
     func confirmArm(expectedIntentID: UUID) async {
         guard !terminationPending,
-              !uninstallInProgress,
+              !helperRegistrationInProgress,
               let intent = pendingArm,
               phase == .disarmed
         else { return }
         guard expectedIntentID == intent.id else { return }
+        guard !sessionEvidenceRequiresReconciliation else {
+            pendingArm = nil
+            scheduleOccurrence = nil
+            lastError = "Lidless is finishing session-evidence reconciliation. Keep Awake will be available after the prior record is durable."
+            return
+        }
         guard ArmIntentConfirmationSafety.authorizes(
             expectedIntentID: expectedIntentID,
             currentIntentID: intent.id,
@@ -1239,6 +1286,27 @@ final class AppState {
                 ))
                 return
             }
+
+            // A persistence operation can fail while the XPC arm request is
+            // suspended. The helper mutation is then restored without
+            // replacing any prior unresolved session evidence.
+            guard !sessionEvidenceRequiresReconciliation else {
+                suppressCurrentScheduleOccurrence()
+                helperSessionProven = true
+                _ = beginRestore(PendingRestore(
+                    options: HelperDisarmOptions(
+                        forceSleep: false,
+                        reason: "session evidence reconciliation began during arm"
+                    ),
+                    endReason: nil,
+                    notificationTitle: nil,
+                    notificationBody: nil,
+                    notificationSound: false,
+                    playChime: false,
+                    completionError: "The keep-awake request was restored because prior session evidence still requires durable reconciliation."
+                ))
+                return
+            }
             helperSessionProven = true
 
             let startedAt = Date()
@@ -1262,11 +1330,6 @@ final class AppState {
             currentSession = session
             sessionOverrides = pending.overrides
             pendingArm = nil
-            phase = .armed
-            thermalStrikeTracker.reset()
-            warnedKinds = []
-            lastSessionSampleAt = startedAt
-            lastError = nil
 
             if case .schedule = pending.source {
                 // scheduleOccurrence set by the automation path before calling.
@@ -1274,7 +1337,36 @@ final class AppState {
                 scheduleOccurrence = nil
             }
 
-            sessionStore.checkpoint(session)
+            // Never present an armed session until its crash journal is
+            // durable. If the write fails, immediately enter the same
+            // verified-restoration coordinator used by every safety cutoff.
+            let checkpointResult = sessionStore.checkpoint(session)
+            let checkpointAccepted = checkpointResult == .succeeded
+                || (isSimulation && checkpointResult == .notAttempted)
+            guard checkpointAccepted else {
+                surfacePersistenceFailure(checkpointResult)
+                suppressCurrentScheduleOccurrence()
+                _ = beginRestore(PendingRestore(
+                    options: HelperDisarmOptions(
+                        forceSleep: false,
+                        reason: "active-session journal could not be persisted"
+                    ),
+                    endReason: .persistenceFailure,
+                    notificationTitle: nil,
+                    notificationBody: nil,
+                    notificationSound: false,
+                    playChime: false,
+                    completionError: checkpointResult.errorMessage
+                        ?? "Lidless restored normal sleep because the active-session record could not be made durable."
+                ))
+                return
+            }
+
+            phase = .armed
+            thermalStrikeTracker.reset()
+            warnedKinds = []
+            lastSessionSampleAt = startedAt
+            lastError = nil
             startHeartbeat()
             systemMonitor?.refresh()
             refreshSystemFlags()
@@ -1336,7 +1428,7 @@ final class AppState {
     /// A disarmed phase is not enough: the independent registry state must be
     /// readable and normal.
     func prepareForImmediateTermination() -> Bool {
-        guard !uninstallInProgress else { return false }
+        guard !helperRegistrationInProgress else { return false }
         let independentlyObserved = refreshedSleepOverride()
         guard NonSleepRestoreGate.allowsImmediateTermination(
             isDisarmed: phase == .disarmed,
@@ -1358,7 +1450,7 @@ final class AppState {
     /// keeps its terminate-later request open during recovery, so an `.appQuit`
     /// history record cannot be written for a quit that was already cancelled.
     func disarmForQuit() async -> Bool {
-        guard !uninstallInProgress, phase == .armed else { return false }
+        guard !helperRegistrationInProgress, phase == .armed else { return false }
         terminationPending = true
         pendingArm = nil
         scheduleOccurrence = nil
@@ -1568,14 +1660,20 @@ final class AppState {
         pendingRestore = nil
         stopRestoreMonitor()
 
+        var persistenceError: String?
         if let endReason = pending.endReason {
-            finalizeSession(endReason: endReason)
+            persistenceError = finalizeSession(endReason: endReason)
         } else {
             stopHeartbeat()
         }
+        if let orphanEndReason = pending.orphanEndReason {
+            let result = sessionStore.archiveOrphanedSession(endReason: orphanEndReason)
+            surfacePersistenceFailure(result)
+            persistenceError = result.errorMessage ?? persistenceError
+        }
 
         phase = .disarmed
-        lastError = pending.completionError
+        lastError = pending.completionError ?? persistenceError
         refreshSystemFlags()
 
         if let title = pending.notificationTitle,
@@ -1880,12 +1978,13 @@ final class AppState {
         restoreMonitorTask = nil
     }
 
-    private func finalizeSession(endReason: SessionEndReason) {
+    @discardableResult
+    private func finalizeSession(endReason: SessionEndReason) -> String? {
         stopHeartbeat()
         nextTimeCutoff = nil
         scheduleOccurrence = nil
 
-        guard var session = currentSession else { return }
+        guard var session = currentSession else { return nil }
         let endedAt = Date()
         session.endedAt = endedAt
         session.endReason = endReason
@@ -1897,7 +1996,8 @@ final class AppState {
                 isDischarging: battery.isDischarging
             ))
         }
-        sessionStore.append(session)
+        surfacePersistenceFailure(sessionStore.append(session))
+        let persistenceError = sessionStore.lastSaveResult.errorMessage
         lastEndedSession = session
         currentSession = nil
         sessionOverrides = nil
@@ -1915,6 +2015,7 @@ final class AppState {
         // cancelling: ending tonight's session must not lose tomorrow's wake.
         scheduledWakeReconciliation.invalidate()
         maintainScheduledWake()
+        return persistenceError
     }
 
     func cutoffLabel(_ reason: CutoffReason) -> String {
@@ -1933,7 +2034,7 @@ final class AppState {
 
     func repairOverride() async {
         guard !terminationPending,
-              !uninstallInProgress,
+              !helperRegistrationInProgress,
               sleepTerminationGeneration == nil,
               phase == .disarmed,
               currentSession == nil,
@@ -1950,7 +2051,7 @@ final class AppState {
         // could have changed while the probe was suspended.
         guard await refreshHelperInstallState() else { return }
         guard !terminationPending,
-              !uninstallInProgress,
+              !helperRegistrationInProgress,
               sleepTerminationGeneration == nil,
               phase == .disarmed,
               currentSession == nil,
@@ -1992,7 +2093,7 @@ final class AppState {
 
     func installHelper() async {
         guard !terminationPending,
-              !uninstallInProgress,
+              !helperRegistrationInProgress,
               helperLifecycleOperationsInFlight == 0,
               phase == .disarmed,
               currentSession == nil,
@@ -2001,22 +2102,21 @@ final class AppState {
               armRequestsInFlight == 0,
               sleepTerminationGeneration == nil
         else {
-            lastError = "Wait for active recovery or helper work to finish before installing or replacing the helper."
+            lastError = "Wait for active recovery or helper work to finish before installing the helper."
             return
         }
         lastError = nil
-        // Cleanup cancels the helper-owned RTC wake. Drop app-local reply
-        // evidence before replacement and reconcile again only after the
-        // lifecycle exclusion is released and an exact-current helper is
-        // available.
+        // Installation can change which responder is admitted. Drop app-local
+        // scheduled-wake reply evidence first, then reconcile only after the
+        // lifecycle exclusion is released and an exact-current helper replies.
         scheduledWakeReconciliation.invalidate()
-        // Also excludes arm confirmation and repair while a user-invoked
-        // replacement suspends inside cleanup/unregister/register.
-        uninstallInProgress = true
+        // Exclude arm confirmation and repair while the user-authorized
+        // registration request is suspended.
+        helperRegistrationInProgress = true
         beginHelperLifecycleOperation()
         defer {
             endHelperLifecycleOperation()
-            uninstallInProgress = false
+            helperRegistrationInProgress = false
             maintainScheduledWake()
         }
         do {
@@ -2043,86 +2143,11 @@ final class AppState {
         helper.openApprovalSettings()
     }
 
-    /// Attempts helper removal only after this AppState has excluded competing
-    /// lifecycle/termination work and verified local arm state is quiescent.
-    /// Remote cleanup and deregistration remain the helper client's separate
-    /// responsibility. Returns an error message, or nil on reported success.
+    /// Public helper cleanup is intentionally unavailable. Keep this API as an
+    /// immediate refusal for older callers; it performs no state transition or
+    /// helper, login-item, notification, schedule, or persistence mutation.
     func uninstall() async -> String? {
-        guard HelperRemovalCompletionSafety.canAttemptVerifiedRemoval(
-            isSimulation: isSimulation
-        ) else {
-            return "Uninstall is unavailable in simulation. Exit simulation to remove the installed helper."
-        }
-
-        guard HelperRemovalAppSafety.canStartRemoval(
-            isSimulation: isSimulation,
-            removalInProgress: uninstallInProgress,
-            terminationPending: terminationPending,
-            helperLifecycleOperationsInFlight: helperLifecycleOperationsInFlight
-        ) else {
-            if isSimulation {
-                return "Uninstall is unavailable in simulation. Exit simulation to remove the installed helper."
-            }
-            if uninstallInProgress {
-                return "Helper removal is already in progress."
-            }
-            if terminationPending {
-                return "Wait for quit recovery to finish before removing the helper."
-            }
-            return "Wait for the current helper operation to finish before removing it."
-        }
-
-        uninstallInProgress = true
-        beginHelperLifecycleOperation()
-        scheduledWakeReconciliation.invalidate()
-        pendingArm = nil
-        suppressCurrentScheduleOccurrence()
-        defer {
-            endHelperLifecycleOperation()
-            uninstallInProgress = false
-        }
-
-        if phase == .armed || phase == .arming {
-            await disarm()
-        }
-        guard HelperRemovalAppSafety.canProceedRemoval(
-            isDisarmed: phase == .disarmed,
-            hasCurrentSession: currentSession != nil,
-            hasPendingArm: pendingArm != nil,
-            hasPendingRestore: pendingRestore != nil,
-            armRequestsInFlight: armRequestsInFlight,
-            sleepTerminationInProgress: sleepTerminationGeneration != nil
-        ) else {
-            // The refusal is right either way; only its reason differs. A
-            // fenced generation is not "recovery in progress" — it has
-            // terminally stopped — and Setup is now reachable directly from
-            // that state, so this must not contradict the fence's own message.
-            return automaticRecoveryStopped
-                ? "Normal sleep has not been verified, and Lidless has stopped automatic recovery because the helper uses an unsupported wire protocol. It is keeping the helper installed rather than removing supervision from an unverified sleep state. Use the emergency sleep recovery command above, verify normal sleep, and contact Lidless support."
-                : "Normal sleep has not been verified yet. Lidless is keeping the helper installed while recovery continues."
-        }
-        do {
-            try await helper.uninstall()
-        } catch {
-            // Most removal failures stop before any remote mutation and say so
-            // in their own message. Appending a blanket "do not assume the
-            // helper is still installed" would contradict that and push the
-            // user toward manual removal — the one action that strips launchd's
-            // supervision from a helper that is provably intact.
-            let removalDidNotStart = (error as NSError)
-                .userInfo[HelperRemovalFailureInfo.didNotStartKey] as? Bool == true
-            let guidance = removalDidNotStart
-                ? "Lidless did not request cleanup or deregistration, so the helper is still installed and still supervised. Do not remove it manually. If normal sleep is not verified, use the emergency sleep recovery command in Setup & Help, then retry removal once the condition above is resolved."
-                : "The remote outcome is unresolved, so do not assume the helper is still installed. If normal sleep is not explicitly verified, run \(LidlessIDs.manualFallbackCommand) in Terminal and verify it. That command restores only the main sleep flag; it does not remove the helper or establish registration state. Check registration before retrying."
-            return "Helper removal could not be fully verified: \(error.localizedDescription)\n\n\(guidance)"
-        }
-        setLaunchAtLogin(false)
-        ConfigStore.deleteAllData()
-        notifications.post(
-            title: "Helper registration inactive",
-            body: "Normal sleep was verified and the helper is not registered. Drag Lidless.app to the Trash to finish."
-        )
-        return nil
+        return "Automatic helper cleanup is disabled. No state was changed by this request. Keep the helper registered. If normal sleep is unverified, use Setup's emergency recovery command and verify the registry result, then contact support for a reviewed removal procedure."
     }
 
     // MARK: - Login item
@@ -2247,7 +2272,7 @@ final class AppState {
             hasPendingRestore: pendingRestore != nil,
             armRequestsInFlight: armRequestsInFlight,
             terminationPending: terminationPending,
-            uninstallInProgress: uninstallInProgress,
+            helperRegistrationInProgress: helperRegistrationInProgress,
             sleepTerminationInProgress: sleepTerminationGeneration != nil,
             helperReachable: helperState.isRecoveryUsable,
             helperProofEpoch: helperProofEpoch,
@@ -2284,6 +2309,9 @@ final class AppState {
         case .abandon:
             return
         case .none:
+            surfacePersistenceFailure(
+                sessionStore.archiveOrphanedSession(endReason: .appQuit)
+            )
             break
         case .restore(let cancelQueuedArmIntent):
             if cancelQueuedArmIntent {
@@ -2296,6 +2324,7 @@ final class AppState {
                     reason: "unfinished helper recovery found at app launch"
                 ),
                 endReason: nil,
+                orphanEndReason: .appQuit,
                 notificationTitle: "Normal sleep verified",
                 notificationBody: "Lidless found unfinished helper recovery from a previous run and verified normal sleep.",
                 notificationSound: false,
@@ -2313,6 +2342,7 @@ final class AppState {
         // still covers every earlier exit; clearing twice is a no-op.
         launchReconciliationInFlight = false
         maintainScheduledWake()
+        surfacePersistenceErrors()
         publishWidget()
     }
 
@@ -2357,12 +2387,33 @@ final class AppState {
             emitPreCutoffWarnings()
         }
 
+        retryPendingOrphanArchiveIfNeeded()
         scheduleAutomationTick()
         // Reconcile the RTC wake on every tick, independent of automation
         // gating — turning automation off (or deleting the last window) must
         // cancel a previously registered wake.
         maintainScheduledWake()
+        surfacePersistenceErrors()
         publishWidget()
+    }
+
+    /// Retry only a reconciliation whose end reason was already selected.
+    /// Launch-loaded journals without a reason still require live helper proof.
+    private func retryPendingOrphanArchiveIfNeeded() {
+        guard phase == .disarmed,
+              currentSession == nil,
+              pendingRestore == nil,
+              !launchReconciliationInFlight,
+              sessionStore.unresolvedSession?.endReason != nil
+        else { return }
+
+        let previousError = sessionStore.lastPersistenceError
+        let result = sessionStore.retryOrphanedSessionArchive()
+        if let message = result.errorMessage {
+            lastError = message
+        } else if let previousError, lastError == previousError {
+            lastError = nil
+        }
     }
 
     private func refreshSystemFlags() {
@@ -2458,8 +2509,8 @@ final class AppState {
             if remaining > 0, remaining <= 5 * 60, !warnedKinds.contains("imminent") {
                 warnedKinds.insert("imminent")
                 notifications.post(
-                    title: "Sleeping soon",
-                    body: "\(projected.label) — about \(Format.duration(remaining)) left."
+                    title: "Keep-awake ending soon",
+                    body: "\(projected.label) — about \(Format.duration(remaining)) left. Lidless will request normal sleep when the cutoff fires."
                 )
             }
         }
@@ -2474,7 +2525,7 @@ final class AppState {
             warnedKinds.insert("battery")
             notifications.post(
                 title: "Battery near cutoff",
-                body: "\(percent)% — Lidless restores normal sleep at \(cfg.batteryFloorPercent)%."
+                body: "\(percent)% — keep-awake ends at \(cfg.batteryFloorPercent)%, then Lidless will request normal sleep."
             )
         }
     }
@@ -2493,7 +2544,8 @@ final class AppState {
         }
 
         guard !terminationPending,
-              !uninstallInProgress,
+              !helperRegistrationInProgress,
+              !sessionEvidenceRequiresReconciliation,
               phase == .disarmed,
               pendingArm == nil,
               helperState.isUsable,
@@ -2550,7 +2602,7 @@ final class AppState {
     /// pauses (never blindly cancels) maintenance.
     private func maintainScheduledWake() {
         guard !isSimulation,
-              !uninstallInProgress,
+              !helperRegistrationInProgress,
               !launchReconciliationInFlight,
               helperLifecycleOperationsInFlight == 0,
               pendingRestore == nil,
@@ -2674,7 +2726,22 @@ final class AppState {
             isDischarging: battery.isDischarging
         ))
         currentSession = session
-        sessionStore.checkpoint(session)
+        surfacePersistenceFailure(sessionStore.checkpoint(session))
+    }
+
+    private func surfacePersistenceFailure(
+        _ result: StorePersistenceResult
+    ) {
+        if let message = result.errorMessage {
+            lastError = message
+        }
+    }
+
+    private func surfacePersistenceErrors() {
+        if let message = sessionStore.lastPersistenceError
+            ?? config.lastPersistenceError {
+            lastError = message
+        }
     }
 
     private func recomputeDrain() {

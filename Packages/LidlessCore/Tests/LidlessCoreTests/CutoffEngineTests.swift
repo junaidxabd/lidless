@@ -274,17 +274,29 @@ struct CutoffEngineTests {
         ])
     }
 
-    @Test func planned_zeroOrNegativeDuration_omitsDurationCutoff() {
+    @Test func planned_zeroOrNegativeDuration_normalizesToMinimumCutoff() {
+        let minimum = PlannedCutoff(
+            kind: .duration,
+            date: t0600.addingTimeInterval(30 * 60)
+        )
         let zero = config(durationEnabled: true, durationSeconds: 0)
-        #expect(CutoffEngine.plannedCutoffs(config: zero, armedAt: t0600, calendar: la).isEmpty)
+        #expect(CutoffEngine.plannedCutoffs(
+            config: zero,
+            armedAt: t0600,
+            calendar: la
+        ) == [minimum])
 
         let negative = config(durationEnabled: true, durationSeconds: -3600)
-        #expect(CutoffEngine.plannedCutoffs(config: negative, armedAt: t0600, calendar: la).isEmpty)
+        #expect(CutoffEngine.plannedCutoffs(
+            config: negative,
+            armedAt: t0600,
+            calendar: la
+        ) == [minimum])
 
-        // A degenerate duration must not suppress an enabled off-time.
+        // The normalized duration remains ordered alongside an enabled off-time.
         let zeroWithOffTime = config(durationEnabled: true, durationSeconds: 0, offTimeEnabled: true)
         #expect(CutoffEngine.plannedCutoffs(config: zeroWithOffTime, armedAt: t0600, calendar: la)
-                == [PlannedCutoff(kind: .offTime, date: t0700)])
+                == [minimum, PlannedCutoff(kind: .offTime, date: t0700)])
     }
 
     @Test func planned_disabledFlags_empty() {
@@ -552,13 +564,13 @@ struct CutoffEngineTests {
 
     // MARK: - CutoffConfig.applying(overrides)
 
-    @Test func applying_nilOverrides_unchanged() {
+    @Test func applying_nilOverrides_normalizesTheBase() {
         let base = config(batteryFloorPercent: 15,
                           durationEnabled: true,
                           durationSeconds: 1234,
                           offTimeEnabled: true,
                           offTime: HMTime(hour: 22, minute: 30))
-        #expect(base.applying(nil) == base)
+        #expect(base.applying(nil) == base.normalized())
     }
 
     @Test func applying_allNilFieldsOverrides_unchanged() {

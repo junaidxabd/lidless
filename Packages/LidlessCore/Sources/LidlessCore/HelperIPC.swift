@@ -35,28 +35,51 @@ public protocol LidlessHelperXPC {
     /// automation, via `pmset schedule wake`. Reply: `HelperReply`.
     func scheduleWake(_ epoch: Double, reply: @escaping @Sendable (Data) -> Void)
 
-    /// Return a process-instance authorization and fresh status without any
-    /// cleanup or managed-pmset mutation. A cleanup commit from another helper
-    /// process must fail before its first cleanup mutation. Reply:
-    /// `HelperCleanupPreparation` JSON.
+    /// Current structured schedule/cancel request. Risk-increasing schedules
+    /// require an exact current client identity. Reply: `HelperReply`.
+    func scheduleWakeRequest(
+        _ requestJSON: Data,
+        reply: @escaping @Sendable (Data) -> Void
+    )
+
+    /// Compatibility selector retained for installed clients. Current helpers
+    /// return a fresh status plus a reviewed-removal-required refusal and
+    /// issue no authorization or mutation. Reply: `HelperCleanupPreparation`.
     func prepareUninstall(_ reply: @escaping @Sendable (Data) -> Void)
 
-    /// Restore all managed pmset state, remove the helper's on-disk data, and
-    /// cancel any scheduled wake, but only when the encoded
-    /// `HelperCleanupAuthorization` was issued by this helper process. The app
-    /// deregisters the daemon after this succeeds. Reply: `HelperReply`.
+    /// Compatibility selector retained for installed clients. Current helpers
+    /// ignore the payload and refuse without restoration, wake, filesystem,
+    /// or registration mutation. Reply: `HelperReply`.
     func commitUninstall(
         _ authorizationJSON: Data,
         reply: @escaping @Sendable (Data) -> Void
     )
 
-    /// Legacy protocol-v6 selector. Current helpers refuse this
-    /// unbound request before any cleanup mutation. It remains present so an
-    /// older app receives a structured failure rather than invoking cleanup.
+    /// Legacy protocol-v6 selector. Current helpers refuse without mutation;
+    /// it remains present so an older app receives a structured failure.
     func uninstall(_ reply: @escaping @Sendable (Data) -> Void)
 }
 
 // MARK: - Payloads
+
+/// Self-declared client compatibility carried on risk-increasing requests.
+/// XPC code-signing admission establishes the app's signed identity; this
+/// exact pair separately prevents an older or future genuine client from
+/// invoking behavior it does not share with the current helper.
+public struct HelperClientIdentity: Codable, Sendable, Equatable {
+    public var protocolVersion: Int
+    public var safetyRevision: Int
+
+    public init(protocolVersion: Int, safetyRevision: Int) {
+        self.protocolVersion = protocolVersion
+        self.safetyRevision = safetyRevision
+    }
+
+    public static let current = HelperClientIdentity(
+        protocolVersion: LidlessIDs.helperVersion,
+        safetyRevision: LidlessIDs.helperSafetyRevision
+    )
+}
 
 public struct HelperArmOptions: Codable, Sendable, Equatable {
     /// The app heartbeats every ~10s; the helper restores sleep if none
@@ -64,32 +87,61 @@ public struct HelperArmOptions: Codable, Sendable, Equatable {
     public var watchdogTTL: TimeInterval
     public var lowPowerMode: Bool
     public var tcpKeepAlive: Bool
+    /// Missing only for legacy payloads, which the helper must refuse before
+    /// any risk-increasing mutation.
+    public var clientIdentity: HelperClientIdentity?
 
     public init(
         watchdogTTL: TimeInterval = HelperArmOptions.defaultWatchdogTTL,
         lowPowerMode: Bool = false,
-        tcpKeepAlive: Bool = false
+        tcpKeepAlive: Bool = false,
+        clientIdentity: HelperClientIdentity? = .current
     ) {
         self.watchdogTTL = watchdogTTL
         self.lowPowerMode = lowPowerMode
         self.tcpKeepAlive = tcpKeepAlive
+        self.clientIdentity = clientIdentity
     }
 
     public static let defaultWatchdogTTL: TimeInterval = 45
     public static let heartbeatInterval: TimeInterval = 10
     /// Watchdog TTLs outside this range are clamped by the helper — the app
     /// can never talk the helper into an unsupervised override.
-    public static let watchdogTTLRange: ClosedRange<TimeInterval> = 15...120
+    public static let watchdogTTLRange: ClosedRange<TimeInterval> = 45...120
 }
 
 public struct HelperDisarmOptions: Codable, Sendable, Equatable {
     public var forceSleep: Bool
     /// For the helper log, e.g. "battery floor 10%".
     public var reason: String
+    /// Required only when `forceSleep` is true. Ordinary restore remains
+    /// available to legacy clients because it can only reduce override risk.
+    public var clientIdentity: HelperClientIdentity?
 
-    public init(forceSleep: Bool, reason: String) {
+    public init(
+        forceSleep: Bool,
+        reason: String,
+        clientIdentity: HelperClientIdentity? = .current
+    ) {
         self.forceSleep = forceSleep
         self.reason = reason
+        self.clientIdentity = clientIdentity
+    }
+}
+
+public struct HelperScheduleWakeRequest: Codable, Sendable, Equatable {
+    /// A desired RTC wake, or `nil` to cancel Lidless-managed wake events.
+    public var desiredDate: Date?
+    /// Missing only for legacy encoded requests. Scheduling requires the exact
+    /// current identity; cancellation remains available without it.
+    public var clientIdentity: HelperClientIdentity?
+
+    public init(
+        desiredDate: Date?,
+        clientIdentity: HelperClientIdentity? = .current
+    ) {
+        self.desiredDate = desiredDate
+        self.clientIdentity = clientIdentity
     }
 }
 
@@ -179,16 +231,6 @@ public struct HelperCleanupPreparation: Codable, Sendable, Equatable {
         self.error = error
         self.authorization = authorization
         self.status = status
-    }
-}
-
-public enum HelperCleanupHandshakeSafety {
-    /// A token issued by any other process lifetime authorizes nothing.
-    public static func authorizes(
-        _ authorization: HelperCleanupAuthorization,
-        issuedBy helperInstanceID: UUID
-    ) -> Bool {
-        authorization.helperInstanceID == helperInstanceID
     }
 }
 

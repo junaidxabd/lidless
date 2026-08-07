@@ -1,5 +1,6 @@
 .DS_Store
 build/
+.build/
 # Local working files, not part of the open-source project.
 PROMPT.md
 .claude/

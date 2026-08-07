@@ -3,11 +3,25 @@ import SwiftUI
 import WidgetKit
 import LidlessCore
 
+#if !LIDLESS_WIDGET_RENDER_HARNESS
 @main
 struct LidlessWidgetBundle: WidgetBundle {
     var body: some Widget {
         LidlessStatusWidget()
     }
+}
+#endif
+
+private enum WidgetPalette {
+    static let canvas = Color(red: 0.055, green: 0.059, blue: 0.071)
+    static let surface = Color(red: 0.086, green: 0.094, blue: 0.110)
+    static let textPrimary = Color.white.opacity(0.94)
+    static let textSecondary = Color.white.opacity(0.70)
+    static let verifiedNormal = Color(red: 0.34, green: 0.78, blue: 0.50)
+    static let verifiedActive = Color(red: 0.31, green: 0.60, blue: 1.00)
+    static let caution = Color(red: 1.00, green: 0.64, blue: 0.26)
+    static let critical = Color(red: 1.00, green: 0.35, blue: 0.36)
+    static let transition = Color.white.opacity(0.66)
 }
 
 /// Pure mirror of the app's published snapshot: armed state, battery
@@ -20,15 +34,7 @@ struct LidlessStatusWidget: Widget {
         ) { entry in
             LidlessWidgetView(entry: entry)
                 .containerBackground(for: .widget) {
-                    if entry.showsArmed {
-                        LinearGradient(
-                            colors: [Color(red: 0.10, green: 0.12, blue: 0.30), Color(red: 0.04, green: 0.05, blue: 0.13)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    } else {
-                        Color.clear
-                    }
+                    WidgetPalette.canvas
                 }
         }
         .configurationDisplayName("Lidless")
@@ -130,6 +136,104 @@ extension WidgetSnapshot {
         },
         updatedAt: Date()
     )
+
+    static func evidenceNormal(at now: Date) -> WidgetSnapshot {
+        WidgetSnapshot(
+            armed: false,
+            statusLine: "Sleeping normally",
+            batteryPercent: 82,
+            isCharging: false,
+            drainPerHour: 3.2,
+            projectedCutoff: nil,
+            projectedCutoffLabel: nil,
+            overrideActive: false,
+            overrideStateVerified: true,
+            sleepPresentation: .verifiedNormal,
+            recentSamples: evidenceSamples(at: now),
+            updatedAt: now
+        )
+    }
+
+    static func evidenceArmed(at now: Date) -> WidgetSnapshot {
+        WidgetSnapshot(
+            armed: true,
+            statusLine: "Until 7:00 AM",
+            batteryPercent: 64,
+            isCharging: false,
+            drainPerHour: 8.5,
+            projectedCutoff: now.addingTimeInterval(6.4 * 3600),
+            projectedCutoffLabel: "Until 7:00 AM",
+            overrideActive: true,
+            overrideStateVerified: true,
+            sleepPresentation: .verifiedArmed,
+            recentSamples: evidenceSamples(at: now),
+            updatedAt: now
+        )
+    }
+
+    private static func evidenceSamples(at now: Date) -> [BatterySample] {
+        (0..<12).map { index in
+            BatterySample(
+                time: now.addingTimeInterval(TimeInterval(index - 12) * 900),
+                percent: 88 - Double(index) * 2,
+                isDischarging: true
+            )
+        }
+    }
+}
+
+enum WidgetRenderScenario: String, CaseIterable {
+    case smallVerifiedNormal
+    case mediumVerifiedArmed
+    case smallStaleUnknown
+    case mediumEmpty
+
+    private static let evidenceNow = Date(timeIntervalSince1970: 1_786_117_600)
+
+    var family: WidgetFamily {
+        switch self {
+        case .smallVerifiedNormal, .smallStaleUnknown: .systemSmall
+        case .mediumVerifiedArmed, .mediumEmpty: .systemMedium
+        }
+    }
+
+    var size: CGSize {
+        switch family {
+        case .systemSmall: CGSize(width: 170, height: 170)
+        default: CGSize(width: 360, height: 170)
+        }
+    }
+
+    var filename: String {
+        switch self {
+        case .smallVerifiedNormal: "widget-small-verified-normal.png"
+        case .mediumVerifiedArmed: "widget-medium-verified-armed.png"
+        case .smallStaleUnknown: "widget-small-stale-unknown.png"
+        case .mediumEmpty: "widget-medium-empty.png"
+        }
+    }
+
+    var entry: SnapshotEntry {
+        switch self {
+        case .smallVerifiedNormal:
+            SnapshotEntry(
+                date: Self.evidenceNow,
+                snapshot: .evidenceNormal(at: Self.evidenceNow)
+            )
+        case .mediumVerifiedArmed:
+            SnapshotEntry(
+                date: Self.evidenceNow,
+                snapshot: .evidenceArmed(at: Self.evidenceNow)
+            )
+        case .smallStaleUnknown:
+            SnapshotEntry(
+                date: Self.evidenceNow,
+                snapshot: .evidenceNormal(at: Self.evidenceNow.addingTimeInterval(-3_600))
+            )
+        case .mediumEmpty:
+            SnapshotEntry(date: Self.evidenceNow, snapshot: nil)
+        }
+    }
 }
 
 // MARK: - Views
@@ -137,13 +241,24 @@ extension WidgetSnapshot {
 struct LidlessWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: SnapshotEntry
+    let renderFamily: WidgetFamily?
+
+    init(entry: SnapshotEntry, renderFamily: WidgetFamily? = nil) {
+        self.entry = entry
+        self.renderFamily = renderFamily
+    }
 
     var body: some View {
         Group {
-            if entry.snapshot != nil {
-                switch family {
+            if entry.isStale {
+                StaleEvidenceView()
+            } else if entry.snapshot != nil {
+                switch renderFamily ?? family {
                 case .systemMedium:
-                    MediumView(entry: entry)
+                    MediumView(
+                        entry: entry,
+                        rendersStaticActions: renderFamily != nil
+                    )
                 default:
                     SmallView(entry: entry)
                 }
@@ -151,8 +266,10 @@ struct LidlessWidgetView: View {
                 EmptyStateView()
             }
         }
-        .fontDesign(.rounded)
+        .padding(2)
+        .background(WidgetPalette.canvas)
         .widgetURL(URL(string: "lidless://open"))
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -161,20 +278,21 @@ private struct SmallView: View {
 
     var body: some View {
         let snapshot = entry.snapshot!
-        let armed = entry.showsArmed
         VStack(alignment: .leading, spacing: 4) {
             StatusHeader(entry: entry)
             Spacer(minLength: 0)
-            BatteryLine(snapshot: snapshot, armed: armed)
+            BatteryLine(snapshot: snapshot)
             Text(statusLine(entry: entry))
                 .font(.caption)
-                .foregroundStyle(armed ? AnyShapeStyle(.white.opacity(0.75)) : AnyShapeStyle(.secondary))
+                .foregroundStyle(color(for: entry.presentation))
                 .lineLimit(2)
-            if armed, let cutoff = snapshot.projectedCutoff, cutoff > entry.date {
+            if entry.showsArmed,
+               let cutoff = snapshot.projectedCutoff,
+               cutoff > entry.date {
                 Text(timerInterval: entry.date...cutoff, countsDown: true)
                     .font(.title3.weight(.semibold))
                     .monospacedDigit()
-                    .foregroundStyle(.white)
+                    .foregroundStyle(WidgetPalette.textPrimary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -183,23 +301,31 @@ private struct SmallView: View {
 
 private struct MediumView: View {
     let entry: SnapshotEntry
+    let rendersStaticActions: Bool
 
     var body: some View {
         let snapshot = entry.snapshot!
-        let armed = entry.showsArmed
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 StatusHeader(entry: entry)
                 Spacer(minLength: 0)
-                BatteryLine(snapshot: snapshot, armed: armed)
+                BatteryLine(snapshot: snapshot)
                 Text(statusLine(entry: entry))
                     .font(.caption)
-                    .foregroundStyle(armed ? AnyShapeStyle(.white.opacity(0.75)) : AnyShapeStyle(.secondary))
-                if armed, let cutoff = snapshot.projectedCutoff, cutoff > entry.date {
-                    Text(timerInterval: entry.date...cutoff, countsDown: true)
+                    .foregroundStyle(color(for: entry.presentation))
+                if entry.showsArmed,
+                   let cutoff = snapshot.projectedCutoff,
+                   cutoff > entry.date {
+                    Group {
+                        if rendersStaticActions {
+                            Text(staticCountdown(from: entry.date, to: cutoff))
+                        } else {
+                            Text(timerInterval: entry.date...cutoff, countsDown: true)
+                        }
+                    }
                         .font(.title3.weight(.semibold))
                         .monospacedDigit()
-                        .foregroundStyle(.white)
+                        .foregroundStyle(WidgetPalette.textPrimary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -211,7 +337,7 @@ private struct MediumView: View {
                             x: .value("t", sample.time),
                             y: .value("%", sample.percent)
                         )
-                        .foregroundStyle(armed ? Color(red: 0.30, green: 0.78, blue: 0.98) : Color.accentColor)
+                        .foregroundStyle(WidgetPalette.verifiedActive)
                         .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round))
                     }
                     .chartYScale(domain: 0...100)
@@ -222,22 +348,39 @@ private struct MediumView: View {
                 if let drain = snapshot.drainPerHour {
                     Text(String(format: "%.1f%%/hr", drain))
                         .font(.caption2)
-                        .foregroundStyle(armed ? AnyShapeStyle(.white.opacity(0.6)) : AnyShapeStyle(.tertiary))
+                        .foregroundStyle(WidgetPalette.textSecondary)
                 }
-                if armed {
-                    Link(destination: URL(string: "lidless://disarm")!) {
-                        Text("Disarm")
-                            .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(.white.opacity(0.16), in: Capsule())
-                            .foregroundStyle(.white)
+                if entry.showsArmed {
+                    if rendersStaticActions {
+                        restoreNormalSleepLabel
+                    } else {
+                        Link(destination: URL(string: "lidless://disarm")!) {
+                            restoreNormalSleepLabel
+                        }
+                        .accessibilityHint("Requests and verifies normal sleep in Lidless")
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    private var restoreNormalSleepLabel: some View {
+        Text("Restore Normal Sleep")
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(WidgetPalette.surface, in: Capsule())
+            .foregroundStyle(WidgetPalette.textPrimary)
+    }
+}
+
+private func staticCountdown(from start: Date, to end: Date) -> String {
+    let totalSeconds = max(0, Int(end.timeIntervalSince(start).rounded(.down)))
+    let hours = totalSeconds / 3_600
+    let minutes = (totalSeconds % 3_600) / 60
+    let seconds = totalSeconds % 60
+    return String(format: "%d:%02d:%02d", hours, minutes, seconds)
 }
 
 private func statusLine(entry: SnapshotEntry) -> String {
@@ -250,12 +393,12 @@ private func statusLine(entry: SnapshotEntry) -> String {
     case .verifiedArmed:
         return "Keep-awake active"
     case .restoring:
-        return "Restoring normal sleep…"
+        return "Normal sleep not verified yet"
     case .outsideOverride:
         return "Sleep override active — not Lidless"
     case .unknown:
         return entry.isStale
-            ? "Lidless isn't running — state unknown"
+            ? "No fresh Lidless evidence — state unknown"
             : "Sleep state unknown"
     }
 }
@@ -264,22 +407,15 @@ private struct StatusHeader: View {
     let entry: SnapshotEntry
 
     var body: some View {
-        let armed = entry.showsArmed
         let presentation = entry.presentation
         HStack(spacing: 4) {
             Image(systemName: symbol(for: presentation))
                 .font(.caption.weight(.semibold))
             Text(label(for: presentation))
                 .font(.caption2.weight(.bold))
-                .kerning(0.8)
         }
-        .foregroundStyle(
-            armed
-                ? AnyShapeStyle(Color(red: 0.45, green: 0.85, blue: 1.0))
-                : (presentation == .outsideOverride || presentation == .unknown)
-                    ? AnyShapeStyle(.orange)
-                    : AnyShapeStyle(.secondary)
-        )
+        .foregroundStyle(color(for: presentation))
+        .accessibilityLabel(accessibilityLabel(for: presentation))
     }
 
     private func symbol(for presentation: SleepPresentationState) -> String {
@@ -295,19 +431,31 @@ private struct StatusHeader: View {
 
     private func label(for presentation: SleepPresentationState) -> String {
         switch presentation {
-        case .verifiedNormal: "OFF"
-        case .verifyingArm: "CHECKING"
-        case .verifiedArmed: "AWAKE"
+        case .verifiedNormal: "VERIFIED NORMAL"
+        case .verifyingArm: "VERIFYING"
+        case .verifiedArmed: "KEEP-AWAKE ON"
         case .restoring: "RESTORING"
-        case .outsideOverride: "WARNING"
-        case .unknown: "CHECK"
+        case .outsideOverride: "OUTSIDE OVERRIDE"
+        case .unknown: "UNVERIFIED"
+        }
+    }
+
+    private func accessibilityLabel(
+        for presentation: SleepPresentationState
+    ) -> String {
+        switch presentation {
+        case .verifiedNormal: "Normal sleep verified"
+        case .verifyingArm: "Verifying keep-awake"
+        case .verifiedArmed: "Keep-awake verified"
+        case .restoring: "Normal sleep restoration is not verified yet"
+        case .outsideOverride: "Outside sleep override detected"
+        case .unknown: "System sleep state unverified"
         }
     }
 }
 
 private struct BatteryLine: View {
     let snapshot: WidgetSnapshot
-    let armed: Bool
 
     var body: some View {
         HStack(spacing: 4) {
@@ -317,7 +465,7 @@ private struct BatteryLine: View {
                 .font(.title2.weight(.bold))
                 .monospacedDigit()
         }
-        .foregroundStyle(armed ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+        .foregroundStyle(WidgetPalette.textPrimary)
     }
 
     private func batterySymbol(percent: Int?, charging: Bool) -> String {
@@ -335,15 +483,50 @@ private struct BatteryLine: View {
 
 private struct EmptyStateView: View {
     var body: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "moon.zzz.fill")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-            Text("Open Lidless once to connect")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+        VStack(alignment: .leading, spacing: 8) {
+            Label("NO FRESH EVIDENCE", systemImage: "questionmark.circle.fill")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(WidgetPalette.critical)
+            Spacer(minLength: 0)
+            Text("Open Lidless to publish current sleep evidence.")
+                .font(.callout)
+                .foregroundStyle(WidgetPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityLabel("No fresh Lidless sleep evidence")
+    }
+}
+
+private struct StaleEvidenceView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(
+                "NO FRESH LIDLESS EVIDENCE",
+                systemImage: "questionmark.circle.fill"
+            )
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(WidgetPalette.critical)
+            .lineLimit(2)
+            Spacer(minLength: 0)
+            Text("Current sleep and battery state are unknown.")
+                .font(.callout)
+                .foregroundStyle(WidgetPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityLabel(
+            "No fresh Lidless evidence. Current sleep and battery state are unknown."
+        )
+    }
+}
+
+private func color(for presentation: SleepPresentationState) -> Color {
+    switch presentation {
+    case .verifiedNormal: WidgetPalette.verifiedNormal
+    case .verifiedArmed: WidgetPalette.verifiedActive
+    case .outsideOverride: WidgetPalette.caution
+    case .unknown: WidgetPalette.critical
+    case .verifyingArm, .restoring: WidgetPalette.transition
     }
 }

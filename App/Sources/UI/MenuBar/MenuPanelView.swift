@@ -1,135 +1,184 @@
 import SwiftUI
 import LidlessCore
 
-/// The menu bar panel — Lidless's primary UI and its stage. A drifting
-/// aurora carries the mood; the eye core carries the state; the numbers
-/// glow when the machine is being kept awake. Clarity rules still win:
-/// the headline always says exactly what sleep is doing.
+/// Lidless's compact control center. The ordering is deliberate: current
+/// proof, the one truthful mutation, safety choices, then supporting metrics.
 struct MenuPanelView: View {
-    @Environment(AppState.self) private var state
+    var renderScenario: InstrumentRenderScenario? = nil
 
     var body: some View {
-        ZStack {
-            AuroraBackground(mood: state.mood)
+        Group {
+            if renderScenario != nil {
+                MenuPanelContent(renderScenario: renderScenario)
+            } else {
+                ViewThatFits(in: .vertical) {
+                    MenuPanelContent(renderScenario: renderScenario)
 
-            VStack(spacing: 0) {
-                header
-                    .padding(.horizontal, Theme.s4)
-                    .padding(.top, Theme.s4)
-
-                banners
-                    .padding(.horizontal, Theme.s4)
-
-                hero
-                    .padding(.top, Theme.s5)
-                    .padding(.bottom, Theme.s5)
-
-                GlassSwitch(
-                    armed: state.sleepPresentation == .verifiedArmed,
-                    busy: state.phase == .arming || state.phase == .disarming,
-                    presentation: state.sleepPresentation,
-                    restoresOnAction: state.phase == .armed,
-                    actionAvailable: state.phase == .armed
-                        || state.sleepPresentation == .verifiedNormal,
-                    mood: state.mood
-                ) {
-                    if state.isArmed {
-                        Task { await state.disarm() }
-                    } else if state.pendingArm != nil {
-                        state.cancelArmFlow()
-                    } else {
-                        state.beginArmFlow()
+                    ScrollView {
+                        MenuPanelContent(renderScenario: renderScenario)
                     }
+                    .scrollIndicators(.automatic)
+                    .frame(maxHeight: 720)
                 }
-                .padding(.bottom, Theme.s4)
-
-                Group {
-                    if let pending = state.pendingArm {
-                        ArmConfirmCard(pending: pending)
-                            .transition(.scale(scale: 0.94).combined(with: .opacity))
-                    } else if state.sleepPresentation == .verifiedNormal {
-                        presetRow
-                            .transition(.opacity)
-                    }
-                }
-                .padding(.horizontal, Theme.s4)
-                .padding(.bottom, Theme.s3)
-
-                statStrip
-                    .padding(.horizontal, Theme.s4)
-                    .padding(.bottom, Theme.s4)
-
-                Divider()
-                    .overlay(.white.opacity(0.08))
-
-                footer
-                    .padding(.horizontal, Theme.s4)
-                    .padding(.vertical, Theme.s3)
             }
         }
+        .background(Theme.canvas)
         .frame(width: Theme.panelWidth)
-        .fontDesign(.rounded)
+        .frame(maxHeight: 720)
         .preferredColorScheme(.dark)
-        .animation(Theme.springGentle, value: state.pendingArm)
-        .animation(Theme.springGentle, value: state.phase)
+    }
+}
+
+/// Scroll-free content is kept separate so deterministic screenshots can use
+/// ImageRenderer without depending on an AppKit scroll view.
+struct MenuPanelContent: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var renderScenario: InstrumentRenderScenario? = nil
+
+    /// Rechecks the live state at dispatch time so a control drawn from one
+    /// proof state cannot perform the action for a newer state.
+    private struct LiveActionTruth {
+        var armed: Bool
+        var actionAvailable: Bool
     }
 
-    // MARK: - Header
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+
+            if hasContextualBanner {
+                contextualBanner
+                    .padding(.top, Theme.s3)
+            }
+
+            statusSummary
+                .padding(.top, Theme.s5)
+
+            Divider()
+                .overlay(Theme.separator)
+                .padding(.vertical, Theme.s4)
+
+            if hasConfirmation {
+                confirmationRegion
+            } else {
+                primaryAction
+
+                if presentation == .verifiedNormal {
+                    presetRow
+                        .padding(.top, Theme.s3)
+                }
+            }
+
+            statStrip
+                .padding(.top, Theme.s4)
+        }
+        .padding(Theme.s4)
+        .frame(width: Theme.panelWidth)
+        .animation(
+            reduceMotion ? nil : Theme.gentleTransition,
+            value: hasConfirmation
+        )
+        .animation(
+            reduceMotion ? nil : Theme.quickTransition,
+            value: presentation
+        )
+    }
+
+    // MARK: Header toolbar
 
     private var header: some View {
         HStack(spacing: Theme.s2) {
             Text("Lidless")
                 .font(.headline)
-                .foregroundStyle(.white.opacity(0.9))
+                .foregroundStyle(Theme.textPrimary)
+
             if state.isSimulation {
                 Text("SIM")
-                    .font(.caption2.weight(.bold))
-                    .kerning(0.6)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Theme.violet.opacity(0.25), in: Capsule())
-                    .foregroundStyle(Theme.violet)
+                    .font(.caption2.weight(.semibold))
+                    .kerning(0.5)
+                    .padding(.horizontal, Theme.s2)
+                    .padding(.vertical, Theme.s1)
+                    .background(Theme.surfaceElevated, in: Capsule())
+                    .foregroundStyle(Theme.textSecondary)
             }
+
             Spacer()
-            StatusPill(presentation: state.sleepPresentation)
+
+            if renderScenario != nil {
+                Image(systemName: "ellipsis.circle")
+                    .font(.body)
+                    .foregroundStyle(Theme.textSecondary)
+                    .accessibilityHidden(true)
+            } else {
+                Menu {
+                    Button("Open Overview", systemImage: "gauge.with.needle") {
+                        state.requestMainWindow(pane: .overview)
+                    }
+                    Button("History", systemImage: "clock.arrow.circlepath") {
+                        state.requestMainWindow(pane: .history)
+                    }
+                    Button("Settings", systemImage: "gearshape") {
+                        state.requestMainWindow(pane: .cutoffs)
+                    }
+                    Divider()
+                    Button("Quit Lidless", systemImage: "power") {
+                        NSApp.terminate(nil)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.body)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .accessibilityLabel("Lidless menu")
+            }
         }
     }
 
+    // MARK: Context
+
+    private var hasContextualBanner: Bool {
+        if renderScenario?.banner != nil { return true }
+        if state.lastError != nil || state.overrideLeaked { return true }
+        return !state.helperState.isUsable
+            && state.helperState != .checking
+            && !state.helperLifecycleWorkInProgress
+            && !state.isArmed
+    }
+
     @ViewBuilder
-    private var banners: some View {
-        if state.overrideLeaked {
-            Banner(
-                kind: .warning,
-                message: "Sleep is disabled system-wide, outside of Lidless."
-            ) {
-                Button("Fix") {
-                    Task { await state.repairOverride() }
+    private var contextualBanner: some View {
+        if let banner = renderScenario?.banner {
+            Banner(kind: banner.kind, message: banner.message) {
+                if let actionTitle = banner.actionTitle {
+                    Button(actionTitle) {}
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
-            .padding(.top, Theme.s2)
-        }
-        if let error = state.lastError {
+        } else if let error = state.lastError {
             Banner(kind: .error, message: error) {
                 Button {
                     state.lastError = nil
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.caption2)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Dismiss error")
             }
-            .padding(.top, Theme.s2)
-        }
-        // Only the pre-classification value is silent. `.unknown` is a
-        // concluded verdict, so it gets a banner that says so rather than
-        // disappearing behind an ordinary state.
-        if !state.helperState.isUsable,
-           state.helperState != .checking,
-           !state.helperLifecycleWorkInProgress,
-           !state.isArmed {
+        } else if state.overrideLeaked {
+            Banner(
+                kind: .warning,
+                message: "A system-wide sleep override is active without a verified Lidless session."
+            ) {
+                EmptyView()
+            }
+        } else if !state.helperState.isUsable,
+                  state.helperState != .checking,
+                  !state.helperLifecycleWorkInProgress,
+                  !state.isArmed {
             Banner(
                 kind: helperBannerIsTerminal ? .warning : .info,
                 message: helperBannerMessage
@@ -141,24 +190,16 @@ struct MenuPanelView: View {
                         state.requestMainWindow(pane: .setup)
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.bordered)
                 .controlSize(.small)
             }
-            .padding(.top, Theme.s2)
         }
     }
 
-    /// States with no automatic in-app resolution. Their button opens Setup for
-    /// the full explanation instead of implying a one-tap setup chore.
     private var helperBannerIsTerminal: Bool {
         switch state.helperState {
-        case .unknown, .notResponding:
+        case .unknown, .notResponding, .stale:
             true
-        case .stale(let version, let revision):
-            !SleepOverrideSafety.isReviewedStaleReplacementCompatible(
-                helperVersion: version,
-                helperSafetyRevision: revision
-            )
         default:
             false
         }
@@ -171,165 +212,355 @@ struct MenuPanelView: View {
 
     private var helperBannerMessage: String {
         switch state.helperState {
-        case .notInstalled: "One-time setup: install the privileged helper to enable keep-awake."
-        case .requiresApproval: "Almost there — approve Lidless in Login Items & Extensions."
-        case .notResponding: "The helper isn't responding. Its status is unverified."
-        case .unknown: "The helper could not be classified, so its status is unverified."
-        case .stale where helperBannerIsTerminal:
-            "This helper needs a reviewed removal procedure. Lidless will not replace it automatically."
-        case .stale: "The helper needs a safety update before keep-awake can arm."
-        default: "Helper setup needed."
+        case .notInstalled:
+            "Install the privileged helper once to enable verified keep-awake requests."
+        case .requiresApproval:
+            "Approve Lidless in Login Items & Extensions to finish setup."
+        case .notResponding:
+            "The helper is not responding, so the system sleep state is unverified."
+        case .unknown:
+            "The helper could not be classified, so its status is unverified."
+        case .stale:
+            "This helper requires a separately reviewed removal procedure. Public replacement is disabled."
+        default:
+            "Helper setup is required."
         }
     }
 
-    // MARK: - Hero
+    // MARK: Proof summary
 
-    /// State first, numbers biggest: the headline says exactly what sleep is
-    /// doing; armed, the time remaining is the largest thing on screen.
-    private var hero: some View {
-        VStack(spacing: Theme.s1) {
-            if state.sleepPresentation == .verifiedArmed {
-                GlowText(
-                    text: state.statusHeadline,
-                    font: .title3.weight(.semibold),
-                    gradient: Theme.armedGradient,
-                    glowColor: Theme.cyan,
-                    glowRadius: 10
-                )
-            } else {
-                Text(state.statusHeadline)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(
-                        state.overrideLeaked || state.overrideStateUnknown
-                            ? AnyShapeStyle(Theme.ember)
-                            : AnyShapeStyle(.white.opacity(0.92))
-                    )
-            }
+    private var statusSummary: some View {
+        VStack(alignment: .leading, spacing: Theme.s2) {
+            StatusPill(presentation: presentation)
 
-            if state.sleepPresentation == .verifiedArmed,
-               let projected = state.projectedCutoff {
-                VStack(spacing: 0) {
-                    GlowText(
-                        text: Format.duration(projected.date.timeIntervalSince(state.now)),
-                        font: .system(size: 44, weight: .bold, design: .rounded),
-                        gradient: Theme.armedGradient,
-                        glowColor: Theme.cyan,
-                        glowRadius: 16
-                    )
-                    Text(projected.label)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.55))
-                }
-                .padding(.top, Theme.s1)
-            } else if let detail = state.statusDetail {
+            Text(headline)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let detail {
                 Text(detail)
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.55))
-                    .multilineTextAlignment(.center)
+                    .font(.callout)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            if state.sleepPresentation == .verifiedArmed, state.lidClosed {
-                Label("Lid closed — keeping watch", systemImage: "laptopcomputer")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.35))
-                    .padding(.top, 2)
+            Label(proofText, systemImage: proofSymbol)
+                .font(.caption)
+                .foregroundStyle(proofTint)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if presentation == .verifiedArmed,
+               let cutoffText {
+                Label(cutoffText, systemImage: "clock")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(Theme.textPrimary)
+                    .monospacedDigit()
             }
         }
-        .padding(.horizontal, Theme.s4)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Presets
+    private var presentation: SleepPresentationState {
+        renderScenario?.presentation ?? state.sleepPresentation
+    }
+
+    private var headline: String {
+        renderScenario?.headline ?? state.statusHeadline
+    }
+
+    private var detail: String? {
+        renderScenario?.detail ?? state.statusDetail
+    }
+
+    private var cutoffText: String? {
+        if let scenario = renderScenario { return scenario.cutoffText }
+        guard let projected = state.projectedCutoff else { return nil }
+        return "\(Format.duration(projected.date.timeIntervalSince(state.now))) · \(projected.label)"
+    }
+
+    private var proofText: String {
+        if let renderScenario { return renderScenario.proof }
+        return switch presentation {
+        case .verifiedNormal:
+            "Registry proof confirms the system override is off"
+        case .verifyingArm:
+            "Waiting for helper ownership and registry proof"
+        case .verifiedArmed:
+            "Helper ownership and the registry override are verified"
+        case .restoring:
+            "Normal sleep has not been re-verified yet"
+        case .outsideOverride:
+            "The registry override has no verified Lidless owner"
+        case .unknown:
+            "No current registry proof is available"
+        }
+    }
+
+    private var proofSymbol: String {
+        switch presentation {
+        case .verifiedNormal: "checkmark.shield.fill"
+        case .verifiedArmed: "lock.shield.fill"
+        case .verifyingArm, .restoring: "hourglass"
+        case .outsideOverride: "exclamationmark.triangle.fill"
+        case .unknown: "questionmark.diamond.fill"
+        }
+    }
+
+    private var proofTint: Color {
+        switch presentation {
+        case .verifiedNormal: Theme.verifiedNormal
+        case .verifiedArmed: Theme.verifiedActive
+        case .verifyingArm, .restoring: Theme.transition
+        case .outsideOverride: Theme.caution
+        case .unknown: Theme.critical
+        }
+    }
+
+    // MARK: One action or confirmation
+
+    private var hasConfirmation: Bool {
+        renderScenario?.confirmation != nil || state.pendingArm != nil
+    }
+
+    @ViewBuilder
+    private var confirmationRegion: some View {
+        if let confirmation = renderScenario?.confirmation {
+            RenderArmConfirmationCard(confirmation: confirmation)
+        } else if let pending = state.pendingArm {
+            ArmConfirmCard(pending: pending)
+        }
+    }
+
+    @ViewBuilder
+    private var primaryAction: some View {
+        if renderScenario != nil,
+           presentation == .verifyingArm || presentation == .restoring {
+            Button(action: {}) {
+                Label(
+                    presentation == .verifyingArm ? "Verifying…" : "Restoring…",
+                    systemImage: "hourglass"
+                )
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(Theme.surfaceElevated)
+            .disabled(true)
+        } else {
+            PrimaryActionButton(
+                presentation: presentation,
+                actionAvailable: primaryActionAvailable,
+                keepAwake: beginKeepAwake,
+                restoreNormalSleep: restoreNormalSleep,
+                checkAgain: checkAgain
+            )
+        }
+    }
+
+    private var primaryActionAvailable: Bool {
+        if let renderScenario { return renderScenario.primaryActionAvailable }
+        return switch presentation {
+        case .verifiedNormal:
+            liveActionTruth.actionAvailable
+                && state.helperState.isUsable
+                && !state.sessionEvidenceRequiresReconciliation
+                && state.pendingArm == nil
+        case .verifiedArmed:
+            liveActionTruth.armed && liveActionTruth.actionAvailable
+        case .outsideOverride:
+            state.phase == .disarmed && state.pendingArm == nil
+        case .unknown:
+            true
+        case .verifyingArm, .restoring:
+            false
+        }
+    }
+
+    private var liveActionTruth: LiveActionTruth {
+        LiveActionTruth(
+            armed: state.sleepPresentation == .verifiedArmed,
+            actionAvailable: state.phase == .armed
+                || state.sleepPresentation == .verifiedNormal
+        )
+    }
+
+    private func beginKeepAwake() {
+        guard renderScenario == nil else { return }
+        performLivePrimaryAction(expected: .keepAwake)
+    }
+
+    private func restoreNormalSleep() {
+        guard renderScenario == nil else { return }
+        performLivePrimaryAction(expected: .restoreNormalSleep)
+    }
+
+    private func checkAgain() {
+        guard renderScenario == nil else { return }
+        performLivePrimaryAction(expected: .checkAgain)
+    }
+
+    private func performLivePrimaryAction(expected: PrimaryActionSemantic) {
+        guard state.sleepPresentation.primaryActionSemantic == expected else { return }
+        if state.sleepPresentation == .outsideOverride {
+            Task { await state.repairOverride() }
+        } else if state.sleepPresentation == .verifiedNormal {
+            state.beginArmFlow()
+        } else if state.sleepPresentation == .verifiedArmed {
+            Task { await state.disarm() }
+        } else if state.sleepPresentation == .unknown {
+            Task { await state.refreshHelperState() }
+        } else {
+            return
+        }
+    }
+
+    // MARK: Presets and restrained metrics
 
     private var presetRow: some View {
         HStack(spacing: Theme.s2) {
             PresetChip(title: "Until 7 AM", systemImage: "sunrise") {
+                guard renderScenario == nil else { return }
                 state.beginArmFlow(preset: .untilMorning)
             }
             PresetChip(title: "4 hours", systemImage: "timer") {
+                guard renderScenario == nil else { return }
                 state.beginArmFlow(preset: .nextFourHours)
             }
             PresetChip(title: "To 20%", systemImage: "battery.25percent") {
+                guard renderScenario == nil else { return }
                 state.beginArmFlow(preset: .untilTwentyPercent)
             }
-            .disabled(state.battery.state == .noBattery)
-            .opacity(state.battery.state == .noBattery ? 0.45 : 1)
+            .disabled(state.battery.state == .noBattery || renderScenario?.primaryActionAvailable == false)
             .help(state.battery.state == .noBattery
                 ? "This Mac has no internal battery."
                 : "Keep awake until the internal battery reaches 20%.")
         }
         .frame(maxWidth: .infinity)
-        .disabled(!state.helperState.isUsable)
-        .opacity(state.helperState.isUsable ? 1 : 0.4)
+        .disabled(
+            renderScenario?.primaryActionAvailable == false
+                || (renderScenario == nil && !state.helperState.isUsable)
+                || (renderScenario == nil && state.sessionEvidenceRequiresReconciliation)
+        )
     }
-
-    // MARK: - Stats
 
     private var statStrip: some View {
         StatStrip(items: [
             .init(
-                icon: Symbols.battery(
+                icon: renderScenario?.batterySymbol ?? Symbols.battery(
                     percent: state.battery.percent,
                     charging: state.battery.isCharging,
                     state: state.battery.state
                 ),
-                value: Format.percent(state.battery.percent),
-                caption: state.battery.state == .noBattery
-                    ? "No battery"
-                    : (state.battery.isCharging
-                        ? "Charging"
-                        : (state.battery.state == .ac ? "On power" : "Battery")),
-                lit: state.sleepPresentation == .verifiedArmed
+                value: renderScenario?.batteryValue ?? Format.percent(state.battery.percent),
+                caption: renderScenario?.batteryCaption ?? liveBatteryCaption,
+                lit: false
             ),
             .init(
                 icon: "chart.line.downtrend.xyaxis",
-                value: Format.drain(state.drainPerHour),
+                value: renderScenario?.drainValue ?? Format.drain(state.drainPerHour),
                 caption: "Drain",
-                lit: state.sleepPresentation == .verifiedArmed
+                lit: false
             ),
             .init(
                 icon: "thermometer.medium",
-                value: state.thermalStatusText,
-                caption: state.thermalIsElevated ? "Elevated" : "Thermals",
-                tint: state.thermalIsElevated ? Theme.ember : nil
+                value: renderScenario?.thermalValue ?? state.thermalStatusText,
+                caption: renderScenario?.thermalCaption
+                    ?? (state.thermalIsElevated ? "Elevated" : "Thermals"),
+                tint: renderScenario?.thermalIsElevated == true || state.thermalIsElevated
+                    ? Theme.caution
+                    : nil
             ),
         ])
     }
 
-    // MARK: - Footer
+    private var liveBatteryCaption: String {
+        if state.battery.state == .noBattery { return "No battery" }
+        if state.battery.isCharging { return "Charging" }
+        return state.battery.state == .ac ? "On power" : "Battery"
+    }
+}
 
-    private var footer: some View {
-        HStack(spacing: Theme.s4) {
-            FooterButton(title: "History", systemImage: "clock.arrow.circlepath") {
-                state.requestMainWindow(pane: .history)
+// MARK: - Deterministic confirmation surface
+
+private struct RenderArmConfirmationCard: View {
+    let confirmation: InstrumentRenderConfirmation
+
+    private var tint: Color {
+        switch confirmation.tone {
+        case .normal: Theme.verifiedActive
+        case .caution: Theme.caution
+        case .critical: Theme.critical
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.s3) {
+            Label(confirmation.title, systemImage: confirmation.symbol)
+                .font(.headline)
+                .foregroundStyle(tint)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let message = confirmation.message {
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            FooterButton(title: "Settings", systemImage: "gearshape") {
-                state.requestMainWindow(pane: .cutoffs)
+
+            ForEach(Array(confirmation.evidence.enumerated()), id: \.offset) { _, row in
+                Label(row.text, systemImage: row.symbol)
+                    .font(.callout)
+                    .foregroundStyle(Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+
+            confirmationButtons
+        }
+        .padding(Theme.s4)
+        .background(
+            Theme.surfaceElevated,
+            in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                .strokeBorder(tint.opacity(0.42), lineWidth: 1)
+        )
+    }
+
+    private var confirmationButtons: some View {
+        HStack {
+            Button("Cancel") {}
+                .keyboardShortcut(.cancelAction)
+
             Spacer()
-            FooterButton(title: "Quit", systemImage: "xmark.circle") {
-                NSApp.terminate(nil)
-            }
+
+            Button(confirmation.confirmTitle) {}
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .tint(tint)
+                .disabled(!confirmation.allowsArm)
         }
     }
 }
 
-// MARK: - Arm confirmation card
+// MARK: - Live confirmation surface
 
-/// Safety UX in one card: what will keep the Mac awake, what will stop it,
-/// projected runtime at the current drain rate, and explicit low-battery
-/// warning / floor refusal states.
 struct ArmConfirmCard: View {
     let pending: AppState.PendingArm
 
     @Environment(AppState.self) private var state
 
-    private var refused: Bool {
-        !pending.assessment.allowsArm
-    }
+    private var refused: Bool { !pending.assessment.allowsArm }
 
-    private var warningTint: Bool {
+    private var cautionary: Bool {
         if case .lowBatteryWarning = pending.assessment { return true }
         return false
+    }
+
+    private var tint: Color {
+        if refused { return Theme.critical }
+        return cautionary ? Theme.caution : Theme.verifiedActive
     }
 
     private var safetyEvidenceUnavailable: Bool {
@@ -353,50 +584,7 @@ struct ArmConfirmCard: View {
             assessmentHeader
 
             VStack(alignment: .leading, spacing: Theme.s2) {
-                if state.battery.state == .noBattery {
-                    row(
-                        symbol: "powerplug",
-                        text: pending.projection.floorEnabled
-                            ? "No internal battery — configured floor is inactive"
-                            : "No internal battery"
-                    )
-                } else if let rate = pending.projection.ratePerHour, let empty = pending.projection.timeToEmpty {
-                    row(
-                        symbol: "gauge.with.needle",
-                        text: "≈ \(Format.duration(empty)) of battery at \(Format.drain(rate))"
-                    )
-                } else if let empty = pending.projection.timeToEmpty {
-                    row(
-                        symbol: "gauge.with.needle",
-                        text: "≈ \(Format.duration(empty)) of battery (system estimate)"
-                    )
-                } else if state.battery.isDischarging {
-                    row(symbol: "gauge.with.needle", text: "Measuring drain rate…")
-                } else if state.battery.state == .ac {
-                    row(symbol: "powerplug", text: "On power — battery cutoffs apply if unplugged")
-                }
-
-                if showsBatteryFloor {
-                    if let floorDate = pending.projection.floorDate {
-                        row(
-                            symbol: "battery.25percent",
-                            text: "Stops at \(pending.projection.floorPercent)% · ~\(Format.clock(floorDate))"
-                        )
-                    } else {
-                        row(
-                            symbol: "battery.25percent",
-                            text: "Stops if battery hits \(pending.projection.floorPercent)%"
-                        )
-                    }
-                }
-
-                if let timeCutoff = pending.projection.firstTimeCutoff {
-                    row(
-                        symbol: "clock",
-                        text: "Sleeps \(Format.dayAndTime(timeCutoff.date))"
-                    )
-                }
-
+                projectionRows
                 if !safetyEvidenceUnavailable {
                     row(symbol: "checkmark.shield", text: pending.projection.summary)
                 }
@@ -410,71 +598,116 @@ struct ArmConfirmCard: View {
 
                 Spacer()
 
-                Button(refused ? "Can't Arm" : "Keep Awake") {
+                Button(refused ? "Can't Continue" : "Keep Awake") {
                     Task {
                         await state.confirmArm(expectedIntentID: pending.id)
                     }
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
-                .tint(warningTint || refused ? Theme.ember : Theme.armedDeep)
+                .tint(tint)
                 .disabled(refused)
             }
         }
         .padding(Theme.s4)
-        .glassSheet(cornerRadius: Theme.cardRadius + 4)
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.cardRadius + 4, style: .continuous)
-                .strokeBorder((warningTint || refused ? Theme.ember : .clear).opacity(0.4), lineWidth: 1)
+        .background(
+            Theme.surfaceElevated,
+            in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
         )
-        .glow(warningTint || refused ? Theme.ember : Theme.armedDeep, radius: 18, opacity: 0.18)
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                .strokeBorder(tint.opacity(0.42), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private var projectionRows: some View {
+        if state.battery.state == .noBattery {
+            row(
+                symbol: "powerplug",
+                text: pending.projection.floorEnabled
+                    ? "No internal battery — configured floor is inactive"
+                    : "No internal battery"
+            )
+        } else if let rate = pending.projection.ratePerHour,
+                  let empty = pending.projection.timeToEmpty {
+            row(
+                symbol: "gauge.with.needle",
+                text: "About \(Format.duration(empty)) of battery at \(Format.drain(rate))"
+            )
+        } else if let empty = pending.projection.timeToEmpty {
+            row(
+                symbol: "gauge.with.needle",
+                text: "About \(Format.duration(empty)) of battery from the system estimate"
+            )
+        } else if state.battery.isDischarging {
+            row(symbol: "gauge.with.needle", text: "Measuring drain rate…")
+        } else if state.battery.state == .ac {
+            row(symbol: "powerplug", text: "On power — battery cutoffs apply if unplugged")
+        }
+
+        if showsBatteryFloor {
+            if let floorDate = pending.projection.floorDate {
+                row(
+                    symbol: "battery.25percent",
+                    text: "Stops at \(pending.projection.floorPercent)% · about \(Format.clock(floorDate))"
+                )
+            } else {
+                row(
+                    symbol: "battery.25percent",
+                    text: "Stops if battery reaches \(pending.projection.floorPercent)%"
+                )
+            }
+        }
+
+        if let timeCutoff = pending.projection.firstTimeCutoff {
+            row(
+                symbol: "clock",
+                text: "Normal sleep returns \(Format.dayAndTime(timeCutoff.date))"
+            )
+        }
     }
 
     @ViewBuilder
     private var assessmentHeader: some View {
         switch pending.assessment {
         case .refusedThermalPressure(let detail):
-            Label(
-                "Thermal protection is already triggered (\(detail)). Let the Mac cool before keeping awake.",
-                systemImage: "thermometer.high"
+            assessmentLabel(
+                "Thermal protection is active (\(detail)). Let the Mac cool before continuing.",
+                symbol: "thermometer.high"
             )
-            .font(.callout.weight(.medium))
-            .foregroundStyle(Color(red: 1.0, green: 0.42, blue: 0.38))
         case .refusedThermalTelemetryUnavailable:
-            Label(
-                "Thermal state unavailable — Lidless can't enforce the configured thermal guard. Check again before keeping awake.",
-                systemImage: "exclamationmark.triangle.fill"
+            assessmentLabel(
+                "Thermal state is unavailable, so the configured guard cannot be enforced.",
+                symbol: "exclamationmark.triangle.fill"
             )
-            .font(.callout.weight(.medium))
-            .foregroundStyle(Color(red: 1.0, green: 0.42, blue: 0.38))
         case .refusedBatteryTelemetryUnavailable:
-            Label(
-                "Battery state unavailable — Lidless can't enforce the configured safety floor. Check again before keeping awake.",
-                systemImage: "exclamationmark.triangle.fill"
+            assessmentLabel(
+                "Battery state is unavailable, so the configured floor cannot be enforced.",
+                symbol: "exclamationmark.triangle.fill"
             )
-            .font(.callout.weight(.medium))
-            .foregroundStyle(Color(red: 1.0, green: 0.42, blue: 0.38))
         case .refusedBelowFloor(let percent, let floor):
-            Label(
-                percent <= floor
-                    ? "Battery at \(percent)% — already at the \(floor)% cutoff floor. Charge first, or lower the floor in Settings."
-                    : "Battery at \(percent)% — within the safety margin of the \(floor)% floor. Charge first, or lower the floor in Settings.",
-                systemImage: "battery.0percent"
+            assessmentLabel(
+                "Battery is \(percent)% and too close to the \(floor)% safety floor. Charge first or revise the floor in Settings.",
+                symbol: "battery.0percent"
             )
-            .font(.callout.weight(.medium))
-            .foregroundStyle(Color(red: 1.0, green: 0.42, blue: 0.38))
         case .lowBatteryWarning(let percent):
-            Label(
-                "Battery at \(percent)%. Keeping the Mac awake will drain it further — check the projection below.",
-                systemImage: "exclamationmark.triangle.fill"
+            assessmentLabel(
+                "Battery is \(percent)%. Review the projection before continuing.",
+                symbol: "exclamationmark.triangle.fill"
             )
-            .font(.callout.weight(.medium))
-            .foregroundStyle(Theme.ember)
         case .ok:
             Text(titleForSource)
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.92))
+                .font(.headline)
+                .foregroundStyle(Theme.textPrimary)
         }
+    }
+
+    private func assessmentLabel(_ text: String, symbol: String) -> some View {
+        Label(text, systemImage: symbol)
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(tint)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var titleForSource: String {
@@ -482,19 +715,14 @@ struct ArmConfirmCard: View {
         case .preset(.untilMorning): "Keep awake until 7:00 AM?"
         case .preset(.nextFourHours): "Keep awake for 4 hours?"
         case .preset(.untilTwentyPercent): "Keep awake until 20% battery?"
-        default: "Keep your Mac awake with the lid closed?"
+        default: "Keep this Mac awake with the lid closed?"
         }
     }
 
     private func row(symbol: String, text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: Theme.s2) {
-            Image(systemName: symbol)
-                .frame(width: 18)
-                .foregroundStyle(.white.opacity(0.45))
-            Text(text)
-                .font(.callout)
-                .foregroundStyle(.white.opacity(0.85))
-                .fixedSize(horizontal: false, vertical: true)
-        }
+        Label(text, systemImage: symbol)
+            .font(.callout)
+            .foregroundStyle(Theme.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }

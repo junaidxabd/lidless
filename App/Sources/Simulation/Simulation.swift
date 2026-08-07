@@ -153,9 +153,9 @@ final class SimulatedHelper: HelperControlling {
     func openApprovalSettings() {}
 
     func uninstall() async throws {
-        armed = false
-        sleepDisabled = false
-        controller.note("helper: uninstalled (simulated)")
+        throw HelperClientError.rejected(
+            "Automatic helper cleanup is disabled; a reviewed removal procedure is required."
+        )
     }
 
     func status() async throws -> HelperStatus {

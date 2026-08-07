@@ -7,10 +7,41 @@ import LidlessCore
 /// calls are blocking and must run on the daemon's serial state queue.
 enum PMSet {
 
+    /// Retains a timed-out child whose termination has not yet been observed.
+    /// The helper keeps the recovery sentinel and refrains from another
+    /// mutation until Foundation reports that this exact process ended.
+    final class TerminationWitness: @unchecked Sendable {
+        private let process: Process
+
+        fileprivate init(process: Process) {
+            self.process = process
+        }
+
+        var isResolved: Bool {
+            !process.isRunning
+        }
+    }
+
     struct CommandError: Error, CustomStringConvertible {
         let arguments: [String]
         let status: Int32
         let output: String
+        let terminationCertainty: CommandTerminationSafety.Result
+        let terminationWitness: TerminationWitness?
+
+        init(
+            arguments: [String],
+            status: Int32,
+            output: String,
+            terminationCertainty: CommandTerminationSafety.Result = .exited,
+            terminationWitness: TerminationWitness? = nil
+        ) {
+            self.arguments = arguments
+            self.status = status
+            self.output = output
+            self.terminationCertainty = terminationCertainty
+            self.terminationWitness = terminationWitness
+        }
 
         var description: String {
             "pmset \(arguments.joined(separator: " ")) failed (\(status)): \(output.trimmingCharacters(in: .whitespacesAndNewlines))"
@@ -52,6 +83,11 @@ enum PMSet {
                 timeout: .now() + HelperSupervisionTiming.forcedTerminationGrace
             )
             let killAccepted = killResult == 0 || killErrno == ESRCH
+            let exitObserved = reapResult == .success
+            let terminationCertainty = CommandTerminationSafety.classify(
+                killAccepted: killAccepted,
+                exitObserved: exitObserved
+            )
             var detail = "timed out after \(Int(timeout))s"
             if !killAccepted {
                 detail += "; SIGKILL failed with errno \(killErrno)"
@@ -59,7 +95,15 @@ enum PMSet {
             if reapResult == .timedOut {
                 detail += "; child exit was not observed within \(Int(HelperSupervisionTiming.forcedTerminationGrace))s"
             }
-            throw CommandError(arguments: arguments, status: -1, output: detail)
+            throw CommandError(
+                arguments: arguments,
+                status: -1,
+                output: detail,
+                terminationCertainty: terminationCertainty,
+                terminationWitness: terminationCertainty == .unproven
+                    ? TerminationWitness(process: process)
+                    : nil
+            )
         }
 
         // Read after exit: pmset output is far below the 64KB pipe buffer,
@@ -134,17 +178,35 @@ enum PMSet {
         return formatter
     }
 
-    /// Returns the rendered date string handed to pmset — the caller must
-    /// keep it and cancel with exactly that string (re-rendering after a
-    /// timezone change would not match the scheduled event).
-    static func scheduleWake(at date: Date) throws -> String {
-        let rendered = wakeDateFormatter().string(from: date)
+    /// Render once, persist that exact identity before mutation, then use it
+    /// for both scheduling and cancellation. Re-rendering after a timezone
+    /// change would target a different event.
+    static func renderedWakeDate(for date: Date) -> String {
+        wakeDateFormatter().string(from: date)
+    }
+
+    static func scheduleWake(rendered: String) throws {
         try run(["schedule", "wake", rendered])
+    }
+
+    /// Compatibility wrapper for non-transactional callers. The helper's
+    /// durable adapter deliberately renders and commits intent first instead.
+    static func scheduleWake(at date: Date) throws -> String {
+        let rendered = renderedWakeDate(for: date)
+        try scheduleWake(rendered: rendered)
         return rendered
     }
 
     static func cancelWake(rendered: String) throws {
         try run(["schedule", "cancel", "wake", rendered])
+    }
+
+    /// Authoritative readback for the helper-owned one-shot wake identities.
+    /// The parser throws on format drift so silence can never be mistaken for
+    /// proof that a possibly scheduled event is absent.
+    static func readScheduledWakes() throws -> [String] {
+        let output = try run(["-g", "sched"])
+        return try ScheduledWakeOutputParser.parse(output)
     }
 
 }

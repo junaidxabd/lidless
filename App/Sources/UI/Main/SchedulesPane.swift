@@ -6,6 +6,7 @@ struct SchedulesPane: View {
     @Environment(AppState.self) private var state
     @State private var editingWindow: ScheduleWindow?
     @State private var isCreating = false
+    @State private var pendingDeletion: ScheduleWindow?
 
     var body: some View {
         @Bindable var config = state.config
@@ -13,7 +14,7 @@ struct SchedulesPane: View {
             Section {
                 Toggle(isOn: $config.scheduleAutomationEnabled) {
                     Text("Arm automatically on schedule")
-                    Text("Lidless arms when a window starts and restores normal sleep when it ends. Disarming during a window skips just that occurrence. Requires “Launch at login.”")
+                    Text("Lidless requests keep-awake when a window starts, then requests and verifies normal sleep when it ends. Disarming skips only the current occurrence. Requires Launch at Login.")
                 }
             } footer: {
                 Text("Lidless also registers a system wake just before each window, so a sleeping MacBook can wake up and arm itself (best effort).")
@@ -40,6 +41,8 @@ struct SchedulesPane: View {
                                 .labelsHidden()
                                 .toggleStyle(.switch)
                                 .controlSize(.small)
+                                .accessibilityLabel("Enable schedule")
+                                .accessibilityValue(window.enabled ? "On" : "Off")
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(Self.weekdaysSummary(window.weekdays))
                                     .font(.body.weight(.medium))
@@ -54,14 +57,20 @@ struct SchedulesPane: View {
                                 Image(systemName: "pencil")
                             }
                             .buttonStyle(.borderless)
-                            Button(role: .destructive) {
-                                config.schedules.removeAll { $0.id == window.id }
+                            .help("Edit this schedule")
+                            .accessibilityLabel("Edit schedule")
+                            .accessibilityValue(Self.scheduleSummary(window))
+                            Button {
+                                pendingDeletion = window
                             } label: {
                                 Image(systemName: "trash")
                             }
                             .buttonStyle(.borderless)
+                            .help("Delete this schedule")
+                            .accessibilityLabel("Delete schedule")
+                            .accessibilityValue(Self.scheduleSummary(window))
                         }
-                        .opacity(window.enabled ? 1 : 0.55)
+                        .foregroundStyle(window.enabled ? Theme.textPrimary : Theme.textSecondary)
                     }
                 }
 
@@ -75,6 +84,31 @@ struct SchedulesPane: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .navigationTitle("Schedules")
+        .background(Theme.canvas)
+        .confirmationDialog(
+            "Delete schedule?",
+            isPresented: Binding(
+                get: { pendingDeletion != nil },
+                set: { presented in
+                    if !presented { pendingDeletion = nil }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let pendingDeletion {
+                Button("Delete Schedule", role: .destructive) {
+                    config.schedules.removeAll { $0.id == pendingDeletion.id }
+                    self.pendingDeletion = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeletion = nil
+            }
+        } message: {
+            if let pendingDeletion {
+                Text("Delete \(Self.scheduleSummary(pendingDeletion))? This cannot be undone.")
+            }
+        }
         .sheet(item: $editingWindow) { window in
             ScheduleWindowEditor(window: window) { updated in
                 if let index = state.config.schedules.firstIndex(where: { $0.id == updated.id }) {
@@ -99,6 +133,10 @@ struct SchedulesPane: View {
         return sorted.compactMap { index in
             names.indices.contains(index - 1) ? names[index - 1] : nil
         }.joined(separator: " ")
+    }
+
+    static func scheduleSummary(_ window: ScheduleWindow) -> String {
+        "\(weekdaysSummary(window.weekdays)), \(Format.clock(window.start)) to \(Format.clock(window.end))"
     }
 }
 
@@ -149,6 +187,7 @@ struct ScheduleWindowEditor: View {
         }
         .padding(Theme.s6)
         .frame(width: 420)
+        .background(Theme.canvas)
     }
 
     private func hmBinding(_ source: Binding<HMTime>) -> Binding<Date> {
@@ -167,6 +206,7 @@ struct ScheduleWindowEditor: View {
 
 struct WeekdayPicker: View {
     @Binding var selection: Set<Int>
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: Theme.s1) {
@@ -183,16 +223,22 @@ struct WeekdayPicker: View {
                         .font(.callout.weight(.semibold))
                         .frame(width: 32, height: 32)
                         .background(
-                            isOn ? AnyShapeStyle(Theme.armedGradient) : AnyShapeStyle(.quaternary.opacity(0.5)),
+                            isOn ? Theme.verifiedActive : Theme.surfaceElevated,
                             in: Circle()
                         )
-                        .foregroundStyle(isOn ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+                        .foregroundStyle(isOn ? Theme.textPrimary : Theme.textSecondary)
+                        .overlay(
+                            Circle().strokeBorder(
+                                isOn ? Theme.verifiedActive : Theme.separatorStrong,
+                                lineWidth: 1
+                            )
+                        )
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Calendar.current.weekdaySymbols[day - 1])
                 .accessibilityAddTraits(isOn ? [.isSelected] : [])
             }
         }
-        .animation(Theme.springQuick, value: selection)
+        .animation(reduceMotion ? nil : Theme.quickTransition, value: selection)
     }
 }

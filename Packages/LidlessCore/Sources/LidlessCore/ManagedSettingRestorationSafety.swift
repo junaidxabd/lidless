@@ -61,7 +61,9 @@ public enum ManagedSettingRestorationSafety {
         fromCustom text: String
     ) -> [String: Int]? {
         guard managedKeys.contains(key) else { return nil }
-        let parsed = PMSetParser.parseCustom(text)
+        guard let parsed = try? PMSetParser.parseCustomStrict(text) else {
+            return nil
+        }
         var priors: [String: Int] = [:]
         for scope in Scope.allCases {
             guard let rawValue = parsed[scope.rawValue]?[key],
@@ -130,17 +132,20 @@ public enum ManagedSettingRestorationSafety {
 
     /// Empty plans need no custom readback. Every non-empty plan requires a
     /// newly read value for every scope/key and an exact numeric match.
-    public static func isRestorationProven(
+    public static func isProven(
         for record: OverrideSentinel,
+        target: Target,
         fromCustom text: String?
     ) -> Bool {
-        guard let plan = plan(for: record, target: .restoration) else {
+        guard let plan = plan(for: record, target: target) else {
             return false
         }
         guard !plan.isEmpty else { return true }
         guard let text else { return false }
 
-        let observed = PMSetParser.parseCustom(text)
+        guard let observed = try? PMSetParser.parseCustomStrict(text) else {
+            return false
+        }
         for scopedMutation in plan {
             guard !scopedMutation.settings.isEmpty else { return false }
             for setting in scopedMutation.settings {
@@ -151,6 +156,19 @@ public enum ManagedSettingRestorationSafety {
             }
         }
         return true
+    }
+
+    /// Compatibility spelling retained for recovery call sites and historical
+    /// tests; both activation and restoration now use the same exact proof.
+    public static func isRestorationProven(
+        for record: OverrideSentinel,
+        fromCustom text: String?
+    ) -> Bool {
+        isProven(
+            for: record,
+            target: .restoration,
+            fromCustom: text
+        )
     }
 
     private static func validatedPriors(

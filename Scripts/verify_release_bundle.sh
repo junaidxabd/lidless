@@ -103,6 +103,19 @@ inspect_executable_architectures() {
     /usr/bin/sort -u -o "$architectures_file" "$architectures_file"
 }
 
+require_distribution_architectures() {
+    local label=$1
+    local architectures_file="$VERIFY_TMP/$label.architectures"
+    local required_arch
+
+    [[ -s "$architectures_file" ]] \
+        || fail "$label executable architecture inventory is unavailable"
+    for required_arch in arm64 x86_64; do
+        /usr/bin/grep -Fxq "$required_arch" "$architectures_file" \
+            || fail "$label executable is missing required architecture $required_arch"
+    done
+}
+
 verify_code() {
     local label=$1
     local code_path=$2
@@ -233,6 +246,14 @@ for nested_label in helper widget; do
         "$VERIFY_TMP/$nested_label.architectures" \
         || fail "$nested_label architectures do not match app architectures"
 done
+
+# Matching architecture sets are insufficient: three equally thin binaries
+# would otherwise pass. Distribution requires native Apple Silicon and Intel
+# slices in every executable code object. Check this before identity policy so
+# an unsigned deterministic fixture can exercise the architecture gate itself.
+require_distribution_architectures app
+require_distribution_architectures helper
+require_distribution_architectures widget
 
 verify_code app "$APP" com.lidless.app
 verify_code helper "$HELPER" com.lidless.helper
@@ -409,9 +430,23 @@ require_equal "launchd associated app" '["com.lidless.app"]' \
     "$(/usr/bin/plutil -extract AssociatedBundleIdentifiers json -o - "$LAUNCHD_PLIST")"
 require_equal "launchd Mach service" '{"com.lidless.helper":true}' \
     "$(/usr/bin/plutil -extract MachServices json -o - "$LAUNCHD_PLIST")"
-require_equal "launchd sentinel supervision" \
-    '{"/var/db/lidless/override-active":true}' \
-    "$(/usr/bin/plutil -extract KeepAlive.PathState json -o - "$LAUNCHD_PLIST")"
+launchd_path_state_count=$(
+    /usr/libexec/PlistBuddy -c 'Print :KeepAlive:PathState' "$LAUNCHD_PLIST" \
+        | /usr/bin/grep -c ' = '
+)
+require_equal "launchd recovery path count" 3 "$launchd_path_state_count"
+require_equal "launchd override sentinel supervision" true \
+    "$(/usr/libexec/PlistBuddy \
+        -c 'Print :KeepAlive:PathState:/var/db/lidless/override-active' \
+        "$LAUNCHD_PLIST")"
+require_equal "launchd mutation marker supervision" true \
+    "$(/usr/libexec/PlistBuddy \
+        -c 'Print :KeepAlive:PathState:/var/db/lidless/mutation-in-flight.json' \
+        "$LAUNCHD_PLIST")"
+require_equal "launchd wake marker supervision" true \
+    "$(/usr/libexec/PlistBuddy \
+        -c 'Print :KeepAlive:PathState:/var/db/lidless/scheduled-wake-recovery-required.json' \
+        "$LAUNCHD_PLIST")"
 require_equal "launchd RunAtLoad" true \
     "$(/usr/bin/plutil -extract RunAtLoad raw -o - "$LAUNCHD_PLIST")"
 

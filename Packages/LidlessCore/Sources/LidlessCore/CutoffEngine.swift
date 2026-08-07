@@ -118,6 +118,7 @@ public enum CutoffEngine {
         processThermal: ProcessThermalLevel,
         at now: Date
     ) -> ArmAssessment {
+        let config = config.normalized()
         guard !config.thermalEnabled
                 || ThermalEvidenceSafety.isUsable(thermal, at: now) else {
             return .refusedThermalTelemetryUnavailable
@@ -161,6 +162,7 @@ public enum CutoffEngine {
         armedAt: Date,
         calendar: Calendar
     ) -> [PlannedCutoff] {
+        let config = config.normalized()
         var planned: [PlannedCutoff] = []
         if config.durationEnabled, config.durationSeconds > 0 {
             planned.append(PlannedCutoff(kind: .duration, date: armedAt.addingTimeInterval(config.durationSeconds)))
@@ -178,6 +180,7 @@ public enum CutoffEngine {
         processThermal: ProcessThermalLevel,
         at now: Date
     ) -> Bool {
+        let config = config.normalized()
         guard config.thermalEnabled else { return false }
         let accepted = ThermalEvidenceSafety.accepted(thermal, at: now)
         if let level = accepted?.warningLevel, level > 0 { return true }
@@ -190,9 +193,8 @@ public enum CutoffEngine {
     /// Evaluate one tick of an armed session.
     ///
     /// - Parameter thermalStrikes: consecutive violating readings *before* this
-    ///   one. The thermal cutoff fires when `thermalStrikes + 1` reaches
-    ///   `config.thermalStrikesRequired`, so a single anomalous poll never
-    ///   forces sleep, but a genuinely hot machine is cut off on schedule.
+    ///   one. Serious process pressure and pmset violations retain the configured
+    ///   debounce; critical process pressure fires immediately.
     public static func evaluate(
         config: CutoffConfig,
         armedAt: Date,
@@ -203,6 +205,7 @@ public enum CutoffEngine {
         thermalStrikes: Int = 0,
         calendar: Calendar
     ) -> CutoffEvaluation {
+        let config = config.normalized()
         var fired: [CutoffReason] = []
 
         // Thermal — highest priority.
@@ -213,7 +216,9 @@ public enum CutoffEngine {
             processThermal: processThermal,
             at: now
         )
-        if violation, thermalStrikes + 1 >= max(1, config.thermalStrikesRequired) {
+        let isImmediateCriticalPressure = processThermal == .critical
+        let reachesDebounce = thermalStrikes >= config.thermalStrikesRequired - 1
+        if violation, isImmediateCriticalPressure || reachesDebounce {
             fired.append(.thermal(detail: thermalDetail(
                 config: config,
                 thermal: acceptedThermal,
@@ -265,6 +270,7 @@ public enum CutoffEngine {
         processThermal: ProcessThermalLevel,
         at now: Date
     ) -> String {
+        let config = config.normalized()
         let accepted = ThermalEvidenceSafety.accepted(thermal, at: now)
         if let level = accepted?.warningLevel, level > 0 {
             return "Thermal warning level \(level)"

@@ -5,32 +5,85 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Core tests
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Run LidlessCore tests
         run: swift test --package-path Packages/LidlessCore
 
-  build:
-    name: Build app
+  policy:
+    name: Project drift and script syntax
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: Build (unsigned compile verification)
+        with:
+          persist-credentials: false
+      - name: Check release script syntax
+        run: |
+          /bin/bash -n Scripts/release.sh
+          /bin/bash -n Scripts/verify_release_bundle.sh
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Verify generated project is current
+        run: |
+          xcodegen generate
+          git diff --exit-code -- Lidless.xcodeproj
+
+  build:
+    name: Unsigned ${{ matrix.configuration }} build
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build ${{ matrix.configuration }} (unsigned compile verification)
         run: |
           set -o pipefail
           xcodebuild -project Lidless.xcodeproj -scheme Lidless \
-            -configuration Debug -derivedDataPath build/DerivedData \
-            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build.log | tail -5
+            -configuration "${{ matrix.configuration }}" \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "build/DerivedData-${{ matrix.configuration }}" \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 \
+            | tee "build-${{ matrix.configuration }}.log" | tail -5
       - name: Show compiler errors on failure
         if: failure()
-        run: grep -E "error:" -B 2 -A 4 build.log | head -160
+        run: |
+          grep -E "error:" -B 2 -A 4 \
+            "build-${{ matrix.configuration }}.log" | head -160
       - name: Verify bundle layout
         run: |
-          APP=build/DerivedData/Build/Products/Debug/Lidless.app
+          APP="build/DerivedData-${{ matrix.configuration }}/Build/Products/${{ matrix.configuration }}/Lidless.app"
           test -f "$APP/Contents/MacOS/LidlessHelper"
           test -f "$APP/Contents/Library/LaunchDaemons/com.lidless.helper.plist"
           test -d "$APP/Contents/PlugIns/LidlessWidget.appex"
+
+  analyze:
+    name: Unsigned static analysis
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Analyze app and embedded targets
+        run: |
+          set -o pipefail
+          xcodebuild -project Lidless.xcodeproj -scheme Lidless \
+            -configuration Debug -destination 'generic/platform=macOS' \
+            -derivedDataPath build/DerivedData-analyze \
+            CODE_SIGNING_ALLOWED=NO analyze 2>&1 \
+            | tee analyze.log | tail -5
+      - name: Show analyzer errors on failure
+        if: failure()
+        run: grep -E "error:|warning:" -B 2 -A 4 analyze.log | head -200

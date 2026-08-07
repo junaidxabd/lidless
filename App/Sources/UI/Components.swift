@@ -1,59 +1,175 @@
 import SwiftUI
 import LidlessCore
 
-// MARK: - Status pill
+// MARK: - Proof-first state badge
 
 struct StatusPill: View {
     let presentation: SleepPresentationState
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        Text(label)
-            .font(.caption.weight(.bold))
-            .kerning(0.4)
-            .padding(.horizontal, Theme.s3)
+        Label(label, systemImage: symbol)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, Theme.s2)
             .padding(.vertical, Theme.s1)
-            .background(background, in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(active ? 0.35 : 0.10), lineWidth: 1))
-            .foregroundStyle(foreground)
-            .glow(glowColor, radius: 8, opacity: 0.6)
-            .animation(Theme.springQuick, value: presentation)
-    }
-
-    private var active: Bool {
-        presentation == .verifiedArmed || presentation == .verifyingArm
-    }
-
-    private var warning: Bool {
-        presentation == .outsideOverride || presentation == .unknown
+            .foregroundStyle(color)
+            .background(color.opacity(0.12), in: Capsule())
+            .overlay(Capsule().strokeBorder(color.opacity(0.28), lineWidth: 1))
+            .animation(reduceMotion ? nil : Theme.quickTransition, value: presentation)
+            .accessibilityLabel(accessibilityLabel)
     }
 
     private var label: String {
         switch presentation {
-        case .verifiedNormal: "OFF"
-        case .verifyingArm: "CHECKING"
-        case .verifiedArmed: "AWAKE"
+        case .verifiedNormal: "VERIFIED NORMAL"
+        case .verifyingArm: "VERIFYING"
+        case .verifiedArmed: "KEEP-AWAKE ON"
         case .restoring: "RESTORING"
-        case .outsideOverride: "WARNING"
-        case .unknown: "CHECK"
+        case .outsideOverride: "OUTSIDE OVERRIDE"
+        case .unknown: "UNVERIFIED"
         }
     }
 
-    private var background: AnyShapeStyle {
-        if active { return AnyShapeStyle(Theme.armedGradient) }
-        if warning { return AnyShapeStyle(Theme.ember.opacity(0.16)) }
-        return AnyShapeStyle(.white.opacity(0.06))
+    private var symbol: String {
+        switch presentation {
+        case .verifiedNormal: "checkmark.circle.fill"
+        case .verifyingArm: "hourglass"
+        case .verifiedArmed: "bolt.fill"
+        case .restoring: "arrow.triangle.2.circlepath"
+        case .outsideOverride: "exclamationmark.triangle.fill"
+        case .unknown: "questionmark.circle.fill"
+        }
     }
 
-    private var foreground: AnyShapeStyle {
-        if active { return AnyShapeStyle(.white) }
-        if warning { return AnyShapeStyle(Theme.ember) }
-        return AnyShapeStyle(.white.opacity(0.55))
+    private var color: Color {
+        switch presentation {
+        case .verifiedNormal: Theme.verifiedNormal
+        case .verifyingArm, .restoring: Theme.transition
+        case .verifiedArmed: Theme.verifiedActive
+        case .outsideOverride: Theme.caution
+        case .unknown: Theme.critical
+        }
     }
 
-    private var glowColor: Color {
-        if active { return Theme.cyan }
-        if warning { return Theme.ember }
-        return .clear
+    private var accessibilityLabel: String {
+        switch presentation {
+        case .verifiedNormal: "Sleep state: normal sleep verified"
+        case .verifyingArm: "Sleep state: verifying keep-awake"
+        case .verifiedArmed: "Sleep state: keep-awake verified"
+        case .restoring: "Sleep state: restoring normal sleep"
+        case .outsideOverride: "Sleep state: outside override detected"
+        case .unknown: "Sleep state: unverified"
+        }
+    }
+}
+
+// MARK: - Canonical primary action
+
+enum PrimaryActionSemantic: Equatable {
+    case keepAwake
+    case restoreNormalSleep
+    case checkAgain
+    case progress
+}
+
+extension SleepPresentationState {
+    var primaryActionSemantic: PrimaryActionSemantic {
+        switch self {
+        case .verifiedNormal: .keepAwake
+        case .verifiedArmed, .outsideOverride: .restoreNormalSleep
+        case .unknown: .checkAgain
+        case .verifyingArm, .restoring: .progress
+        }
+    }
+}
+
+/// The single prominent action shared by panel and overview. Its visible and
+/// accessibility semantics come only from the canonical sleep presentation;
+/// a pending confirmation cannot silently turn a Keep Awake control into
+/// Cancel, and transitional states cannot dispatch a second mutation.
+struct PrimaryActionButton: View {
+    let presentation: SleepPresentationState
+    var actionAvailable = true
+    let keepAwake: () -> Void
+    let restoreNormalSleep: () -> Void
+    let checkAgain: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var semantic: PrimaryActionSemantic {
+        presentation.primaryActionSemantic
+    }
+
+    var body: some View {
+        Button(action: performAction) {
+            HStack(spacing: Theme.s2) {
+                if semantic == .progress {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: symbol)
+                        .accessibilityHidden(true)
+                }
+                Text(title)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .tint(tint)
+        .disabled(!actionAvailable || semantic == .progress)
+        .animation(reduceMotion ? nil : Theme.quickTransition, value: presentation)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint(accessibilityHint)
+    }
+
+    private var title: String {
+        switch semantic {
+        case .keepAwake: "Keep Awake…"
+        case .restoreNormalSleep: "Restore Normal Sleep"
+        case .checkAgain: "Check Again"
+        case .progress:
+            presentation == .verifyingArm ? "Verifying…" : "Restoring…"
+        }
+    }
+
+    private var symbol: String {
+        switch semantic {
+        case .keepAwake: "bolt"
+        case .restoreNormalSleep: "moon.zzz.fill"
+        case .checkAgain: "arrow.clockwise"
+        case .progress: "hourglass"
+        }
+    }
+
+    private var tint: Color {
+        switch presentation {
+        case .verifiedNormal, .verifiedArmed: Theme.verifiedActive
+        case .outsideOverride: Theme.caution
+        case .unknown: Theme.critical
+        case .verifyingArm, .restoring: Theme.surfaceElevated
+        }
+    }
+
+    private var accessibilityLabel: String { title }
+
+    private var accessibilityHint: String {
+        switch semantic {
+        case .keepAwake: "Reviews safety limits before changing system sleep behavior"
+        case .restoreNormalSleep: "Requests and verifies normal system sleep behavior"
+        case .checkAgain: "Checks the system sleep state again"
+        case .progress: "Wait for verification to finish"
+        }
+    }
+
+    private func performAction() {
+        switch semantic {
+        case .keepAwake: keepAwake()
+        case .restoreNormalSleep: restoreNormalSleep()
+        case .checkAgain: checkAgain()
+        case .progress: break
+        }
     }
 }
 
@@ -64,9 +180,9 @@ enum BannerKind {
 
     var color: Color {
         switch self {
-        case .warning: Theme.ember
-        case .error: Color(red: 1.0, green: 0.36, blue: 0.36)
-        case .info: Theme.cyan
+        case .warning: Theme.caution
+        case .error: Theme.critical
+        case .info: Theme.verifiedActive
         }
     }
 
@@ -88,55 +204,39 @@ struct Banner<Actions: View>: View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.s2) {
             Image(systemName: kind.symbol)
                 .foregroundStyle(kind.color)
-                .glow(kind.color, radius: 6, opacity: 0.7)
+                .accessibilityHidden(true)
             Text(message)
                 .font(.callout)
-                .foregroundStyle(.white.opacity(0.9))
+                .foregroundStyle(Theme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             actions
         }
         .padding(Theme.s3)
-        .background(kind.color.opacity(0.10), in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .background(Theme.surfaceElevated, in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                .strokeBorder(kind.color.opacity(0.35), lineWidth: 1)
+                .strokeBorder(kind.color.opacity(0.36), lineWidth: 1)
         )
     }
 }
 
-// MARK: - Preset chips
+// MARK: - Preset controls
 
 struct PresetChip: View {
     let title: String
     let systemImage: String
     let action: () -> Void
 
-    @State private var hovering = false
-
     var body: some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
                 .font(.callout.weight(.medium))
                 .lineLimit(1)
-                .fixedSize()
-                .foregroundStyle(hovering ? AnyShapeStyle(.white) : AnyShapeStyle(.white.opacity(0.75)))
-                .padding(.horizontal, Theme.s3)
-                .padding(.vertical, 7)
         }
-        .buttonStyle(.plain)
-        .background(.white.opacity(hovering ? 0.12 : 0.06), in: Capsule())
-        .overlay(
-            Capsule().strokeBorder(
-                hovering ? Theme.cyan.opacity(0.6) : .white.opacity(0.10),
-                lineWidth: 1
-            )
-        )
-        .glow(hovering ? Theme.cyan : .clear, radius: 8, opacity: 0.35)
-        .scaleEffect(hovering ? 1.04 : 1)
-        .contentShape(Capsule())
-        .onHover { hovering = $0 }
-        .animation(Theme.springQuick, value: hovering)
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .tint(Theme.verifiedActive)
     }
 }
 
@@ -148,21 +248,19 @@ struct StatCell: View {
     let value: String
     var detail: String? = nil
     var tint: Color = .secondary
-    /// Armed state lights the numerals with the accent gradient.
     var lit: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.s1) {
             Label(title, systemImage: systemImage)
                 .font(.caption)
-                .foregroundStyle(.white.opacity(0.45))
-                .labelStyle(.titleAndIcon)
+                .foregroundStyle(Theme.textSecondary)
             valueText
                 .contentTransition(.numericText())
             if let detail {
                 Text(detail)
                     .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.35))
+                    .foregroundStyle(Theme.textTertiary)
                     .lineLimit(1)
             }
         }
@@ -179,28 +277,17 @@ struct StatCell: View {
                 .font(font)
                 .monospacedDigit()
                 .foregroundStyle(tint)
-                .glow(tint, radius: 6, opacity: 0.5)
-        } else if lit {
-            GlowText(
-                text: value,
-                font: font,
-                gradient: Theme.armedGradient,
-                glowColor: Theme.cyan,
-                glowRadius: 6
-            )
         } else {
             Text(value)
                 .font(font)
                 .monospacedDigit()
-                .foregroundStyle(.white.opacity(0.92))
+                .foregroundStyle(lit ? Theme.verifiedActive : Theme.textPrimary)
         }
     }
 }
 
 // MARK: - Stat strip
 
-/// One quiet nested surface holding the live numbers, hairline-divided —
-/// a single strip instead of a grid of competing cards.
 struct StatStrip: View {
     struct Item {
         var icon: String
@@ -226,48 +313,32 @@ struct StatStrip: View {
                 cell(item)
                 if index < items.count - 1 {
                     Rectangle()
-                        .fill(.white.opacity(0.08))
+                        .fill(Theme.separator)
                         .frame(width: 1, height: 40)
                 }
             }
         }
         .padding(.vertical, Theme.s3)
-        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                .strokeBorder(Theme.separator, lineWidth: 1)
         )
     }
 
     private func cell(_ item: Item) -> some View {
         VStack(spacing: Theme.s1) {
-            valueText(item)
+            Text(item.value)
+                .font(.body.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(item.tint ?? (item.lit ? Theme.verifiedActive : Theme.textPrimary))
                 .contentTransition(.numericText())
             Label(item.caption, systemImage: item.icon)
                 .font(.caption2)
-                .foregroundStyle(.white.opacity(0.4))
+                .foregroundStyle(Theme.textSecondary)
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity)
-    }
-
-    @ViewBuilder
-    private func valueText(_ item: Item) -> some View {
-        let font = Font.system(.body, design: .rounded).weight(.semibold)
-        if let tint = item.tint {
-            Text(item.value)
-                .font(font)
-                .monospacedDigit()
-                .foregroundStyle(tint)
-                .glow(tint, radius: 6, opacity: 0.5)
-        } else if item.lit {
-            GlowText(text: item.value, font: font, gradient: Theme.armedGradient, glowColor: Theme.cyan, glowRadius: 5)
-        } else {
-            Text(item.value)
-                .font(font)
-                .monospacedDigit()
-                .foregroundStyle(.white.opacity(0.92))
-        }
     }
 }
 
@@ -278,17 +349,14 @@ struct FooterButton: View {
     let systemImage: String
     let action: () -> Void
 
-    @State private var hovering = false
-
     var body: some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
                 .font(.callout)
-                .foregroundStyle(.white.opacity(hovering ? 0.95 : 0.5))
         }
-        .buttonStyle(.plain)
-        .animation(Theme.springQuick, value: hovering)
-        .onHover { hovering = $0 }
+        .buttonStyle(.borderless)
+        .controlSize(.small)
+        .foregroundStyle(Theme.textSecondary)
     }
 }
 

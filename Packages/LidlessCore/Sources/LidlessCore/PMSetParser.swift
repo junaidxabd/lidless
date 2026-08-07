@@ -6,6 +6,12 @@ import Foundation
 /// to nil, never to a guess.
 public enum PMSetParser {
 
+    public enum CustomOutputError: Error, Sendable, Equatable {
+        case malformedLine(Int)
+        case duplicateSection(String)
+        case duplicateKey(section: String, key: String)
+    }
+
     // MARK: - `pmset -g therm`
 
     /// Intel output:
@@ -77,6 +83,57 @@ public enum PMSetParser {
             let tokens = line.split(separator: " ", omittingEmptySubsequences: true)
             guard tokens.count >= 2, let value = tokens.last else { continue }
             let key = tokens.dropLast().joined(separator: " ")
+            result[section]?[key] = String(value)
+        }
+        return result
+    }
+
+    /// Strict variant for postcondition and prior-state evidence. Unlike the
+    /// tolerant display/accessor parser, this rejects output whose structure
+    /// could hide, overwrite, or ambiguously attribute a setting.
+    public static func parseCustomStrict(
+        _ text: String
+    ) throws -> [String: [String: String]] {
+        var result: [String: [String: String]] = [:]
+        var currentSection: String?
+        var seenSections: Set<String> = []
+
+        for (offset, rawLine) in text.components(separatedBy: .newlines).enumerated() {
+            let lineNumber = offset + 1
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty else { continue }
+
+            if line.hasSuffix(":") {
+                let isIndented = rawLine.first == " " || rawLine.first == "\t"
+                let section = String(line.dropLast())
+                    .trimmingCharacters(in: .whitespaces)
+                guard !isIndented,
+                      !section.isEmpty,
+                      !section.contains(":") else {
+                    throw CustomOutputError.malformedLine(lineNumber)
+                }
+                guard seenSections.insert(section).inserted else {
+                    throw CustomOutputError.duplicateSection(section)
+                }
+                currentSection = section
+                result[section] = [:]
+                continue
+            }
+
+            guard let section = currentSection else {
+                throw CustomOutputError.malformedLine(lineNumber)
+            }
+            let tokens = line.split(whereSeparator: { $0.isWhitespace })
+            guard tokens.count >= 2, let value = tokens.last else {
+                throw CustomOutputError.malformedLine(lineNumber)
+            }
+            let key = tokens.dropLast().joined(separator: " ")
+            guard !key.isEmpty else {
+                throw CustomOutputError.malformedLine(lineNumber)
+            }
+            guard result[section]?[key] == nil else {
+                throw CustomOutputError.duplicateKey(section: section, key: key)
+            }
             result[section]?[key] = String(value)
         }
         return result

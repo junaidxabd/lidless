@@ -39,20 +39,12 @@ final class HelperLog: @unchecked Sendable {
         append("CRIT  \(message)")
     }
 
-    /// After uninstall removes /var/db/lidless, any further file append
-    /// would recreate it — switch to unified-log only. Synchronous so
-    /// already-enqueued appends drain before the caller deletes the
-    /// directory (the log queue never targets the caller's queue).
+    /// If the helper cannot prove its storage root is trusted, any file append
+    /// could target an attacker-controlled path. Switch to unified-log only.
+    /// Synchronous so already-enqueued appends drain before recovery continues
+    /// (the log queue never targets the caller's queue).
     func disableFileSink() {
         queue.sync { self.fileSinkEnabled = false }
-    }
-
-    /// A failed removal attempt leaves the daemon installed and able to
-    /// retry. Restore its file audit sink before reporting failure so later
-    /// recovery work remains locally inspectable. Synchronous for the same
-    /// ordering reason as `disableFileSink()`.
-    func enableFileSink() {
-        queue.sync { self.fileSinkEnabled = true }
     }
 
     private func append(_ line: String) {

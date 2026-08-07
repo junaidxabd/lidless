@@ -161,7 +161,7 @@ struct DelayedSleepSafetyTests {
         #expect(arm.contains("advanceLifecycle()"))
         #expect(disarm.contains("advanceLifecycle()"))
         #expect(repair.contains("advanceLifecycle()"))
-        #expect(uninstall.contains("advanceLifecycle()"))
+        #expect(!uninstall.contains("advanceLifecycle()"))
         #expect(power.contains("advanceLifecycle()"))
         #expect(disarm.contains("let forceSleepGeneration = lifecycleGeneration"))
         #expect(disarm.contains("let forceSleepCreatedAt = DispatchTime.now().uptimeNanoseconds"))

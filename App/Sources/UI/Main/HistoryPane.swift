@@ -8,6 +8,12 @@ struct HistoryPane: View {
     @Environment(AppState.self) private var state
     @State private var selectedID: UUID?
     @State private var confirmingClear = false
+    private let rendersEvidence: Bool
+
+    init(initialSelection: UUID? = nil, rendersEvidence: Bool = false) {
+        _selectedID = State(initialValue: initialSelection)
+        self.rendersEvidence = rendersEvidence
+    }
 
     var body: some View {
         Group {
@@ -18,14 +24,25 @@ struct HistoryPane: View {
                     Text("After your first keep-awake session, its duration, cutoff, and battery curve appear here.")
                 }
             } else {
-                HSplitView {
-                    list
-                        .frame(minWidth: 300, idealWidth: 340, maxWidth: 420)
-                    detail
-                        .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
+                if rendersEvidence {
+                    HStack(spacing: 0) {
+                        deterministicHistoryList
+                            .frame(width: 340)
+                        Divider()
+                        detail
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                } else {
+                    HSplitView {
+                        list
+                            .frame(minWidth: 300, idealWidth: 340, maxWidth: 420)
+                        detail
+                            .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
             }
         }
+        .background(Theme.canvas)
         .navigationTitle("History")
         .toolbar {
             if !state.sessionStore.sessions.isEmpty {
@@ -39,9 +56,11 @@ struct HistoryPane: View {
                     isPresented: $confirmingClear
                 ) {
                     Button("Clear History", role: .destructive) {
-                        state.sessionStore.clearHistory()
-                        selectedID = nil
+                        if state.clearSessionHistory() {
+                            selectedID = nil
+                        }
                     }
+                    Button("Cancel", role: .cancel) {}
                 }
             }
         }
@@ -56,14 +75,47 @@ struct HistoryPane: View {
         .scrollContentBackground(.hidden)
     }
 
+    /// Native List selection remains the production surface. AppKit does not
+    /// rasterize that backing view reliably offscreen, so evidence renders use
+    /// this fixed mirror with the same row and explicit selected treatment.
+    private var deterministicHistoryList: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(state.sessionStore.sessions) { session in
+                    SessionRow(session: session)
+                        .padding(.horizontal, Theme.s3)
+                        .padding(.vertical, Theme.s2)
+                        .background(
+                            session.id == selectedID
+                                ? Theme.surfaceElevated
+                                : Theme.canvas
+                        )
+                        .overlay(alignment: .leading) {
+                            if session.id == selectedID {
+                                Rectangle()
+                                    .fill(Theme.verifiedActive)
+                                    .frame(width: 3)
+                            }
+                        }
+                        .accessibilityAddTraits(
+                            session.id == selectedID ? .isSelected : []
+                        )
+                }
+            }
+        }
+        .background(Theme.canvas)
+    }
+
     @ViewBuilder
     private var detail: some View {
-        let session = state.sessionStore.sessions.first { $0.id == selectedID }
-            ?? state.sessionStore.sessions.first
-        if let session {
+        if let session = state.sessionStore.sessions.first(where: { $0.id == selectedID }) {
             SessionDetailView(session: session)
         } else {
-            Color.clear
+            ContentUnavailableView(
+                "Select a session",
+                systemImage: "clock.arrow.circlepath",
+                description: Text("Choose a session in the history list to inspect its verified record.")
+            )
         }
     }
 
@@ -84,6 +136,7 @@ struct HistoryPane: View {
         case .helperWatchdog: "Watchdog restore"
         case .helperRestored: "Helper restarted"
         case .helperProofLost: "Safety proof lost"
+        case .persistenceFailure: "Session record failure"
         case .systemSlept: "Mac was put to sleep"
         case .uninstalled: "Uninstalled"
         }
@@ -134,7 +187,7 @@ struct Sparkline: View {
                 x: .value("t", sample.time),
                 y: .value("%", sample.percent)
             )
-            .foregroundStyle(Theme.armed)
+            .foregroundStyle(Theme.verifiedActive)
             .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round))
         }
         .chartYScale(domain: 0...100)

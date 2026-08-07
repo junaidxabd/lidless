@@ -61,6 +61,7 @@ public struct ThermalStrikeTracker: Sendable {
     public private(set) var count = 0
 
     private var lastViolatingPMSetSample: Date?
+    private var lastViolatingObservationAt: Date?
     private var nextStrikeAllowedAt = Date.distantPast
 
     public init() {}
@@ -72,6 +73,7 @@ public struct ThermalStrikeTracker: Sendable {
         processThermal: ProcessThermalLevel,
         at now: Date
     ) -> Int {
+        let config = config.normalized()
         guard config.thermalEnabled else {
             reset()
             return count
@@ -89,10 +91,24 @@ public struct ThermalStrikeTracker: Sendable {
             return count
         }
 
-        guard now >= nextStrikeAllowedAt else { return count }
-
         let newPMSetSample = pmsetViolation
             && accepted?.sampledAt != lastViolatingPMSetSample
+
+        let previousObservationAt = lastViolatingObservationAt
+        lastViolatingObservationAt = now
+        if let previousObservationAt, now < previousObservationAt {
+            if newPMSetSample {
+                lastViolatingPMSetSample = accepted?.sampledAt
+            }
+            count = max(count, config.thermalStrikesRequired)
+            nextStrikeAllowedAt = now.addingTimeInterval(
+                ThermalEvidenceSafety.minimumStrikeInterval
+            )
+            return count
+        }
+
+        guard now >= nextStrikeAllowedAt else { return count }
+
         let hasNewEvidence = newPMSetSample || processViolation
 
         if hasNewEvidence {
@@ -110,6 +126,7 @@ public struct ThermalStrikeTracker: Sendable {
     public mutating func reset() {
         count = 0
         lastViolatingPMSetSample = nil
+        lastViolatingObservationAt = nil
         nextStrikeAllowedAt = .distantPast
     }
 }

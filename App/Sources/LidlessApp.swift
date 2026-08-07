@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+#if !LIDLESS_APP_RENDER_HARNESS
 @main
 struct LidlessApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -23,8 +24,8 @@ struct LidlessApp: App {
     }
 
     var body: some Scene {
-        // Locked to dark: the interface is built around glow-on-void; light
-        // mode would wash the state language out.
+        // The fixed dark palette is part of the safety instrument: proof,
+        // warning, and unknown colors are tested against this ground.
         MenuBarExtra {
             MenuPanelView()
                 .environment(state)
@@ -45,12 +46,12 @@ struct LidlessApp: App {
         .defaultLaunchBehavior(.suppressed)
     }
 }
+#endif
 
 // MARK: - Menu bar label (the always-present indicator)
 
-/// The one UI element that is always on screen. Its icon states are the
-/// "never silently on" contract: filled eye = override active via a session,
-/// slashed eye = normal sleep, warning eye = override on outside Lidless.
+/// The one UI element that is always on screen. Moon, bolt, transition,
+/// warning, and unknown symbols mirror the canonical sleep presentation.
 /// It also hosts the openWindow bridge, since it's the only view guaranteed
 /// to be alive for the app's whole lifetime.
 private struct MenuBarLabel: View {
@@ -136,7 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // copy must not promise a verification Lidless has stopped
             // attempting — or a retry that will not clear this state.
             state.lastError = state.automaticRecoveryStopped
-                ? "Lidless stopped automatic recovery because the helper uses an unsupported wire protocol, so it cannot verify normal sleep and will not report restoration. Use the emergency sleep recovery command in Setup & Help and verify normal sleep. Lidless cannot clear this state itself, so quitting from the menu stays blocked. Force-quitting cannot make the sleep setting worse — Lidless has already stopped changing it — and ending the app's connection is a signal a Lidless helper treats as a reason to restore normal sleep. Contact Lidless support."
+                ? "Lidless stopped automatic recovery because the helper uses an unsupported wire protocol, so it cannot verify how an incompatible helper will respond when the app connection ends or verify normal sleep. Use the emergency sleep recovery command in Setup & Help and independently verify normal sleep. Lidless cannot clear this state itself, so quitting from the menu stays blocked. Force-quitting ends app-side verification; it is not proof of recovery and may change helper behavior. Keep Lidless open if possible and contact support for a reviewed recovery procedure."
                 : "Lidless is still restoring normal sleep. Keep the app open until restoration is verified."
             // Overview renders neither `lastError` nor anything but the
             // `.restoring` hero, so open the pane that shows the message and

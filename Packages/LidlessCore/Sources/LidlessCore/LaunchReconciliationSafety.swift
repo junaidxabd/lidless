@@ -10,7 +10,7 @@ public enum LaunchReconciliationSafety {
         public var hasPendingRestore: Bool
         public var armRequestsInFlight: Int
         public var terminationPending: Bool
-        public var uninstallInProgress: Bool
+        public var helperRegistrationInProgress: Bool
         public var sleepTerminationInProgress: Bool
         public var helperReachable: Bool
         public var helperProofEpoch: UInt64
@@ -25,7 +25,7 @@ public enum LaunchReconciliationSafety {
             hasPendingRestore: Bool,
             armRequestsInFlight: Int,
             terminationPending: Bool,
-            uninstallInProgress: Bool,
+            helperRegistrationInProgress: Bool,
             sleepTerminationInProgress: Bool,
             helperReachable: Bool,
             helperProofEpoch: UInt64,
@@ -39,7 +39,7 @@ public enum LaunchReconciliationSafety {
             self.hasPendingRestore = hasPendingRestore
             self.armRequestsInFlight = armRequestsInFlight
             self.terminationPending = terminationPending
-            self.uninstallInProgress = uninstallInProgress
+            self.helperRegistrationInProgress = helperRegistrationInProgress
             self.sleepTerminationInProgress = sleepTerminationInProgress
             self.helperReachable = helperReachable
             self.helperProofEpoch = helperProofEpoch
@@ -120,7 +120,7 @@ public enum LaunchReconciliationSafety {
             && !context.hasPendingRestore
             && context.armRequestsInFlight == 0
             && !context.terminationPending
-            && !context.uninstallInProgress
+            && !context.helperRegistrationInProgress
             && !context.sleepTerminationInProgress
             && context.helperReachable
             && context.helperLifecycleOperationsInFlight == 0

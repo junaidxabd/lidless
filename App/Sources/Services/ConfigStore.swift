@@ -8,16 +8,27 @@ enum AppPaths {
         return base.appendingPathComponent("Lidless", isDirectory: true)
     }
 
-    static func ensureSupportDirectory() -> URL {
+    static func ensureSupportDirectory() throws -> URL {
         let url = supportDirectory()
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
 }
 
+enum StorePersistenceResult: Equatable {
+    case notAttempted
+    case succeeded
+    case failed(String)
+
+    var errorMessage: String? {
+        guard case .failed(let message) = self else { return nil }
+        return message
+    }
+}
+
 /// All user preferences, persisted as one JSON document in Application
-/// Support (not UserDefaults: one legible file the user can inspect, and
-/// exactly one thing to delete at uninstall).
+/// Support (not UserDefaults: one legible file the user can inspect and back
+/// up independently of any privileged-helper lifecycle).
 @MainActor
 @Observable
 final class ConfigStore {
@@ -32,6 +43,10 @@ final class ConfigStore {
     private var config: AppConfig {
         didSet { if config != oldValue { persist() } }
     }
+
+    private(set) var lastPersistenceError: String?
+    private(set) var lastLoadResult: StorePersistenceResult = .notAttempted
+    private(set) var lastSaveResult: StorePersistenceResult = .notAttempted
 
     var cutoffs: CutoffConfig {
         get { config.cutoffs }
@@ -68,26 +83,66 @@ final class ConfigStore {
 
     init(ephemeral: Bool = false) {
         self.ephemeral = ephemeral
-        if !ephemeral,
-           let data = try? Data(contentsOf: Self.fileURL()),
-           let loaded = IPCCoding.decode(AppConfig.self, from: data) {
-            config = loaded
-        } else {
-            config = AppConfig()
-        }
-    }
-
-    private func persist() {
+        config = AppConfig()
         guard !ephemeral else { return }
-        _ = AppPaths.ensureSupportDirectory()
-        try? IPCCoding.encoder().encode(config).write(to: Self.fileURL(), options: .atomic)
+
+        let url = Self.fileURL()
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            lastLoadResult = .succeeded
+            return
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            config = try IPCCoding.decoder().decode(AppConfig.self, from: data)
+            lastLoadResult = .succeeded
+        } catch {
+            let message = "Settings could not be loaded (\(error.localizedDescription)). Lidless is using safe defaults; check access to Application Support."
+            lastLoadResult = .failed(message)
+            lastPersistenceError = message
+        }
     }
 
-    /// Uninstall support: removes every file the app ever wrote.
-    static func deleteAllData() {
-        try? FileManager.default.removeItem(at: AppPaths.supportDirectory())
-        for widgetData in WidgetStore.allSnapshotURLs() {
-            try? FileManager.default.removeItem(at: widgetData)
+    @discardableResult
+    private func persist() -> StorePersistenceResult {
+        guard !ephemeral else { return .notAttempted }
+        do {
+            _ = try AppPaths.ensureSupportDirectory()
+            let data = try IPCCoding.encoder().encode(config)
+            try data.write(to: Self.fileURL(), options: .atomic)
+            return recordSave(.succeeded)
+        } catch {
+            let message = "Settings could not be saved (\(error.localizedDescription)). Changes remain active for this run; check access to Application Support."
+            return recordSave(.failed(message))
         }
+    }
+
+    /// Explicit local-data reset support. This does not remove or alter the
+    /// privileged helper and is not exposed as automatic helper cleanup.
+    @discardableResult
+    func deleteAllData() -> StorePersistenceResult {
+        guard !ephemeral else { return .notAttempted }
+        do {
+            let support = AppPaths.supportDirectory()
+            if FileManager.default.fileExists(atPath: support.path) {
+                try FileManager.default.removeItem(at: support)
+            }
+            for widgetData in WidgetStore.allSnapshotURLs()
+            where FileManager.default.fileExists(atPath: widgetData.path) {
+                try FileManager.default.removeItem(at: widgetData)
+            }
+            return recordSave(.succeeded)
+        } catch {
+            let message = "Lidless data could not be fully deleted (\(error.localizedDescription)). Check Application Support before retrying."
+            return recordSave(.failed(message))
+        }
+    }
+
+    @discardableResult
+    private func recordSave(
+        _ result: StorePersistenceResult
+    ) -> StorePersistenceResult {
+        lastSaveResult = result
+        lastPersistenceError = result.errorMessage
+        return result
     }
 }

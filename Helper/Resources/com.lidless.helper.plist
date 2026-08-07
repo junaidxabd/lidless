@@ -19,15 +19,19 @@
 	     survives a crash or power loss. Actual recovery remains a live gate. -->
 	<key>RunAtLoad</key>
 	<true/>
-	<!-- While the sleep override is active (sentinel file exists), PathState
-	     requests that launchd keep/relaunch the helper. Actual relaunch and
-	     crash-recovery behavior remain live validation gates. Once the
-	     sentinel is gone, the helper may idle-exit freely. -->
+	<!-- While an override sentinel, mutating-command marker, or scheduled-wake
+	     reconciliation marker exists, PathState requests that launchd
+	     keep/relaunch the helper. Actual relaunch and crash-recovery behavior
+	     remain live validation gates. -->
 	<key>KeepAlive</key>
 	<dict>
 		<key>PathState</key>
 		<dict>
 			<key>/var/db/lidless/override-active</key>
+			<true/>
+			<key>/var/db/lidless/mutation-in-flight.json</key>
+			<true/>
+			<key>/var/db/lidless/scheduled-wake-recovery-required.json</key>
 			<true/>
 		</dict>
 	</dict>

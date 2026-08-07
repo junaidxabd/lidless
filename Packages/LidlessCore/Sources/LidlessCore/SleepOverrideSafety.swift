@@ -56,39 +56,14 @@ public enum SleepOverrideSafety {
     /// Normal-sleep recovery is de-risking rather than risk-increasing. A
     /// responder with the current wire protocol can therefore participate in
     /// restoration even when its behavior revision is missing, older, or
-    /// newer — but only through the two-source proof overloads below. Arming,
-    /// one-source helper decisions, and destructive cleanup/removal use their
-    /// stricter revision-specific gates.
+    /// newer — but only through the two-source proof overloads below. Arming
+    /// and one-source helper decisions use their stricter exact-current gate.
     public static func isRecoveryCompatibleHelper(_ status: HelperStatus) -> Bool {
         isRecoveryCompatibleHelperVersion(status.helperVersion)
     }
 
     public static func isRecoveryCompatibleHelperVersion(_ version: Int) -> Bool {
         version == LidlessIDs.helperVersion
-    }
-
-    /// Cleanup can restore optional settings, cancel persisted wakes, delete
-    /// helper data, and authorize deregistration. Those effects require a
-    /// reviewed behavior revision in addition to wire compatibility. The
-    /// current revision supports ordinary removal; the explicitly pinned
-    /// predecessor supports this one bounded replacement path.
-    public static func isReviewedCleanupCompatibleHelper(
-        _ status: HelperStatus
-    ) -> Bool {
-        guard isRecoveryCompatibleHelper(status),
-              let revision = status.helperSafetyRevision
-        else { return false }
-        return revision == LidlessIDs.helperSafetyRevision
-            || revision == LidlessIDs.reviewedStaleReplacementSafetyRevision
-    }
-
-    public static func isReviewedStaleReplacementCompatible(
-        helperVersion: Int,
-        helperSafetyRevision: Int?
-    ) -> Bool {
-        isRecoveryCompatibleHelperVersion(helperVersion)
-            && helperSafetyRevision
-                == LidlessIDs.reviewedStaleReplacementSafetyRevision
     }
 
     /// The app may expose an armed session only when the helper confirms it

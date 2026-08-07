@@ -14,6 +14,12 @@ struct ReleasePolicySourceTests {
         let app: URL
     }
 
+    private struct FixtureError: LocalizedError {
+        let message: String
+
+        var errorDescription: String? { message }
+    }
+
     private func repositoryURL(_ relativePath: String) throws -> URL {
         var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         let fileManager = FileManager.default
@@ -33,6 +39,12 @@ struct ReleasePolicySourceTests {
         try String(contentsOf: repositoryURL(relativePath), encoding: .utf8)
     }
 
+    private func repositoryRoot() throws -> URL {
+        try repositoryURL("Scripts/verify_release_bundle.sh")
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
     private func writePlist(_ value: [String: Any], to destination: URL) throws {
         let data = try PropertyListSerialization.data(
             fromPropertyList: value,
@@ -44,7 +56,8 @@ struct ReleasePolicySourceTests {
 
     private func makeUnsignedFixture() throws -> UnsignedFixture {
         let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
+        let root = try repositoryRoot()
+            .appendingPathComponent(".build/local-cache/release-policy-fixtures")
             .appendingPathComponent("lidless-release-policy-\(UUID().uuidString)")
         let app = root.appendingPathComponent("Lidless.app")
         let appMacOS = app.appendingPathComponent("Contents/MacOS")
@@ -60,13 +73,51 @@ struct ReleasePolicySourceTests {
             )
         }
 
+        let source = root.appendingPathComponent("fixture-main.c")
+        let universalExecutable = root.appendingPathComponent("fixture-universal")
+        try Data("int main(void) { return 0; }\n".utf8).write(
+            to: source,
+            options: .atomic
+        )
+        let compilation = try runProcess(
+            "/usr/bin/clang",
+            arguments: [
+                "-arch", "arm64",
+                "-arch", "x86_64",
+                source.path,
+                "-o", universalExecutable.path,
+            ]
+        )
+        guard compilation.status == 0 else {
+            throw FixtureError(
+                message: "could not build deterministic universal fixture: "
+                    + compilation.standardError
+            )
+        }
+        let architectureInventory = try runProcess(
+            "/usr/bin/lipo",
+            arguments: ["-archs", universalExecutable.path]
+        )
+        let architectures = Set(
+            architectureInventory.standardOutput.split(whereSeparator: \.isWhitespace)
+                .map(String.init)
+        )
+        guard architectureInventory.status == 0,
+              architectures == Set(["arm64", "x86_64"]) else {
+            throw FixtureError(
+                message: "deterministic fixture has unexpected architectures: "
+                    + architectureInventory.standardOutput
+                    + architectureInventory.standardError
+            )
+        }
+
         for destination in [
             appMacOS.appendingPathComponent("Lidless"),
             appMacOS.appendingPathComponent("LidlessHelper"),
             widgetMacOS.appendingPathComponent("LidlessWidget"),
         ] {
             try fileManager.copyItem(
-                at: URL(fileURLWithPath: "/bin/ls"),
+                at: universalExecutable,
                 to: destination
             )
             try fileManager.setAttributes(
@@ -105,7 +156,8 @@ struct ReleasePolicySourceTests {
 
     private func runProcess(
         _ executable: String,
-        arguments: [String]
+        arguments: [String],
+        environmentOverrides: [String: String] = [:]
     ) throws -> VerifierResult {
         let process = Process()
         let standardOutput = Pipe()
@@ -114,8 +166,12 @@ struct ReleasePolicySourceTests {
         process.arguments = arguments
         process.standardOutput = standardOutput
         process.standardError = standardError
+        process.currentDirectoryURL = try repositoryRoot()
         var environment = ProcessInfo.processInfo.environment
         environment.removeValue(forKey: "BASH_ENV")
+        for (key, value) in environmentOverrides {
+            environment[key] = value
+        }
         process.environment = environment
         try process.run()
         process.waitUntilExit()
@@ -135,6 +191,9 @@ struct ReleasePolicySourceTests {
             arguments: [
                 repositoryURL("Scripts/verify_release_bundle.sh").path,
                 app.path,
+            ],
+            environmentOverrides: [
+                "TMPDIR": app.deletingLastPathComponent().path,
             ]
         )
     }
@@ -198,11 +257,24 @@ struct ReleasePolicySourceTests {
             "Contents/Library/LaunchDaemons/com.lidless.helper.plist",
             "AssociatedBundleIdentifiers",
             "BundleProgram",
-            "KeepAlive.PathState",
             "MachServices",
         ] {
             #expect(source.contains(required))
         }
+        for requiredPath in [
+            "/var/db/lidless/override-active",
+            "/var/db/lidless/mutation-in-flight.json",
+            "/var/db/lidless/scheduled-wake-recovery-required.json",
+        ] {
+            #expect(source.contains(
+                "Print :KeepAlive:PathState:\(requiredPath)"
+            ))
+        }
+        #expect(source.contains("launchd recovery path count"))
+        #expect(source.contains("/usr/bin/grep -c ' = '"))
+        #expect(!source.contains(
+            "'{\"/var/db/lidless/override-active\":true}'"
+        ))
     }
 
     @Test func finalChecksumFollowsStaplerValidation() throws {
@@ -272,6 +344,92 @@ struct ReleasePolicySourceTests {
 
         #expect(workflow.contains("CODE_SIGNING_ALLOWED=NO build"))
         #expect(!workflow.contains("codesign --verify"))
+    }
+
+    @Test func continuousIntegrationUsesLeastPrivilegeCheckout() throws {
+        let workflow = try repositoryFile(".github/workflows/ci.yml")
+        let permissionBlock = "permissions:\n  contents: read"
+        let checkout = "- uses: actions/checkout@v4"
+        let hardenedCheckout = "      - uses: actions/checkout@v4\n"
+            + "        with:\n"
+            + "          persist-credentials: false"
+        let checkoutCount = workflow.components(separatedBy: checkout).count - 1
+        let hardenedCount = workflow.components(separatedBy: hardenedCheckout).count - 1
+
+        #expect(workflow.contains(permissionBlock))
+        #expect(!workflow.contains("contents: write"))
+        #expect(checkoutCount == 4)
+        #expect(hardenedCount == checkoutCount)
+
+        let permissions = try #require(workflow.range(of: permissionBlock))
+        let jobs = try #require(workflow.range(of: "jobs:"))
+        #expect(permissions.lowerBound < jobs.lowerBound)
+    }
+
+    @Test func continuousIntegrationCoversEveryOfflineBuildPolicyGate() throws {
+        let workflow = try repositoryFile(".github/workflows/ci.yml")
+
+        for required in [
+            "swift test --package-path Packages/LidlessCore",
+            "configuration: [Debug, Release]",
+            "-configuration \"${{ matrix.configuration }}\"",
+            "CODE_SIGNING_ALLOWED=NO build",
+            "CODE_SIGNING_ALLOWED=NO analyze",
+            "xcodegen generate",
+            "git diff --exit-code -- Lidless.xcodeproj",
+            "/bin/bash -n Scripts/release.sh",
+            "/bin/bash -n Scripts/verify_release_bundle.sh",
+        ] {
+            #expect(workflow.contains(required))
+        }
+        #expect(!workflow.contains("swift test --disable-sandbox"))
+
+        let generation = try #require(workflow.range(of: "xcodegen generate"))
+        let drift = try #require(workflow.range(
+            of: "git diff --exit-code -- Lidless.xcodeproj"
+        ))
+        #expect(generation.lowerBound < drift.lowerBound)
+    }
+
+    @Test func distributionRequiresBothArchitecturesInsteadOfOnlySharedThinCode() throws {
+        let verifier = try repositoryFile("Scripts/verify_release_bundle.sh")
+        let release = try repositoryFile("Scripts/release.sh")
+
+        for required in [
+            "for required_arch in arm64 x86_64",
+            "/usr/bin/grep -Fxq \"$required_arch\"",
+            "executable is missing required architecture $required_arch",
+            "require_distribution_architectures app",
+            "require_distribution_architectures helper",
+            "require_distribution_architectures widget",
+        ] {
+            #expect(verifier.contains(required))
+        }
+        #expect(verifier.contains("architectures do not match app architectures"))
+        #expect(release.contains("RELEASE_ARCHITECTURES=\"arm64 x86_64\""))
+        #expect(release.contains("ARCHS=\"$RELEASE_ARCHITECTURES\""))
+        #expect(release.contains("ONLY_ACTIVE_ARCH=NO"))
+    }
+
+    @Test func constrainedWorkspaceTargetKeepsCachesLocalWithoutWeakeningNormalTest() throws {
+        let makefile = try repositoryFile("Makefile")
+
+        #expect(makefile.contains(
+            "test:\n\tswift test --package-path Packages/LidlessCore"
+        ))
+        #expect(makefile.contains("test-local:"))
+        #expect(makefile.contains("$(CURDIR)/.build/local-cache"))
+        #expect(makefile.contains("CLANG_MODULE_CACHE_PATH="))
+        #expect(makefile.contains("SWIFTPM_MODULECACHE_OVERRIDE="))
+        #expect(makefile.contains("TMPDIR=\"$(LOCAL_TMP)\""))
+        #expect(makefile.contains("XDG_CACHE_HOME=\"$(LOCAL_XDG_CACHE)\""))
+        #expect(makefile.contains("--cache-path"))
+        #expect(makefile.contains("--config-path"))
+        #expect(makefile.contains("--security-path"))
+        #expect(makefile.contains("--scratch-path"))
+        #expect(makefile.contains("--disable-sandbox"))
+        #expect(makefile.contains("restricted workspace"))
+        #expect(makefile.contains("Normal environments and CI should keep using `make test`"))
     }
 
     @Test func unsignedFixtureReachesAndFailsIdentityPolicy() throws {
@@ -361,6 +519,67 @@ struct ReleasePolicySourceTests {
         #expect(result.status != 0)
         #expect(result.standardError.contains("helper architectures do not match app architectures"))
         #expect(!result.standardError.contains("app architecture "))
+    }
+
+    @Test func equallyThinExecutablesFailDistributionBeforeIdentityInspection() throws {
+        let fixture = try makeUnsignedFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let executables = [
+            fixture.app.appendingPathComponent("Contents/MacOS/Lidless"),
+            fixture.app.appendingPathComponent("Contents/MacOS/LidlessHelper"),
+            fixture.app.appendingPathComponent(
+                "Contents/PlugIns/LidlessWidget.appex/Contents/MacOS/LidlessWidget"
+            ),
+        ]
+        let inventory = try runProcess(
+            "/usr/bin/lipo",
+            arguments: ["-archs", executables[0].path]
+        )
+        let architectures = inventory.standardOutput.split(whereSeparator: \.isWhitespace)
+        let retainedArchitecture = try #require(architectures.first)
+        #expect(inventory.status == 0)
+
+        if architectures.count > 1 {
+            let thin = fixture.root.appendingPathComponent("equally-thin-executable")
+            let thinning = try runProcess(
+                "/usr/bin/lipo",
+                arguments: [
+                    "-thin", String(retainedArchitecture),
+                    executables[0].path,
+                    "-output", thin.path,
+                ]
+            )
+            #expect(thinning.status == 0)
+            for executable in executables {
+                try FileManager.default.removeItem(at: executable)
+                try FileManager.default.copyItem(at: thin, to: executable)
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0o755],
+                    ofItemAtPath: executable.path
+                )
+            }
+        }
+
+        for executable in executables {
+            let observed = try runProcess(
+                "/usr/bin/lipo",
+                arguments: ["-archs", executable.path]
+            )
+            #expect(observed.status == 0)
+            #expect(observed.standardOutput.split(whereSeparator: \.isWhitespace)
+                == [retainedArchitecture])
+        }
+
+        let result = try runVerifier(on: fixture.app)
+
+        #expect(result.status != 0)
+        #expect(result.standardError.contains(
+            "app executable is missing required architecture"
+        ))
+        #expect(!result.standardError.contains(
+            "architectures do not match app architectures"
+        ))
+        #expect(!result.standardError.contains("signing information is unreadable"))
     }
 
     @Test func unreadableResourceFailsClosedBeforeIdentityInspection() throws {

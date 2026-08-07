@@ -37,8 +37,11 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     /// Producer-owned declaration of the behavior actually implemented by
     /// this daemon. Keep this independent from the app's required revision so
     /// an app-side bump cannot silently make an unchanged helper compatible.
-    private static let implementedSafetyRevision = 7
+    private static let implementedSafetyRevision = 8
     private static let maximumSentinelBytes = 64 * 1024
+    private static let maximumDurableMutationMarkerBytes = 16 * 1024
+    private static let maximumScheduledWakeReconciliationMarkerBytes = 16 * 1024
+    private static let maximumScheduledWakeLedgerBytes = 64 * 1024
 
     private struct StorageError: LocalizedError {
         let operation: String
@@ -48,6 +51,66 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             guard let code else { return operation }
             return "\(operation): \(String(cString: strerror(code)))"
         }
+    }
+
+    private struct ScheduledWakeAdapterError: LocalizedError {
+        let message: String
+
+        var errorDescription: String? { message }
+    }
+
+    /// Durable evidence that a mutating child may exist. It is published
+    /// before launch and removed only after this exact helper process observes
+    /// the command exit. A later helper may recover under an inherited marker,
+    /// but it can never manufacture that missing exit observation.
+    private struct DurableMutationMarker: Codable, Equatable {
+        static let currentVersion = 2
+
+        enum Operation: String, Codable {
+            case enableOverride
+            case restoreOverride
+            case applyManagedSettings
+            case forceSleep
+            case scheduleWake
+            case cancelWake
+
+            var concernsScheduledWake: Bool {
+                self == .scheduleWake || self == .cancelWake
+            }
+        }
+
+        var version: Int
+        var id: UUID
+        var operation: Operation
+        var startedAt: Date
+        /// Version 1 markers decode with nil and remain operator-only. Every
+        /// new marker records the kernel boot session so a later reboot can
+        /// prove that the inherited child no longer exists.
+        var bootSessionUUID: UUID?
+
+        init(operation: Operation, bootSessionUUID: UUID) {
+            version = Self.currentVersion
+            id = UUID()
+            self.operation = operation
+            startedAt = Date()
+            self.bootSessionUUID = bootSessionUUID
+        }
+    }
+
+    /// Separate from child-exit evidence: this marker means a durable wake
+    /// ledger transaction still needs reconciliation. It is published before
+    /// the first pending ledger state and removed only after exact readback.
+    private struct ScheduledWakeReconciliationMarker: Codable, Equatable {
+        static let currentVersion = 1
+
+        var version: Int = Self.currentVersion
+        var id: UUID = UUID()
+        var startedAt: Date = Date()
+    }
+
+    private enum ScheduledWakeReconciliationProgress {
+        case settled(observedEvents: [String])
+        case needsMoreWork
     }
 
     private let queue = DispatchQueue(label: "com.lidless.helper.state")
@@ -68,20 +131,23 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
     /// A restore that failed; retried on every tick until it succeeds.
     private var restorePending: OverrideSentinel?
+    /// Timed-out mutating children whose exit Foundation has not observed.
+    /// Retaining the exact `Process` closes the late-completion window: no
+    /// sentinel deletion, new risky work, cleanup, or voluntary exit is
+    /// allowed while any witness remains unresolved.
+    private var unresolvedMutationWitnesses: [PMSet.TerminationWitness] = []
+    private var durableMutationMarker: DurableMutationMarker?
+    private var currentBootSessionUUID: UUID?
+    /// True only when this process loaded the marker rather than creating it.
+    /// Such a process can never prove the original child exited, so it may
+    /// recover repeatedly but must retain the marker and recovery evidence.
+    private var durableMutationMarkerLoadedFromPriorProcess = false
+    private var durableMutationMarkerPriorChildExitProvenByReboot = false
+    private var durableMutationMarkerFailure: String?
     /// Invalidates delayed force-sleep follow-ups whenever any later helper or
     /// system lifecycle intent arrives. This closes the nil -> active -> nil
     /// ABA window that a sentinel-only guard cannot detect.
     private var lifecycleGeneration = UUID()
-    /// Queue-local handoff fence latched before cleanup's first fallible side
-    /// effect. It closes risk-increasing work in this daemon process even when
-    /// cleanup fails or its reply is lost, without blocking already-owned
-    /// restoration.
-    private var helperRemovalFence: HelperRemovalDaemonSafety.Fence = .open
-    /// Random for this process lifetime. Cleanup preparation returns this as
-    /// an opaque authorization, and commit validates it before any cleanup
-    /// mutation. A reconnect to a restarted/replaced helper cannot reuse it.
-    private let cleanupInstanceID = UUID()
-
     // Supervision clocks are monotonic (mach time), never wall-clock: an NTP
     // step or manual clock change must neither extend the unsupervised
     // window (clock back) nor spuriously kill a healthy session (clock
@@ -108,19 +174,54 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     /// cannot observe an intervening sleep/wake lifecycle.
     private var powerObservationAvailable = false
 
-    /// The exact rendered date string is stored alongside the Date so
-    /// cancellation always matches what pmset was given — re-rendering after
-    /// a timezone change would cancel nothing.
-    private struct StoredWake: Codable {
+    /// Revision-7 wrote a single best-effort record. It is accepted only from
+    /// the trusted root-owned file path and immediately migrated to a
+    /// cancellation obligation; it is never promoted to current truth.
+    private struct LegacyStoredWake: Codable {
         var date: Date
         var rendered: String
     }
 
-    private var scheduledWake: StoredWake?
-    private let scheduledWakeURL = URL(fileURLWithPath: HelperPaths.workDirectory)
-        .appendingPathComponent("scheduled-wake.json")
+    private var scheduledWakeLedger = ScheduledWakeLedger()
+    private var scheduledWakeLedgerLoaded = false
+    private var scheduledWakeLedgerFailure: String?
+    private var scheduledWakeReconciliationMarker: ScheduledWakeReconciliationMarker?
+    private var scheduledWakeReconciliationMarkerLoaded = false
+    private var scheduledWakeReconciliationMarkerFailure: String?
+    private var nextScheduledWakeReconciliation = DispatchTime.now()
 
     // MARK: - Lifecycle
+
+    /// `kern.bootsessionuuid` changes only across a machine reboot. A helper
+    /// process restart within the same boot is deliberately insufficient proof
+    /// that a reparented mutating child has exited.
+    private func readCurrentBootSessionUUID() -> UUID? {
+        var byteCount = 0
+        guard sysctlbyname(
+            "kern.bootsessionuuid",
+            nil,
+            &byteCount,
+            nil,
+            0
+        ) == 0, byteCount > 1, byteCount <= 1_024 else {
+            return nil
+        }
+
+        var bytes = [CChar](repeating: 0, count: byteCount)
+        let readResult = bytes.withUnsafeMutableBytes { buffer in
+            sysctlbyname(
+                "kern.bootsessionuuid",
+                buffer.baseAddress,
+                &byteCount,
+                nil,
+                0
+            )
+        }
+        guard readResult == 0 else { return nil }
+        let terminator = bytes.firstIndex(of: 0) ?? bytes.endIndex
+        let utf8 = bytes[..<terminator].map { UInt8(bitPattern: $0) }
+        return UUID(uuidString: String(decoding: utf8, as: UTF8.self))
+    }
 
     func start() {
         // Finish queue-owned recovery setup before the XPC listener is exposed.
@@ -129,6 +230,10 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         // default process-termination path or observing uninitialized state.
         queue.sync { [self] in
             installSignalHandlers()
+            currentBootSessionUUID = readCurrentBootSessionUUID()
+            if currentBootSessionUUID == nil {
+                log.critical("kernel boot-session identity is unavailable; new mutations will be refused")
+            }
             let storageFailure: Error?
             do {
                 try ensureSecureWorkDirectory()
@@ -140,10 +245,59 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                 storageFailure = error
                 log.critical("helper storage is not trusted: \(error.localizedDescription)")
             }
-            recoveryPass(storageFailure: storageFailure)
-            log.info("LidlessHelper v\(LidlessIDs.helperVersion) started (pid \(ProcessInfo.processInfo.processIdentifier), uid \(getuid()))")
+            var recoveryStorageFailure = storageFailure
             if storageFailure == nil {
-                loadScheduledWake()
+                do {
+                    try loadDurableMutationMarker()
+                } catch {
+                    durableMutationMarkerFailure = error.localizedDescription
+                    durableMutationMarkerLoadedFromPriorProcess = true
+                    recoveryStorageFailure = error
+                    log.critical(
+                        "durable mutation marker cannot be trusted: \(error.localizedDescription)"
+                    )
+                }
+                do {
+                    try loadScheduledWakeReconciliationMarker()
+                } catch {
+                    scheduledWakeReconciliationMarkerFailure = error.localizedDescription
+                    scheduledWakeReconciliationMarkerLoaded = false
+                    log.critical(
+                        "scheduled-wake reconciliation marker cannot be trusted: \(error.localizedDescription)"
+                    )
+                }
+            } else {
+                durableMutationMarkerFailure = storageFailure?.localizedDescription
+                durableMutationMarkerLoadedFromPriorProcess = true
+                scheduledWakeReconciliationMarkerFailure = storageFailure?.localizedDescription
+                scheduledWakeReconciliationMarkerLoaded = false
+            }
+            recoveryPass(storageFailure: recoveryStorageFailure)
+            log.info("LidlessHelper v\(LidlessIDs.helperVersion) started (pid \(ProcessInfo.processInfo.processIdentifier), uid \(getuid()))")
+            if let storageFailure {
+                recordScheduledWakeLedgerFailure(
+                    "scheduled-wake ledger storage is unavailable: \(storageFailure.localizedDescription)"
+                )
+            } else {
+                do {
+                    try loadScheduledWakeLedger()
+                    if sentinel == nil, restorePending == nil,
+                       !unresolvedMutationRemains() {
+                        let progress = try reconcileScheduledWakeLedger(
+                            reason: "helper launch",
+                            maximumActions: 1
+                        )
+                        if case .settled(let observedEvents) = progress {
+                            try finishScheduledWakeReconciliation(
+                                observedEvents: observedEvents
+                            )
+                        }
+                    }
+                } catch {
+                    recordScheduledWakeLedgerFailure(
+                        "scheduled-wake recovery failed at launch: \(error.localizedDescription)"
+                    )
+                }
             }
             registerForSleepWake()
             startTick()
@@ -178,6 +332,13 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
         do {
             guard let found = try readTrustedSentinel() else {
+                if let marker = durableMutationMarker,
+                   !marker.operation.concernsScheduledWake {
+                    recoverUntrustedSentinel(
+                        reason: "a prior-process \(marker.operation.rawValue) mutation marker has no recovery sentinel"
+                    )
+                    return
+                }
                 if PMSet.readSleepDisabled() == true {
                     log.info("sleep override is active but no sentinel exists — not ours; leaving untouched (repair available from the app)")
                 }
@@ -234,6 +395,9 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     }
 
     private func finishTerminationIfSafe() {
+        guard !unresolvedMutationRemains() else { return }
+        guard !durableMutationMarkerRequiresRecovery else { return }
+        guard !scheduledWakeLedgerNeedsRecovery else { return }
         guard HelperTerminationSafety.canVoluntarilyExit(
             terminationRequested: terminationRequested,
             hasSentinel: sentinel != nil,
@@ -265,13 +429,46 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             performRestore(sentinel, reason: "watchdog expired")
         }
 
+        if mono >= nextScheduledWakeReconciliation,
+           sentinel == nil, restorePending == nil,
+           !unresolvedMutationRemains(),
+           scheduledWakeLedgerNeedsRecovery {
+            do {
+                if !scheduledWakeReconciliationMarkerLoaded {
+                    try loadScheduledWakeReconciliationMarker()
+                }
+                if !scheduledWakeLedgerLoaded {
+                    try loadScheduledWakeLedger()
+                }
+                let progress = try reconcileScheduledWakeLedger(
+                    reason: "periodic recovery",
+                    maximumActions: 1
+                )
+                switch progress {
+                case .settled(let observedEvents):
+                    try finishScheduledWakeReconciliation(
+                        observedEvents: observedEvents
+                    )
+                case .needsMoreWork:
+                    nextScheduledWakeReconciliation = .now() + 5
+                }
+            } catch {
+                recordScheduledWakeLedgerFailure(
+                    "scheduled-wake periodic recovery failed: \(error.localizedDescription)"
+                )
+            }
+        }
+
         if terminationRequested {
             finishTerminationIfSafe()
         }
 
         // Idle exit: nothing armed, nothing pending, nobody connected.
         // launchd restarts us on the next XPC lookup or at boot.
-        if sentinel == nil, restorePending == nil, connectionSupervision.isEmpty,
+        if sentinel == nil, restorePending == nil,
+           !unresolvedMutationRemains(), connectionSupervision.isEmpty,
+           !durableMutationMarkerRequiresRecovery,
+           !scheduledWakeLedgerNeedsRecovery,
            Date().timeIntervalSince(lastActivity) > 180 {
             log.info("idle — exiting (launchd is configured for on-demand launch)")
             exit(0)
@@ -748,6 +945,535 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         )
     }
 
+    private func persistDurableMutationMarker(
+        _ marker: DurableMutationMarker
+    ) throws {
+        let data = try IPCCoding.encoder().encode(marker)
+        guard data.count <= Self.maximumDurableMutationMarkerBytes else {
+            throw StorageError(
+                operation: "encoded durable mutation marker exceeds the maximum reviewed size",
+                code: nil
+            )
+        }
+
+        var directoryDescriptor = try openSecureWorkDirectory()
+        defer {
+            if directoryDescriptor >= 0 {
+                _ = Darwin.close(directoryDescriptor)
+            }
+        }
+        let temporaryFilename = ".mutation-in-flight-\(UUID().uuidString).tmp"
+        var temporaryPublished = false
+        defer {
+            if !temporaryPublished, directoryDescriptor >= 0 {
+                _ = unlinkat(directoryDescriptor, temporaryFilename, 0)
+            }
+        }
+
+        var fileDescriptor = openat(
+            directoryDescriptor,
+            temporaryFilename,
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+            mode_t(0o600)
+        )
+        guard fileDescriptor >= 0 else {
+            throw StorageError(
+                operation: "exclusively create durable mutation marker candidate",
+                code: errno
+            )
+        }
+        defer {
+            if fileDescriptor >= 0 {
+                _ = Darwin.close(fileDescriptor)
+            }
+        }
+
+        guard fchown(fileDescriptor, 0, 0) == 0,
+              fchmod(fileDescriptor, mode_t(0o600)) == 0 else {
+            throw StorageError(
+                operation: "set durable mutation marker ownership and mode",
+                code: errno
+            )
+        }
+        let directoryMetadata = try storageMetadata(for: directoryDescriptor)
+        let initialFileMetadata = try storageMetadata(for: fileDescriptor)
+        guard HelperStorageSafety.isTrustedSentinel(
+            workDirectory: directoryMetadata,
+            sentinel: initialFileMetadata
+        ) else {
+            throw StorageError(
+                operation: "new durable mutation marker metadata is not trusted",
+                code: nil
+            )
+        }
+
+        try data.withUnsafeBytes { bytes in
+            var offset = 0
+            while offset < bytes.count {
+                let byteCount = Darwin.write(
+                    fileDescriptor,
+                    bytes.baseAddress?.advanced(by: offset),
+                    bytes.count - offset
+                )
+                if byteCount < 0 {
+                    let writeErrno = errno
+                    if writeErrno == EINTR { continue }
+                    throw StorageError(
+                        operation: "write durable mutation marker candidate",
+                        code: writeErrno
+                    )
+                }
+                guard byteCount > 0 else {
+                    throw StorageError(
+                        operation: "write durable mutation marker candidate made no progress",
+                        code: nil
+                    )
+                }
+                offset += byteCount
+            }
+        }
+        try fullySynchronize(
+            fileDescriptor,
+            operation: "fully synchronize durable mutation marker candidate"
+        )
+        let finalFileMetadata = try storageMetadata(for: fileDescriptor)
+        guard HelperStorageSafety.isTrustedSentinel(
+            workDirectory: directoryMetadata,
+            sentinel: finalFileMetadata
+        ) else {
+            throw StorageError(
+                operation: "durable mutation marker metadata changed before publication",
+                code: nil
+            )
+        }
+        try closeStorageDescriptor(
+            &fileDescriptor,
+            operation: "close fully synchronized durable mutation marker candidate"
+        )
+
+        guard renameat(
+            directoryDescriptor,
+            temporaryFilename,
+            directoryDescriptor,
+            HelperPaths.durableMutationMarkerFilename
+        ) == 0 else {
+            throw StorageError(
+                operation: "atomically publish durable mutation marker",
+                code: errno
+            )
+        }
+        temporaryPublished = true
+        try fullySynchronize(
+            directoryDescriptor,
+            operation: "fully synchronize durable mutation marker directory entry"
+        )
+        try closeStorageDescriptor(
+            &directoryDescriptor,
+            operation: "close fully synchronized durable mutation marker directory"
+        )
+    }
+
+    private func loadDurableMutationMarker() throws {
+        var directoryDescriptor = try openSecureWorkDirectory()
+        defer {
+            if directoryDescriptor >= 0 {
+                _ = Darwin.close(directoryDescriptor)
+            }
+        }
+        var fileDescriptor = openat(
+            directoryDescriptor,
+            HelperPaths.durableMutationMarkerFilename,
+            O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+        )
+        if fileDescriptor < 0 {
+            let openErrno = errno
+            if openErrno == ENOENT {
+                try closeStorageDescriptor(
+                    &directoryDescriptor,
+                    operation: "close helper work directory after absent mutation marker"
+                )
+                durableMutationMarker = nil
+                durableMutationMarkerLoadedFromPriorProcess = false
+                durableMutationMarkerPriorChildExitProvenByReboot = false
+                durableMutationMarkerFailure = nil
+                return
+            }
+            throw StorageError(
+                operation: "open durable mutation marker without following links",
+                code: openErrno
+            )
+        }
+        defer {
+            if fileDescriptor >= 0 {
+                _ = Darwin.close(fileDescriptor)
+            }
+        }
+
+        let directoryMetadata = try storageMetadata(for: directoryDescriptor)
+        let markerMetadata = try storageMetadata(for: fileDescriptor)
+        guard HelperStorageSafety.isTrustedSentinel(
+            workDirectory: directoryMetadata,
+            sentinel: markerMetadata
+        ) else {
+            throw StorageError(
+                operation: "durable mutation marker metadata is not trusted",
+                code: nil
+            )
+        }
+        let data = try readStorageRecordData(
+            from: fileDescriptor,
+            maximumBytes: Self.maximumDurableMutationMarkerBytes,
+            operation: "read durable mutation marker"
+        )
+        guard let marker = try? IPCCoding.decoder().decode(
+            DurableMutationMarker.self,
+            from: data
+        ), (marker.version == 1
+                || marker.version == DurableMutationMarker.currentVersion),
+           marker.startedAt.timeIntervalSinceReferenceDate.isFinite else {
+            throw StorageError(
+                operation: "durable mutation marker contents or version are unsupported",
+                code: nil
+            )
+        }
+        if marker.version == DurableMutationMarker.currentVersion,
+           marker.bootSessionUUID == nil {
+            throw StorageError(
+                operation: "current durable mutation marker lacks its boot-session identity",
+                code: nil
+            )
+        }
+        try closeStorageDescriptor(
+            &fileDescriptor,
+            operation: "close durable mutation marker after trusted read"
+        )
+        try closeStorageDescriptor(
+            &directoryDescriptor,
+            operation: "close helper work directory after mutation marker read"
+        )
+        durableMutationMarker = marker
+        durableMutationMarkerLoadedFromPriorProcess = true
+        durableMutationMarkerPriorChildExitProvenByReboot =
+            DurableMutationRecoverySafety.priorChildExitIsProven(
+                markerBootSessionUUID: marker.bootSessionUUID,
+                currentBootSessionUUID: currentBootSessionUUID
+            )
+        durableMutationMarkerFailure = nil
+        if durableMutationMarkerPriorChildExitProvenByReboot {
+            log.info("a reboot boundary proves the prior mutating child cannot remain; bounded recovery may proceed")
+        } else {
+            log.critical("same-boot prior-command child exit is unproven; restart cannot clear the marker, and a reboot is the reviewed recovery boundary")
+        }
+    }
+
+    private func removeDurableMutationMarkerFile() throws {
+        var directoryDescriptor = try openSecureWorkDirectory()
+        defer {
+            if directoryDescriptor >= 0 {
+                _ = Darwin.close(directoryDescriptor)
+            }
+        }
+        if unlinkat(
+            directoryDescriptor,
+            HelperPaths.durableMutationMarkerFilename,
+            0
+        ) != 0 {
+            let unlinkErrno = errno
+            if unlinkErrno != ENOENT {
+                throw StorageError(
+                    operation: "remove durable mutation marker",
+                    code: unlinkErrno
+                )
+            }
+        }
+        try fullySynchronize(
+            directoryDescriptor,
+            operation: "fully synchronize durable mutation marker removal"
+        )
+        try closeStorageDescriptor(
+            &directoryDescriptor,
+            operation: "close fully synchronized mutation marker removal directory"
+        )
+    }
+
+    private func persistScheduledWakeReconciliationMarker(
+        _ marker: ScheduledWakeReconciliationMarker
+    ) throws {
+        let data = try IPCCoding.encoder().encode(marker)
+        guard data.count <= Self.maximumScheduledWakeReconciliationMarkerBytes else {
+            throw StorageError(
+                operation: "encoded scheduled-wake reconciliation marker exceeds the maximum reviewed size",
+                code: nil
+            )
+        }
+
+        var directoryDescriptor = try openSecureWorkDirectory()
+        defer {
+            if directoryDescriptor >= 0 {
+                _ = Darwin.close(directoryDescriptor)
+            }
+        }
+        let temporaryFilename = ".scheduled-wake-recovery-\(UUID().uuidString).tmp"
+        var temporaryPublished = false
+        defer {
+            if !temporaryPublished, directoryDescriptor >= 0 {
+                _ = unlinkat(directoryDescriptor, temporaryFilename, 0)
+            }
+        }
+
+        var fileDescriptor = openat(
+            directoryDescriptor,
+            temporaryFilename,
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+            mode_t(0o600)
+        )
+        guard fileDescriptor >= 0 else {
+            throw StorageError(
+                operation: "exclusively create scheduled-wake reconciliation marker candidate",
+                code: errno
+            )
+        }
+        defer {
+            if fileDescriptor >= 0 {
+                _ = Darwin.close(fileDescriptor)
+            }
+        }
+
+        guard fchown(fileDescriptor, 0, 0) == 0,
+              fchmod(fileDescriptor, mode_t(0o600)) == 0 else {
+            throw StorageError(
+                operation: "set scheduled-wake reconciliation marker ownership and mode",
+                code: errno
+            )
+        }
+        let directoryMetadata = try storageMetadata(for: directoryDescriptor)
+        let initialFileMetadata = try storageMetadata(for: fileDescriptor)
+        guard HelperStorageSafety.isTrustedSentinel(
+            workDirectory: directoryMetadata,
+            sentinel: initialFileMetadata
+        ) else {
+            throw StorageError(
+                operation: "new scheduled-wake reconciliation marker metadata is not trusted",
+                code: nil
+            )
+        }
+
+        try data.withUnsafeBytes { bytes in
+            var offset = 0
+            while offset < bytes.count {
+                let byteCount = Darwin.write(
+                    fileDescriptor,
+                    bytes.baseAddress?.advanced(by: offset),
+                    bytes.count - offset
+                )
+                if byteCount < 0 {
+                    let writeErrno = errno
+                    if writeErrno == EINTR { continue }
+                    throw StorageError(
+                        operation: "write scheduled-wake reconciliation marker candidate",
+                        code: writeErrno
+                    )
+                }
+                guard byteCount > 0 else {
+                    throw StorageError(
+                        operation: "write scheduled-wake reconciliation marker candidate made no progress",
+                        code: nil
+                    )
+                }
+                offset += byteCount
+            }
+        }
+        try fullySynchronize(
+            fileDescriptor,
+            operation: "fully synchronize scheduled-wake reconciliation marker candidate"
+        )
+        let finalFileMetadata = try storageMetadata(for: fileDescriptor)
+        guard HelperStorageSafety.isTrustedSentinel(
+            workDirectory: directoryMetadata,
+            sentinel: finalFileMetadata
+        ) else {
+            throw StorageError(
+                operation: "scheduled-wake reconciliation marker metadata changed before publication",
+                code: nil
+            )
+        }
+        try closeStorageDescriptor(
+            &fileDescriptor,
+            operation: "close fully synchronized scheduled-wake reconciliation marker candidate"
+        )
+
+        guard renameat(
+            directoryDescriptor,
+            temporaryFilename,
+            directoryDescriptor,
+            HelperPaths.scheduledWakeReconciliationMarkerFilename
+        ) == 0 else {
+            throw StorageError(
+                operation: "atomically publish scheduled-wake reconciliation marker",
+                code: errno
+            )
+        }
+        temporaryPublished = true
+        try fullySynchronize(
+            directoryDescriptor,
+            operation: "fully synchronize scheduled-wake reconciliation marker directory entry"
+        )
+        try closeStorageDescriptor(
+            &directoryDescriptor,
+            operation: "close fully synchronized scheduled-wake reconciliation marker directory"
+        )
+    }
+
+    private func loadScheduledWakeReconciliationMarker() throws {
+        var directoryDescriptor = try openSecureWorkDirectory()
+        defer {
+            if directoryDescriptor >= 0 {
+                _ = Darwin.close(directoryDescriptor)
+            }
+        }
+        var fileDescriptor = openat(
+            directoryDescriptor,
+            HelperPaths.scheduledWakeReconciliationMarkerFilename,
+            O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+        )
+        if fileDescriptor < 0 {
+            let openErrno = errno
+            if openErrno == ENOENT {
+                try closeStorageDescriptor(
+                    &directoryDescriptor,
+                    operation: "close helper work directory after absent scheduled-wake reconciliation marker"
+                )
+                scheduledWakeReconciliationMarker = nil
+                scheduledWakeReconciliationMarkerLoaded = true
+                scheduledWakeReconciliationMarkerFailure = nil
+                return
+            }
+            throw StorageError(
+                operation: "open scheduled-wake reconciliation marker without following links",
+                code: openErrno
+            )
+        }
+        defer {
+            if fileDescriptor >= 0 {
+                _ = Darwin.close(fileDescriptor)
+            }
+        }
+
+        let directoryMetadata = try storageMetadata(for: directoryDescriptor)
+        let markerMetadata = try storageMetadata(for: fileDescriptor)
+        guard HelperStorageSafety.isTrustedSentinel(
+            workDirectory: directoryMetadata,
+            sentinel: markerMetadata
+        ) else {
+            throw StorageError(
+                operation: "scheduled-wake reconciliation marker metadata is not trusted",
+                code: nil
+            )
+        }
+        let data = try readStorageRecordData(
+            from: fileDescriptor,
+            maximumBytes: Self.maximumScheduledWakeReconciliationMarkerBytes,
+            operation: "read scheduled-wake reconciliation marker"
+        )
+        guard let marker = try? IPCCoding.decoder().decode(
+            ScheduledWakeReconciliationMarker.self,
+            from: data
+        ), marker.version == ScheduledWakeReconciliationMarker.currentVersion,
+           marker.startedAt.timeIntervalSinceReferenceDate.isFinite else {
+            throw StorageError(
+                operation: "scheduled-wake reconciliation marker contents or version are unsupported",
+                code: nil
+            )
+        }
+        try closeStorageDescriptor(
+            &fileDescriptor,
+            operation: "close scheduled-wake reconciliation marker after trusted read"
+        )
+        try closeStorageDescriptor(
+            &directoryDescriptor,
+            operation: "close helper work directory after scheduled-wake reconciliation marker read"
+        )
+        scheduledWakeReconciliationMarker = marker
+        scheduledWakeReconciliationMarkerLoaded = true
+        scheduledWakeReconciliationMarkerFailure = nil
+    }
+
+    private func removeScheduledWakeReconciliationMarkerFile() throws {
+        var directoryDescriptor = try openSecureWorkDirectory()
+        defer {
+            if directoryDescriptor >= 0 {
+                _ = Darwin.close(directoryDescriptor)
+            }
+        }
+        if unlinkat(
+            directoryDescriptor,
+            HelperPaths.scheduledWakeReconciliationMarkerFilename,
+            0
+        ) != 0 {
+            let unlinkErrno = errno
+            if unlinkErrno != ENOENT {
+                throw StorageError(
+                    operation: "remove scheduled-wake reconciliation marker",
+                    code: unlinkErrno
+                )
+            }
+        }
+        try fullySynchronize(
+            directoryDescriptor,
+            operation: "fully synchronize scheduled-wake reconciliation marker removal"
+        )
+        try closeStorageDescriptor(
+            &directoryDescriptor,
+            operation: "close fully synchronized scheduled-wake reconciliation marker removal directory"
+        )
+    }
+
+    private func ensureScheduledWakeReconciliationMarker() throws {
+        if !scheduledWakeReconciliationMarkerLoaded {
+            try loadScheduledWakeReconciliationMarker()
+        }
+        if let failure = scheduledWakeReconciliationMarkerFailure {
+            throw ScheduledWakeAdapterError(
+                message: "scheduled-wake reconciliation marker is untrusted: \(failure)"
+            )
+        }
+        guard scheduledWakeReconciliationMarker == nil else { return }
+
+        let candidate = ScheduledWakeReconciliationMarker()
+        do {
+            try persistScheduledWakeReconciliationMarker(candidate)
+        } catch {
+            scheduledWakeReconciliationMarkerLoaded = false
+            scheduledWakeReconciliationMarkerFailure = error.localizedDescription
+            throw error
+        }
+        scheduledWakeReconciliationMarker = candidate
+        scheduledWakeReconciliationMarkerLoaded = true
+        scheduledWakeReconciliationMarkerFailure = nil
+    }
+
+    private func clearScheduledWakeReconciliationMarkerAfterProof() throws {
+        if !scheduledWakeReconciliationMarkerLoaded {
+            try loadScheduledWakeReconciliationMarker()
+        }
+        if let failure = scheduledWakeReconciliationMarkerFailure {
+            throw ScheduledWakeAdapterError(
+                message: "scheduled-wake reconciliation marker is untrusted: \(failure)"
+            )
+        }
+        guard scheduledWakeReconciliationMarker != nil else { return }
+        do {
+            try removeScheduledWakeReconciliationMarkerFile()
+        } catch {
+            scheduledWakeReconciliationMarkerLoaded = false
+            scheduledWakeReconciliationMarkerFailure = error.localizedDescription
+            throw error
+        }
+        scheduledWakeReconciliationMarker = nil
+        scheduledWakeReconciliationMarkerLoaded = true
+        scheduledWakeReconciliationMarkerFailure = nil
+    }
+
     /// A failed create/write/full-sync/close may still have published a marker.
     /// Resolve it immediately from the trusted descriptor path; corrupt or
     /// untrusted bytes fall back to ordinary-sleep recovery and remain pending.
@@ -767,13 +1493,33 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             reply(replyData(ok: false, error: "the requesting connection already ended; refusing to arm"))
             return
         }
+        guard HelperClientAdmissionSafety.allows(
+            .arm,
+            identity: options.clientIdentity
+        ) else {
+            reply(replyData(
+                ok: false,
+                error: "client protocol or safety revision is not current; refusing to arm"
+            ))
+            return
+        }
+        guard !unresolvedMutationRemains() else {
+            reply(replyData(
+                ok: false,
+                error: "a prior power command has not been observed to exit; refusing to arm"
+            ))
+            return
+        }
+        guard !durableMutationMarkerRequiresRecovery else {
+            reply(replyData(
+                ok: false,
+                error: "a durable prior-command uncertainty requires reviewed recovery; refusing to arm"
+            ))
+            return
+        }
         advanceLifecycle()
         guard HelperTerminationSafety.allows(.arm, whileTerminationRequested: terminationRequested) else {
             reply(replyData(ok: false, error: "helper termination is pending; refusing to arm"))
-            return
-        }
-        guard HelperRemovalDaemonSafety.allows(.arm, while: helperRemovalFence) else {
-            reply(replyData(ok: false, error: "helper cleanup has started; refusing to arm"))
             return
         }
         guard restorePending == nil else {
@@ -797,14 +1543,12 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         let ttl = min(max(options.watchdogTTL, HelperArmOptions.watchdogTTLRange.lowerBound),
                       HelperArmOptions.watchdogTTLRange.upperBound)
 
-        // The largest bounded child-wait budget is either enable + fail-safe
-        // rollback before success, or one grouped optional command for each
-        // supported power-source scope after success. Process launch and
-        // other queue work have no real-time bound.
-        let maximumBlockingCommandCount = max(
-            2,
-            ManagedSettingRestorationSafety.maximumScopeCommandCount
-        )
+        // The complete worst-case transaction includes enable, activation +
+        // proof, and a full restoration + proof if activation cannot be
+        // verified. Process launch and other queue work have no real-time
+        // bound, so only the child waits can be budgeted here.
+        let maximumBlockingCommandCount =
+            HelperSupervisionTiming.maximumArmTransactionCommandCount
         guard HelperSupervisionTiming.isWithinWatchdogBudget(
             commandCount: maximumBlockingCommandCount,
             watchdogTTL: ttl
@@ -932,7 +1676,9 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         watchdogDeadline = .now() + ttl
 
         do {
-            try PMSet.setSleepDisabled(true)
+            try performTrackedMutation(.enableOverride) {
+                try PMSet.setSleepDisabled(true)
+            }
         } catch {
             // Outcome UNKNOWN, not "not applied": pmset can mutate the
             // setting and then hang past the timeout. Abort the arm, but
@@ -940,6 +1686,17 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             // prior state — otherwise the sentinel stays and the retry loop
             // + launchd own driving it back to safe.
             log.error("failed to enable override: \(error)")
+            if registerUnresolvedMutation(from: error) {
+                parkRestore(
+                    record,
+                    message: "override-enable child termination is unproven; retaining recovery sentinel"
+                )
+                reply(replyData(
+                    ok: false,
+                    error: "the override command timed out without a proven child exit; recovery remains supervised"
+                ))
+                return
+            }
             abortFreshArm(record, reply: reply, error: "\(error)")
             return
         }
@@ -951,13 +1708,77 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             return
         }
 
-        // Rebase the in-memory watchdog at the exact proof point and reply
-        // before optional commands. The disk sentinel already contains all
-        // unconditional recovery data and is never rewritten while active.
-        // The app can begin its heartbeat while at most three best-effort
-        // per-scope calls occupy the queue. Their child-process wait budgets
-        // total less than the minimum TTL; process launch and other queue work
-        // do not have a real-time bound.
+        // Optional settings are part of the requested arm transaction. The
+        // original snapshot predates the sentinel write and override enable,
+        // so prove those captured priors are still exact inside the durable
+        // mutation boundary immediately before changing them. This narrows
+        // the unavoidable cross-process registry-to-pmset race without ever
+        // treating stale priors as restoration authority.
+        do {
+            try performTrackedMutation(.applyManagedSettings) {
+                let freshPriorReadback: String?
+                if managedActivationPlan.isEmpty {
+                    freshPriorReadback = nil
+                } else {
+                    freshPriorReadback = try PMSet.readCustom()
+                }
+                guard ManagedSettingRestorationSafety.isProven(
+                    for: record,
+                    target: .restoration,
+                    fromCustom: freshPriorReadback
+                ) else {
+                    throw ScheduledWakeAdapterError(
+                        message: "captured managed settings changed while preparing to arm"
+                    )
+                }
+                try PMSet.apply(managedActivationPlan)
+            }
+        } catch {
+            _ = registerUnresolvedMutation(from: error)
+            performRestore(record, reason: "managed-setting activation failed")
+            reply(replyData(
+                ok: false,
+                error: "managed settings could not be applied and verified; normal-sleep recovery started"
+            ))
+            return
+        }
+
+        let activationReadback: String?
+        if managedActivationPlan.isEmpty {
+            activationReadback = nil
+        } else {
+            do {
+                activationReadback = try PMSet.readCustom()
+            } catch {
+                performRestore(
+                    record,
+                    reason: "managed-setting activation readback failed"
+                )
+                reply(replyData(
+                    ok: false,
+                    error: "managed settings could not be read back; normal-sleep recovery started"
+                ))
+                return
+            }
+        }
+        guard ManagedSettingRestorationSafety.isProven(
+            for: record,
+            target: .activation,
+            fromCustom: activationReadback
+        ) else {
+            performRestore(
+                record,
+                reason: "managed-setting activation proof failed"
+            )
+            reply(replyData(
+                ok: false,
+                error: "managed settings did not match the requested values; normal-sleep recovery started"
+            ))
+            return
+        }
+
+        // Rebase the in-memory watchdog at the exact complete proof point.
+        // The disk sentinel remains immutable while active.
         record.watchdogDeadline = Date().addingTimeInterval(ttl)
         sentinel = record
         watchdogDeadline = .now() + ttl
@@ -971,12 +1792,6 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
         log.info("armed: override ON and verified (ttl \(Int(ttl))s, lpm \(record.lowPowerModeKey ?? "off"), tcp \(record.priorTCPKeepAlive != nil ? "on" : "off"))")
         reply(IPCCoding.encode(result))
-
-        // Best-effort extras; never delay the success reply or fail the arm.
-        // Only scopes with captured priors are touched, and the sentinel owns
-        // those priors before any optional command begins.
-        do { try PMSet.apply(managedActivationPlan) }
-        catch { log.error("could not apply all managed settings: \(error)") }
     }
 
     /// A second preflight rejected an arm after its recovery sentinel was
@@ -1010,15 +1825,34 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         armedConnectionID = nil
         watchdogDeadline = .distantFuture
         let restoreTarget = SleepOverrideSafety.restoreTarget(recordedPrior: record.priorSleepDisabled)
-        try? PMSet.setSleepDisabled(restoreTarget)
+        do {
+            try performTrackedMutation(.restoreOverride, allowsExistingMarker: true) {
+                try PMSet.setSleepDisabled(restoreTarget)
+            }
+        } catch {
+            if registerUnresolvedMutation(from: error) {
+                parkRestore(
+                    record,
+                    message: "fresh-arm rollback child termination is unproven; retaining recovery sentinel"
+                )
+                reply(replyData(
+                    ok: false,
+                    error: "the failed arm could not prove its rollback child exited; recovery remains supervised"
+                ))
+                return
+            }
+        }
         if SleepOverrideSafety.isVerified(
             expected: restoreTarget,
             observed: PMSet.readSleepDisabled()
         ) {
             do {
                 try removeSentinelFile()
+                if durableMutationMarker != nil {
+                    try clearDurableMutationMarkerAfterObservedExit()
+                }
             } catch {
-                log.error("aborted arm restored sleep but sentinel cleanup failed — retrying")
+                log.error("aborted arm restored sleep but durable cleanup failed — retrying")
                 restorePending = record
                 scheduleRestoreRetry()
             }
@@ -1036,10 +1870,23 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     /// tick retries while this process remains. A trusted disk marker requests
     /// launchd relaunch; the untrusted-storage fallback may be memory-only.
     private func performRestore(_ record: OverrideSentinel, reason: String) {
+        guard !unresolvedMutationRemains() else {
+            parkRestore(
+                record,
+                message: "RESTORE WAITING (\(reason)): a prior mutating child has not been observed to exit"
+            )
+            return
+        }
         let restoreTarget = SleepOverrideSafety.restoreTarget(recordedPrior: record.priorSleepDisabled)
         do {
-            try PMSet.setSleepDisabled(restoreTarget)
+            try performTrackedMutation(
+                .restoreOverride,
+                allowsExistingMarker: true
+            ) {
+                try PMSet.setSleepDisabled(restoreTarget)
+            }
         } catch {
+            _ = registerUnresolvedMutation(from: error)
             parkRestore(
                 record,
                 message: "RESTORE FAILED (\(reason)): \(error) — will retry"
@@ -1071,8 +1918,14 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         }
 
         do {
-            try PMSet.apply(managedRestorationPlan)
+            try performTrackedMutation(
+                .applyManagedSettings,
+                allowsExistingMarker: true
+            ) {
+                try PMSet.apply(managedRestorationPlan)
+            }
         } catch {
+            _ = registerUnresolvedMutation(from: error)
             parkRestore(
                 record,
                 message: "RESTORE managed-setting command failed (\(reason)): \(error) — will retry"
@@ -1105,12 +1958,23 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             return
         }
 
+        if durableMutationMarkerRequiresReviewedResolution {
+            parkRestore(
+                record,
+                message: "RESTORE VERIFIED (\(reason)) but same-boot prior-command child exit is unproven; retaining recovery sentinel until the reviewed reboot boundary"
+            )
+            return
+        }
+
         do {
             try removeSentinelFile()
+            if durableMutationMarker != nil {
+                try clearDurableMutationMarkerAfterObservedExit()
+            }
         } catch {
             parkRestore(
                 record,
-                message: "RESTORE verified all managed state but sentinel cleanup failed (\(reason)) — will retry"
+                message: "RESTORE verified all managed state but durable cleanup failed (\(reason)) — will retry"
             )
             return
         }
@@ -1128,6 +1992,138 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         watchdogDeadline = .distantFuture
         restorePending = record
         scheduleRestoreRetry()
+    }
+
+    /// Records only a command whose termination remained unproven. Ordinary
+    /// nonzero exits and killed-and-reaped timeouts have no late-completion
+    /// window and need no retained process object.
+    @discardableResult
+    private func registerUnresolvedMutation(from error: Error) -> Bool {
+        guard let commandError = error as? PMSet.CommandError,
+              commandError.terminationCertainty == .unproven,
+              let witness = commandError.terminationWitness,
+              !witness.isResolved
+        else { return false }
+        unresolvedMutationWitnesses.append(witness)
+        return true
+    }
+
+    /// Prunes only children whose exact `Process` now reports termination.
+    /// Callers run on the serial daemon queue.
+    private func unresolvedMutationRemains() -> Bool {
+        unresolvedMutationWitnesses.removeAll { $0.isResolved }
+        return !unresolvedMutationWitnesses.isEmpty
+    }
+
+    private var durableMutationMarkerRequiresRecovery: Bool {
+        durableMutationMarker != nil || durableMutationMarkerFailure != nil
+    }
+
+    private var durableMutationMarkerCanBeCleared: Bool {
+        durableMutationMarker != nil
+            && (!durableMutationMarkerLoadedFromPriorProcess
+                || durableMutationMarkerPriorChildExitProvenByReboot)
+            && !unresolvedMutationRemains()
+    }
+
+    private var durableMutationMarkerRequiresReviewedResolution: Bool {
+        durableMutationMarkerFailure != nil
+            || (durableMutationMarkerLoadedFromPriorProcess
+                && !durableMutationMarkerPriorChildExitProvenByReboot)
+    }
+
+    private var durableMutationMarkerBlocksWakeAbsenceProof: Bool {
+        durableMutationMarkerLoadedFromPriorProcess
+            && !durableMutationMarkerPriorChildExitProvenByReboot
+            && (durableMutationMarker?.operation.concernsScheduledWake == true
+                || durableMutationMarkerFailure != nil)
+    }
+
+    /// Publish durable uncertainty before entering a mutating child. Ordinary
+    /// exits (including a nonzero command result) authorize this same process
+    /// to remove its marker. An unproven timeout, inherited marker, corrupt
+    /// marker, or marker-removal failure remains explicit recovery state.
+    private func performTrackedMutation(
+        _ operation: DurableMutationMarker.Operation,
+        allowsExistingMarker: Bool = false,
+        _ body: () throws -> Void
+    ) throws {
+        let createdMarker: Bool
+        if durableMutationMarker == nil, durableMutationMarkerFailure == nil {
+            guard let currentBootSessionUUID else {
+                throw ScheduledWakeAdapterError(
+                    message: "kernel boot-session identity is unavailable; refusing a mutation that could not be recovered safely"
+                )
+            }
+            let candidate = DurableMutationMarker(
+                operation: operation,
+                bootSessionUUID: currentBootSessionUUID
+            )
+            do {
+                try persistDurableMutationMarker(candidate)
+            } catch {
+                durableMutationMarkerFailure = error.localizedDescription
+                durableMutationMarkerLoadedFromPriorProcess = true
+                throw error
+            }
+            durableMutationMarker = candidate
+            durableMutationMarkerLoadedFromPriorProcess = false
+            durableMutationMarkerPriorChildExitProvenByReboot = false
+            createdMarker = true
+        } else {
+            guard allowsExistingMarker else {
+                throw ScheduledWakeAdapterError(
+                    message: "a durable prior-command uncertainty blocks another mutation"
+                )
+            }
+            createdMarker = false
+        }
+
+        do {
+            try body()
+        } catch {
+            if mutationTerminationIsUnproven(error) {
+                throw error
+            }
+            if createdMarker {
+                guard durableMutationMarkerCanBeCleared else {
+                    throw ScheduledWakeAdapterError(
+                        message: "the mutating child exit is not proven in this helper process"
+                    )
+                }
+                try clearDurableMutationMarkerAfterObservedExit()
+            }
+            throw error
+        }
+
+        if createdMarker {
+            guard durableMutationMarkerCanBeCleared else {
+                throw ScheduledWakeAdapterError(
+                    message: "the mutating child exit is not proven in this helper process"
+                )
+            }
+            try clearDurableMutationMarkerAfterObservedExit()
+        }
+    }
+
+    private func mutationTerminationIsUnproven(_ error: Error) -> Bool {
+        guard let commandError = error as? PMSet.CommandError else {
+            return false
+        }
+        return commandError.terminationCertainty == .unproven
+    }
+
+    private func clearDurableMutationMarkerAfterObservedExit() throws {
+        guard durableMutationMarkerCanBeCleared else {
+            throw ScheduledWakeAdapterError(
+                message: "the mutating child exit is not proven in this helper process"
+            )
+        }
+        try removeDurableMutationMarkerFile()
+        durableMutationMarker = nil
+        durableMutationMarkerLoadedFromPriorProcess = false
+        durableMutationMarkerPriorChildExitProvenByReboot = false
+        durableMutationMarkerFailure = nil
     }
 
     private func scheduleRestoreRetry() {
@@ -1157,10 +2153,6 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     fileprivate func handleHeartbeat(connectionID: UUID, reply: @escaping @Sendable (Data) -> Void) {
         queue.async { [self] in
             lastActivity = Date()
-            guard HelperRemovalDaemonSafety.allows(.heartbeat, while: helperRemovalFence) else {
-                reply(replyData(ok: false, error: "helper cleanup has started; refusing heartbeat"))
-                return
-            }
             switch HelperSessionOwnershipSafety.heartbeatDisposition(
                 hasActiveSession: sentinel != nil,
                 owner: armedConnectionID,
@@ -1204,25 +2196,46 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                 reply(replyData(ok: false, error: "malformed disarm options"))
                 return
             }
-            advanceLifecycle()
-            if options.forceSleep,
-               !HelperRemovalDaemonSafety.allows(.forceSleep, while: helperRemovalFence) {
-                reply(replyData(ok: false, error: "helper cleanup has started; refusing forced sleep"))
+            let forceSleepClientAllowed = !options.forceSleep
+                || HelperClientAdmissionSafety.allows(
+                    .forceSleep,
+                    identity: options.clientIdentity
+                )
+            guard HelperClientAdmissionSafety.allows(
+                .restoreNormalSleep,
+                identity: options.clientIdentity
+            ) else {
+                // Kept as an explicit invariant even though de-risking restore
+                // currently accepts every identity, including missing legacy
+                // metadata.
+                reply(replyData(ok: false, error: "normal-sleep restoration is unavailable"))
                 return
             }
+            advanceLifecycle()
 
             if let record = sentinel ?? restorePending {
                 performRestore(record, reason: "disarm: \(options.reason)")
             }
             let status = currentStatus()
             let restored = SleepOverrideSafety.isRestoreProven(status)
+            let forceSleepRefused = options.forceSleep && !forceSleepClientAllowed
+            let replyError: String?
+            if !restored {
+                replyError = "normal sleep is not yet verified; helper is retrying"
+            } else if !forceSleepClientAllowed {
+                replyError = "normal sleep is restored; forced sleep was refused because the client safety revision is not current"
+            } else {
+                replyError = nil
+            }
             reply(IPCCoding.encode(HelperReply(
-                ok: restored,
-                error: restored ? nil : "normal sleep is not yet verified; helper is retrying",
+                ok: restored && !forceSleepRefused,
+                error: replyError,
                 status: status
             )))
 
-            if options.forceSleep, restored {
+            if options.forceSleep,
+               forceSleepClientAllowed,
+               restored {
                 // Give the app a moment to post its notification/sound, and
                 // skip if any newer lifecycle intent crossed the delay.
                 let forceSleepGeneration = lifecycleGeneration
@@ -1242,12 +2255,18 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                         observedClamshellClosed: observedClamshellClosed,
                         observedSleepDisabled: observedSleepDisabled
                     ),
-                    HelperRemovalDaemonSafety.allows(.forceSleep, while: helperRemovalFence),
-                    HelperTerminationSafety.allows(.forceSleep, whileTerminationRequested: terminationRequested)
+                    HelperTerminationSafety.allows(.forceSleep, whileTerminationRequested: terminationRequested),
+                    !durableMutationMarkerRequiresRecovery
                     else { return }
                     log.info("forcing sleep (\(options.reason))")
-                    do { try PMSet.sleepNow() }
-                    catch { log.error("sleepnow failed: \(error)") }
+                    do {
+                        try performTrackedMutation(.forceSleep) {
+                            try PMSet.sleepNow()
+                        }
+                    } catch {
+                        _ = registerUnresolvedMutation(from: error)
+                        log.error("sleepnow failed: \(error)")
+                    }
                 }
             }
         }
@@ -1261,13 +2280,6 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                 reply(replyData(ok: false, error: "helper termination is pending; refusing override repair"))
                 return
             }
-            let removalOperation: HelperRemovalDaemonSafety.Operation =
-                sentinel != nil || restorePending != nil ? .restoreOwnedState : .beginOverrideRepair
-            guard HelperRemovalDaemonSafety.allows(removalOperation, while: helperRemovalFence) else {
-                reply(replyData(ok: false, error: "helper cleanup has started; refusing a new override-repair transaction"))
-                return
-            }
-
             let record: OverrideSentinel
             if let existing = sentinel ?? restorePending {
                 record = existing
@@ -1303,16 +2315,41 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         }
     }
 
-    fileprivate func handleScheduleWake(_ epoch: Double, reply: @escaping @Sendable (Data) -> Void) {
+    fileprivate func handleScheduleWake(
+        _ request: HelperScheduleWakeRequest,
+        reply: @escaping @Sendable (Data) -> Void
+    ) {
         queue.async { [self] in
             lastActivity = Date()
-            guard HelperTerminationSafety.allows(.scheduleWake, whileTerminationRequested: terminationRequested) else {
-                reply(replyData(ok: false, error: "helper termination is pending; refusing wake work"))
+            let clientOperation: HelperClientOperation = request.desiredDate == nil
+                ? .cancelWake
+                : .scheduleWake
+            guard HelperClientAdmissionSafety.allows(
+                clientOperation,
+                identity: request.clientIdentity
+            ) else {
+                reply(replyData(
+                    ok: false,
+                    error: "client protocol or safety revision is not current; refusing wake scheduling"
+                ))
                 return
             }
-            let removalOperation: HelperRemovalDaemonSafety.Operation = epoch > 0 ? .scheduleWake : .cancelWake
-            guard HelperRemovalDaemonSafety.allows(removalOperation, while: helperRemovalFence) else {
-                reply(replyData(ok: false, error: "helper cleanup has started; refusing wake scheduling"))
+            guard !unresolvedMutationRemains() else {
+                reply(replyData(
+                    ok: false,
+                    error: "a prior power command has not been observed to exit; refusing wake work"
+                ))
+                return
+            }
+            guard !durableMutationMarkerRequiresRecovery else {
+                reply(replyData(
+                    ok: false,
+                    error: "a durable prior-command uncertainty requires reviewed recovery; refusing wake work"
+                ))
+                return
+            }
+            guard HelperTerminationSafety.allows(.scheduleWake, whileTerminationRequested: terminationRequested) else {
+                reply(replyData(ok: false, error: "helper termination is pending; refusing wake work"))
                 return
             }
             // Wake scheduling is not safety-critical and may require two
@@ -1323,46 +2360,183 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                 reply(replyData(ok: false, error: "wake scheduling is deferred while sleep-override supervision is active"))
                 return
             }
-            if epoch > 0 {
-                // Validate and register the replacement first; only then
-                // cancel the old wake — never trade a working wake for none.
-                let date = Date(timeIntervalSince1970: epoch)
+            do {
+                if !scheduledWakeReconciliationMarkerLoaded {
+                    try loadScheduledWakeReconciliationMarker()
+                }
+                if !scheduledWakeLedgerLoaded {
+                    try loadScheduledWakeLedger()
+                }
+                // Resolve every prior uncertain transaction before accepting
+                // another intent. A parser or persistence failure remains an
+                // explicit refusal, never an invented empty ledger.
+                let progress = try reconcileScheduledWakeLedger(
+                    reason: "client request preflight",
+                    maximumActions: 64
+                )
+                guard case .settled(let observedEvents) = progress else {
+                    throw ScheduledWakeAdapterError(
+                        message: "scheduled-wake preflight exceeded its bounded recovery work"
+                    )
+                }
+                try finishScheduledWakeReconciliation(
+                    observedEvents: observedEvents
+                )
+            } catch {
+                recordScheduledWakeLedgerFailure(
+                    "scheduled-wake preflight failed: \(error.localizedDescription)"
+                )
+                reply(replyData(
+                    ok: false,
+                    error: "scheduled-wake recovery is incomplete: \(error.localizedDescription)"
+                ))
+                return
+            }
+
+            if let date = request.desiredDate {
                 let horizon = Date().addingTimeInterval(14 * 24 * 3600)
                 guard date > Date(), date < horizon else {
                     reply(replyData(ok: false, error: "wake date out of range"))
                     return
                 }
-                if let existing = scheduledWake, abs(existing.date.timeIntervalSince1970 - epoch) < 1 {
-                    // Already registered; re-scheduling would duplicate the
-                    // pmset event.
-                    reply(replyData(ok: true))
-                    return
-                }
-                let previous = scheduledWake
+
                 do {
-                    let rendered = try PMSet.scheduleWake(at: date)
-                    scheduledWake = StoredWake(date: date, rendered: rendered)
-                    persistScheduledWake()
-                    log.info("scheduled wake at \(date)")
+                    var candidate = scheduledWakeLedger
+                    let event = try candidate.beginScheduling(
+                        rendered: PMSet.renderedWakeDate(for: date),
+                        date: date
+                    )
+                    // Intent is durable before the external mutation. For an
+                    // idempotent retry, beginScheduling returns the already
+                    // committed event and the mutation is skipped.
+                    try ensureScheduledWakeReconciliationMarker()
+                    try commitScheduledWakeLedger(candidate)
+                    if event.phase == .pendingSchedule {
+                        try performTrackedMutation(.scheduleWake) {
+                            try PMSet.scheduleWake(rendered: event.rendered)
+                        }
+                    }
+                    let observedEvents = try PMSet.readScheduledWakes()
+                    candidate = scheduledWakeLedger
+                    try candidate.confirmScheduled(
+                        event.id,
+                        observedEvents: observedEvents
+                    )
+                    try commitScheduledWakeLedger(candidate)
+
+                    // confirmScheduled atomically retains every predecessor
+                    // as pending cancellation. Complete those obligations and
+                    // prove the final desired event before reporting success.
+                    let progress = try reconcileScheduledWakeLedger(
+                        reason: "new wake committed",
+                        maximumActions: 64
+                    )
+                    guard case .settled(let finalObservedEvents) = progress else {
+                        throw ScheduledWakeAdapterError(
+                            message: "scheduled-wake transaction exceeded its bounded recovery work"
+                        )
+                    }
+                    try finishScheduledWakeReconciliation(
+                        observedEvents: finalObservedEvents,
+                        expectedScheduledEventID: event.id
+                    )
+                    log.info("scheduled and verified wake at \(date)")
                 } catch {
-                    reply(replyData(ok: false, error: "\(error)"))
+                    _ = registerUnresolvedMutation(from: error)
+                    recordScheduledWakeLedgerFailure(
+                        "scheduled-wake transaction failed: \(error.localizedDescription)"
+                    )
+                    reply(replyData(
+                        ok: false,
+                        error: "scheduled wake was not durably verified: \(error.localizedDescription)"
+                    ))
                     return
                 }
-                if let previous, previous.rendered != scheduledWake?.rendered {
-                    try? PMSet.cancelWake(rendered: previous.rendered)
-                }
-            } else if let existing = scheduledWake {
+            } else {
                 do {
-                    try PMSet.cancelWake(rendered: existing.rendered)
+                    var candidate = scheduledWakeLedger
+                    for eventID in candidate.events.map(\.id) {
+                        try candidate.prepareCancellation(eventID)
+                    }
+                    try ensureScheduledWakeReconciliationMarker()
+                    try commitScheduledWakeLedger(candidate)
+                    let progress = try reconcileScheduledWakeLedger(
+                        reason: "client cancellation",
+                        maximumActions: 64
+                    )
+                    guard case .settled(let observedEvents) = progress else {
+                        throw ScheduledWakeAdapterError(
+                            message: "scheduled-wake cancellation exceeded its bounded recovery work"
+                        )
+                    }
+                    guard scheduledWakeLedger.events.isEmpty else {
+                        throw ScheduledWakeAdapterError(
+                            message: "scheduled-wake cancellation obligations remain"
+                        )
+                    }
+                    try finishScheduledWakeReconciliation(
+                        observedEvents: observedEvents
+                    )
+                    log.info("cancelled and verified all Lidless scheduled wakes")
                 } catch {
-                    reply(replyData(ok: false, error: "scheduled wake cancellation failed: \(error)"))
+                    _ = registerUnresolvedMutation(from: error)
+                    recordScheduledWakeLedgerFailure(
+                        "scheduled-wake cancellation failed: \(error.localizedDescription)"
+                    )
+                    reply(replyData(
+                        ok: false,
+                        error: "scheduled wake cancellation is incomplete: \(error.localizedDescription)"
+                    ))
                     return
                 }
-                scheduledWake = nil
-                persistScheduledWake()
             }
             reply(replyData(ok: true))
         }
+    }
+
+    /// Protocol-v6 compatibility selector. It may still cancel a wake because
+    /// cancellation reduces risk, but it cannot schedule one without the
+    /// structured current-client identity introduced by safety revision 8.
+    fileprivate func handleLegacyScheduleWake(
+        _ epoch: Double,
+        reply: @escaping @Sendable (Data) -> Void
+    ) {
+        guard epoch <= 0 else {
+            queue.async { [self] in
+                lastActivity = Date()
+                reply(replyData(
+                    ok: false,
+                    error: "legacy wake scheduling is unavailable; update Lidless"
+                ))
+            }
+            return
+        }
+        handleScheduleWake(
+            HelperScheduleWakeRequest(
+                desiredDate: nil,
+                clientIdentity: nil
+            ),
+            reply: reply
+        )
+    }
+
+    fileprivate func enqueueScheduleWake(
+        _ requestJSON: Data,
+        reply: @escaping @Sendable (Data) -> Void
+    ) {
+        guard let request = IPCCoding.decode(
+            HelperScheduleWakeRequest.self,
+            from: requestJSON
+        ) else {
+            queue.async { [self] in
+                reply(replyData(
+                    ok: false,
+                    error: "malformed scheduled-wake request"
+                ))
+            }
+            return
+        }
+        handleScheduleWake(request, reply: reply)
     }
 
     fileprivate func handlePrepareUninstall(
@@ -1370,12 +2544,9 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     ) {
         queue.async { [self] in
             lastActivity = Date()
-            let authorization = HelperCleanupAuthorization(
-                helperInstanceID: cleanupInstanceID
-            )
             reply(IPCCoding.encode(HelperCleanupPreparation(
-                ok: true,
-                authorization: authorization,
+                ok: false,
+                error: "automatic helper cleanup is disabled; a reviewed removal procedure is required",
                 status: currentStatus()
             )))
         }
@@ -1387,102 +2558,12 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     ) {
         queue.async { [self] in
             lastActivity = Date()
-            guard let authorization = IPCCoding.decode(
-                HelperCleanupAuthorization.self,
-                from: authorizationJSON
-            ), HelperCleanupHandshakeSafety.authorizes(
-                authorization,
-                issuedBy: cleanupInstanceID
-            ) else {
-                reply(IPCCoding.encode(HelperReply(
-                    ok: false,
-                    error: "cleanup authorization was not issued by this helper process; no cleanup was attempted",
-                    status: currentStatus()
-                )))
-                return
-            }
-            advanceLifecycle()
-            // Monotonic for this process: any partial or ambiguous cleanup
-            // outcome keeps new risk-increasing work closed. Recovery and a
-            // cleanup retry remain admitted by the pure operation policy.
-            helperRemovalFence = .cleanupStarted
-            if let record = sentinel ?? restorePending {
-                performRestore(record, reason: "uninstall")
-            }
-            let restoredStatus = currentStatus()
-            guard SleepOverrideSafety.isRestoreProven(restoredStatus) else {
-                reply(IPCCoding.encode(HelperReply(
-                    ok: false,
-                    error: "normal sleep is not verified; not removing helper data while the override may be active",
-                    status: restoredStatus
-                )))
-                return
-            }
-            if let existing = scheduledWake {
-                do {
-                    try PMSet.cancelWake(rendered: existing.rendered)
-                } catch {
-                    let failureStatus = currentStatus()
-                    reply(IPCCoding.encode(HelperReply(
-                        ok: false,
-                        error: "scheduled wake cleanup failed; helper cleanup remains incomplete: \(error)",
-                        status: failureStatus
-                    )))
-                    return
-                }
-            }
-            // Best-effort reconciliation may previously have cleared memory
-            // even when deleting the on-disk record failed. Strict cleanup
-            // must therefore run unconditionally, including when no wake is
-            // currently known in memory.
-            do {
-                try removeScheduledWakeRecordForCleanup()
-            } catch {
-                // Keep any exact in-memory intent. Even when none is known, a
-                // stale or unreadable ledger has not been ruled out, so fail
-                // before authorizing the client to deregister this helper.
-                let failureStatus = currentStatus()
-                reply(IPCCoding.encode(HelperReply(
-                    ok: false,
-                    error: "scheduled wake record cleanup failed; helper cleanup remains incomplete: \(error.localizedDescription)",
-                    status: failureStatus
-                )))
-                return
-            }
-            scheduledWake = nil
-            log.info("uninstalling: removing \(HelperPaths.workDirectory)")
-            // Any later log line would recreate the directory we just
-            // removed; from here on, log to the unified log only.
-            log.disableFileSink()
-            do {
-                try FileManager.default.removeItem(atPath: HelperPaths.workDirectory)
-            } catch let error as CocoaError where error.code == .fileNoSuchFile &&
-                                                   error.filePath == HelperPaths.workDirectory {
-                // An exact-target "not found" proves this cleanup step was
-                // already complete. A missing descendant is still a failure.
-            } catch {
-                log.enableFileSink()
-                log.error("helper data cleanup failed during uninstall: \(error.localizedDescription)")
-                let failureStatus = currentStatus()
-                reply(IPCCoding.encode(HelperReply(
-                    ok: false,
-                    error: "helper data cleanup failed; deregistration is not authorized: \(error.localizedDescription)",
-                    status: failureStatus
-                )))
-                return
-            }
-            let finalStatus = currentStatus()
-            guard SleepOverrideSafety.isRestoreProven(finalStatus) else {
-                log.enableFileSink()
-                log.error("normal sleep could not be reverified after helper cleanup")
-                reply(IPCCoding.encode(HelperReply(
-                    ok: false,
-                    error: "normal sleep could not be reverified after helper cleanup; not authorizing deregistration",
-                    status: finalStatus
-                )))
-                return
-            }
-            reply(IPCCoding.encode(HelperReply(ok: true, status: finalStatus)))
+            _ = authorizationJSON
+            reply(IPCCoding.encode(HelperReply(
+                ok: false,
+                error: "automatic helper cleanup is disabled; a reviewed removal procedure is required",
+                status: currentStatus()
+            )))
         }
     }
 
@@ -1493,7 +2574,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             lastActivity = Date()
             reply(IPCCoding.encode(HelperReply(
                 ok: false,
-                error: "legacy cleanup requests are not process-bound; no cleanup was attempted",
+                error: "automatic helper cleanup is disabled; a reviewed removal procedure is required",
                 status: currentStatus()
             )))
         }
@@ -1502,6 +2583,7 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     private func currentStatus() -> HelperStatus {
         let observedSleepDisabled = PMSet.readSleepDisabled()
         let recoveryPending = restorePending != nil
+            || durableMutationMarkerRequiresRecovery
         return HelperStatus(
             helperVersion: LidlessIDs.helperVersion,
             helperSafetyRevision: Self.implementedSafetyRevision,
@@ -1515,7 +2597,9 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             restorePending: recoveryPending,
             armedSince: sentinel?.armedAt,
             watchdogDeadline: sentinel?.watchdogDeadline,
-            scheduledWake: scheduledWake?.date
+            scheduledWake: scheduledWakeLedger.events.first(where: {
+                $0.phase == .scheduled
+            })?.date
         )
     }
 
@@ -1523,35 +2607,478 @@ final class HelperDaemon: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         IPCCoding.encode(HelperReply(ok: ok, error: error, status: currentStatus()))
     }
 
-    /// Uninstall cannot rely on the best-effort persistence used by ordinary
-    /// wake reconciliation: a surviving ledger would be loaded as live intent
-    /// after a later cleanup failure or helper restart. Exact-target absence is
-    /// already the required postcondition; every other filesystem error keeps
-    /// removal incomplete.
-    private func removeScheduledWakeRecordForCleanup() throws {
+    private var scheduledWakeLedgerNeedsRecovery: Bool {
+        !scheduledWakeReconciliationMarkerLoaded
+            || scheduledWakeReconciliationMarker != nil
+            || scheduledWakeReconciliationMarkerFailure != nil
+            || !scheduledWakeLedgerLoaded
+            || scheduledWakeLedgerFailure != nil
+            || durableMutationMarker?.operation.concernsScheduledWake == true
+            || scheduledWakeLedger.events.contains(where: {
+                $0.phase != .scheduled
+            })
+    }
+
+    private func recordScheduledWakeLedgerFailure(_ message: String) {
+        scheduledWakeLedgerFailure = message
+        nextScheduledWakeReconciliation = .now() + 30
+        log.error(message)
+    }
+
+    /// Reconcile one external action at a time. Every cancel intent is fully
+    /// synchronized before the command, and a record is removed only after a
+    /// fresh authoritative read proves the exact rendering absent. Duplicate
+    /// renderings remain visible and require repeated cancellation attempts.
+    private func reconcileScheduledWakeLedger(
+        reason: String,
+        maximumActions: Int
+    ) throws -> ScheduledWakeReconciliationProgress {
+        guard scheduledWakeLedgerLoaded else {
+            throw ScheduledWakeAdapterError(
+                message: "the scheduled-wake ledger has not been loaded from trusted storage"
+            )
+        }
+        guard maximumActions > 0 else {
+            return .needsMoreWork
+        }
+
+        for _ in 0..<maximumActions {
+            let observedEvents = try PMSet.readScheduledWakes()
+            guard let action = try scheduledWakeLedger.nextAction(observedEvents: observedEvents) else {
+                return .settled(observedEvents: observedEvents)
+            }
+            try ensureScheduledWakeReconciliationMarker()
+
+            switch action {
+            case .cancel(let event):
+                var candidate = scheduledWakeLedger
+                try candidate.prepareCancellation(event.id)
+                try commitScheduledWakeLedger(candidate)
+
+                var cancellationFailure: Error?
+                do {
+                    try performTrackedMutation(.cancelWake, allowsExistingMarker: true) {
+                        try PMSet.cancelWake(rendered: event.rendered)
+                    }
+                } catch {
+                    if registerUnresolvedMutation(from: error) {
+                        throw error
+                    }
+                    cancellationFailure = error
+                }
+
+                let observedAfterCancellation = try PMSet.readScheduledWakes()
+                if observedAfterCancellation.contains(event.rendered) {
+                    if let cancellationFailure { throw cancellationFailure }
+                    // More than one exact event may exist. The parser keeps
+                    // duplicates, so retain the obligation and cancel again.
+                    continue
+                }
+
+                guard !durableMutationMarkerBlocksWakeAbsenceProof else {
+                    throw ScheduledWakeAdapterError(
+                        message: "wake absence cannot resolve a command inherited from a prior helper process"
+                    )
+                }
+
+                candidate = scheduledWakeLedger
+                try candidate.completeCancellation(
+                    event.id,
+                    observedEvents: observedAfterCancellation
+                )
+                try commitScheduledWakeLedger(candidate)
+                if let cancellationFailure {
+                    log.info(
+                        "scheduled wake became absent despite cancellation error (\(reason)): \(cancellationFailure.localizedDescription)"
+                    )
+                }
+
+            case .removeUnobserved(let event):
+                guard !durableMutationMarkerBlocksWakeAbsenceProof else {
+                    throw ScheduledWakeAdapterError(
+                        message: "wake absence cannot resolve a command inherited from a prior helper process"
+                    )
+                }
+                var candidate = scheduledWakeLedger
+                try candidate.removeUnobserved(
+                    event.id,
+                    observedEvents: observedEvents
+                )
+                try commitScheduledWakeLedger(candidate)
+            }
+        }
+
+        log.info("scheduled-wake reconciliation yielded after bounded work (\(reason))")
+        return .needsMoreWork
+    }
+
+    /// Clears durable recovery evidence only when the exact authoritative
+    /// observation has no next ledger action. A requested scheduled event adds
+    /// an explicit identity check before the transaction marker is removed.
+    private func finishScheduledWakeReconciliation(
+        observedEvents: [String],
+        expectedScheduledEventID: UUID? = nil
+    ) throws {
+        guard scheduledWakeLedgerLoaded else {
+            throw ScheduledWakeAdapterError(
+                message: "scheduled-wake final proof has no trusted ledger"
+            )
+        }
+        guard try scheduledWakeLedger.nextAction(
+            observedEvents: observedEvents
+        ) == nil,
+        !scheduledWakeLedger.events.contains(where: { $0.phase != .scheduled }) else {
+            throw ScheduledWakeAdapterError(
+                message: "scheduled-wake final proof still has a recovery action"
+            )
+        }
+
+        if let expectedScheduledEventID {
+            guard let event = scheduledWakeLedger.events.first(where: {
+                $0.id == expectedScheduledEventID && $0.phase == .scheduled
+            }), observedEvents.lazy.filter({ $0 == event.rendered }).count == 1 else {
+                throw ScheduledWakeAdapterError(
+                    message: "the exact scheduled wake was not uniquely proven"
+                )
+            }
+        }
+
+        if durableMutationMarker?.operation.concernsScheduledWake == true {
+            guard !durableMutationMarkerBlocksWakeAbsenceProof else {
+                throw ScheduledWakeAdapterError(
+                    message: "same-boot prior-command child exit is unproven; retaining wake recovery until the reviewed reboot boundary"
+                )
+            }
+            try clearDurableMutationMarkerAfterObservedExit()
+        }
+        try clearScheduledWakeReconciliationMarkerAfterProof()
+        scheduledWakeLedgerFailure = nil
+        nextScheduledWakeReconciliation = .now() + 30
+    }
+
+    /// Assign in-memory truth only after the exact candidate is durably
+    /// published. A write with an ambiguous outcome invalidates memory; the
+    /// next attempt must reopen and decode the authoritative path.
+    private func commitScheduledWakeLedger(
+        _ candidate: ScheduledWakeLedger
+    ) throws {
         do {
-            try FileManager.default.removeItem(at: scheduledWakeURL)
-        } catch let error as CocoaError where error.code == .fileNoSuchFile &&
-                                               error.filePath == scheduledWakeURL.path {
-            // The exact record is already absent.
+            try persistScheduledWakeLedger(candidate)
+        } catch {
+            scheduledWakeLedgerLoaded = false
+            throw error
+        }
+        scheduledWakeLedger = candidate
+        scheduledWakeLedgerLoaded = true
+    }
+
+    /// Atomic, fully synchronized replacement in the already proven
+    /// root-owned directory. Keeping an encoded empty ledger avoids a
+    /// deletion boundary that could otherwise be mistaken for lost intent.
+    private func persistScheduledWakeLedger(
+        _ candidate: ScheduledWakeLedger
+    ) throws {
+        let data = try IPCCoding.encoder().encode(candidate)
+        guard data.count <= Self.maximumScheduledWakeLedgerBytes else {
+            throw StorageError(
+                operation: "encoded scheduled-wake ledger exceeds the maximum reviewed size",
+                code: nil
+            )
+        }
+
+        var directoryDescriptor = try openSecureWorkDirectory()
+        defer {
+            if directoryDescriptor >= 0 {
+                _ = Darwin.close(directoryDescriptor)
+            }
+        }
+
+        let temporaryFilename = ".scheduled-wake-\(UUID().uuidString).tmp"
+        var temporaryPublished = false
+        defer {
+            if !temporaryPublished, directoryDescriptor >= 0 {
+                _ = unlinkat(directoryDescriptor, temporaryFilename, 0)
+            }
+        }
+
+        var fileDescriptor = openat(
+            directoryDescriptor,
+            temporaryFilename,
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+            mode_t(0o600)
+        )
+        guard fileDescriptor >= 0 else {
+            throw StorageError(
+                operation: "exclusively create scheduled-wake ledger candidate",
+                code: errno
+            )
+        }
+        defer {
+            if fileDescriptor >= 0 {
+                _ = Darwin.close(fileDescriptor)
+            }
+        }
+
+        guard fchown(fileDescriptor, 0, 0) == 0 else {
+            throw StorageError(
+                operation: "set scheduled-wake ledger owner",
+                code: errno
+            )
+        }
+        guard fchmod(fileDescriptor, mode_t(0o600)) == 0 else {
+            throw StorageError(
+                operation: "set scheduled-wake ledger mode",
+                code: errno
+            )
+        }
+
+        let directoryMetadata = try storageMetadata(for: directoryDescriptor)
+        let initialFileMetadata = try storageMetadata(for: fileDescriptor)
+        guard HelperStorageSafety.isTrustedSentinel(
+            workDirectory: directoryMetadata,
+            sentinel: initialFileMetadata
+        ) else {
+            throw StorageError(
+                operation: "new scheduled-wake ledger metadata is not trusted",
+                code: nil
+            )
+        }
+
+        try data.withUnsafeBytes { bytes in
+            var offset = 0
+            while offset < bytes.count {
+                let byteCount = Darwin.write(
+                    fileDescriptor,
+                    bytes.baseAddress?.advanced(by: offset),
+                    bytes.count - offset
+                )
+                if byteCount < 0 {
+                    let writeErrno = errno
+                    if writeErrno == EINTR { continue }
+                    throw StorageError(
+                        operation: "write scheduled-wake ledger candidate",
+                        code: writeErrno
+                    )
+                }
+                guard byteCount > 0 else {
+                    throw StorageError(
+                        operation: "write scheduled-wake ledger candidate made no progress",
+                        code: nil
+                    )
+                }
+                offset += byteCount
+            }
+        }
+
+        try fullySynchronize(
+            fileDescriptor,
+            operation: "fully synchronize scheduled-wake ledger candidate"
+        )
+        let finalFileMetadata = try storageMetadata(for: fileDescriptor)
+        guard HelperStorageSafety.isTrustedSentinel(
+            workDirectory: directoryMetadata,
+            sentinel: finalFileMetadata
+        ) else {
+            throw StorageError(
+                operation: "scheduled-wake ledger metadata changed before publication",
+                code: nil
+            )
+        }
+        try closeStorageDescriptor(
+            &fileDescriptor,
+            operation: "close fully synchronized scheduled-wake ledger candidate"
+        )
+
+        guard renameat(
+            directoryDescriptor,
+            temporaryFilename,
+            directoryDescriptor,
+            HelperPaths.scheduledWakeLedgerFilename
+        ) == 0 else {
+            throw StorageError(
+                operation: "atomically publish scheduled-wake ledger",
+                code: errno
+            )
+        }
+        temporaryPublished = true
+        try fullySynchronize(
+            directoryDescriptor,
+            operation: "fully synchronize scheduled-wake ledger directory entry"
+        )
+        try closeStorageDescriptor(
+            &directoryDescriptor,
+            operation: "close fully synchronized scheduled-wake ledger directory"
+        )
+    }
+
+    private struct ScheduledWakeRecordRead {
+        let data: Data
+        let needsPermissionHardening: Bool
+    }
+
+    /// Load only through descriptor-relative, no-follow storage. Revision 7's
+    /// root-owned 0644 atomic file is accepted for integrity-preserving
+    /// migration, then immediately rewritten as the current exact 0600 file.
+    private func readScheduledWakeLedgerRecord() throws -> ScheduledWakeRecordRead? {
+        var directoryDescriptor = try openSecureWorkDirectory()
+        defer {
+            if directoryDescriptor >= 0 {
+                _ = Darwin.close(directoryDescriptor)
+            }
+        }
+
+        var fileDescriptor = openat(
+            directoryDescriptor,
+            HelperPaths.scheduledWakeLedgerFilename,
+            O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+        )
+        if fileDescriptor < 0 {
+            let openErrno = errno
+            if openErrno == ENOENT {
+                try closeStorageDescriptor(
+                    &directoryDescriptor,
+                    operation: "close helper work directory after absent scheduled-wake ledger"
+                )
+                return nil
+            }
+            throw StorageError(
+                operation: "open scheduled-wake ledger without following links",
+                code: openErrno
+            )
+        }
+        defer {
+            if fileDescriptor >= 0 {
+                _ = Darwin.close(fileDescriptor)
+            }
+        }
+
+        let directoryMetadata = try storageMetadata(for: directoryDescriptor)
+        let fileMetadata = try storageMetadata(for: fileDescriptor)
+        let acceptedPermission = fileMetadata.permissions == 0o600
+            || fileMetadata.permissions == 0o644
+        guard HelperStorageSafety.isSecureWorkDirectory(directoryMetadata),
+              fileMetadata.kind == .regularFile,
+              fileMetadata.ownerUID == 0,
+              fileMetadata.ownerGID == 0,
+              acceptedPermission,
+              fileMetadata.linkCount == 1,
+              !fileMetadata.hasExtendedACL else {
+            throw StorageError(
+                operation: "scheduled-wake ledger is not a trusted root-owned single-link regular file",
+                code: nil
+            )
+        }
+
+        let data = try readStorageRecordData(
+            from: fileDescriptor,
+            maximumBytes: Self.maximumScheduledWakeLedgerBytes,
+            operation: "read scheduled-wake ledger"
+        )
+        try closeStorageDescriptor(
+            &fileDescriptor,
+            operation: "close scheduled-wake ledger after trusted read"
+        )
+        try closeStorageDescriptor(
+            &directoryDescriptor,
+            operation: "close helper work directory after scheduled-wake ledger read"
+        )
+        return ScheduledWakeRecordRead(
+            data: data,
+            needsPermissionHardening: fileMetadata.permissions != 0o600
+        )
+    }
+
+    private func readStorageRecordData(
+        from fileDescriptor: Int32,
+        maximumBytes: Int,
+        operation: String
+    ) throws -> Data {
+        var result = Data()
+        var buffer = [UInt8](repeating: 0, count: 4 * 1024)
+        while true {
+            let byteCount = buffer.withUnsafeMutableBytes { bytes in
+                Darwin.read(fileDescriptor, bytes.baseAddress, bytes.count)
+            }
+            if byteCount == 0 { return result }
+            if byteCount < 0 {
+                let readErrno = errno
+                if readErrno == EINTR { continue }
+                throw StorageError(operation: operation, code: readErrno)
+            }
+            let count = Int(byteCount)
+            guard result.count <= maximumBytes - count else {
+                throw StorageError(
+                    operation: "\(operation) exceeds the maximum reviewed size",
+                    code: nil
+                )
+            }
+            result.append(contentsOf: buffer.prefix(count))
         }
     }
 
-    private func persistScheduledWake() {
-        if let scheduledWake {
-            try? IPCCoding.encode(scheduledWake).write(to: scheduledWakeURL, options: .atomic)
-        } else {
-            try? FileManager.default.removeItem(at: scheduledWakeURL)
+    private func loadScheduledWakeLedger() throws {
+        if !scheduledWakeReconciliationMarkerLoaded {
+            try loadScheduledWakeReconciliationMarker()
         }
-    }
+        if let markerFailure = scheduledWakeReconciliationMarkerFailure {
+            throw ScheduledWakeAdapterError(
+                message: "scheduled-wake reconciliation marker is untrusted: \(markerFailure)"
+            )
+        }
+        guard let record = try readScheduledWakeLedgerRecord() else {
+            if durableMutationMarkerRequiresRecovery {
+                throw ScheduledWakeAdapterError(
+                    message: "a durable command marker exists without its required ledger"
+                )
+            }
+            scheduledWakeLedger = ScheduledWakeLedger()
+            scheduledWakeLedgerLoaded = true
+            scheduledWakeLedgerFailure = nil
+            // Marker publication precedes the first ledger commit. Trusted
+            // ledger absence plus no command-in-flight evidence therefore
+            // proves that no wake mutation belonging to this transaction ran.
+            try clearScheduledWakeReconciliationMarkerAfterProof()
+            return
+        }
 
-    private func loadScheduledWake() {
-        guard let data = try? Data(contentsOf: scheduledWakeURL) else { return }
-        scheduledWake = IPCCoding.decode(StoredWake.self, from: data)
-        if let scheduledWake, scheduledWake.date < Date() {
-            self.scheduledWake = nil
-            persistScheduledWake()
+        let decoder = IPCCoding.decoder()
+        if let decoded = try? decoder.decode(
+            ScheduledWakeLedger.self,
+            from: record.data
+        ) {
+            if decoded.events.contains(where: { $0.phase != .scheduled }) {
+                try ensureScheduledWakeReconciliationMarker()
+            }
+            if record.needsPermissionHardening {
+                try persistScheduledWakeLedger(decoded)
+            }
+            scheduledWakeLedger = decoded
+            scheduledWakeLedgerLoaded = true
+            scheduledWakeLedgerFailure = nil
+            return
         }
+
+        guard let legacy = try? decoder.decode(
+            LegacyStoredWake.self,
+            from: record.data
+        ) else {
+            throw ScheduledWakeAdapterError(
+                message: "scheduled-wake ledger contents or version are unsupported"
+            )
+        }
+
+        var migrated = ScheduledWakeLedger()
+        let event = try migrated.beginScheduling(
+            rendered: legacy.rendered,
+            date: legacy.date
+        )
+        try migrated.prepareCancellation(event.id)
+        try ensureScheduledWakeReconciliationMarker()
+        try persistScheduledWakeLedger(migrated)
+        scheduledWakeLedger = migrated
+        scheduledWakeLedgerLoaded = true
+        scheduledWakeLedgerFailure = nil
+        log.info("migrated legacy scheduled-wake record into a cancellation obligation")
     }
 
     // MARK: - NSXPCListenerDelegate
@@ -1656,7 +3183,14 @@ final class HelperXPCBridge: NSObject, LidlessHelperXPC {
     }
 
     func scheduleWake(_ epoch: Double, reply: @escaping @Sendable (Data) -> Void) {
-        daemon.handleScheduleWake(epoch, reply: reply)
+        daemon.handleLegacyScheduleWake(epoch, reply: reply)
+    }
+
+    func scheduleWakeRequest(
+        _ requestJSON: Data,
+        reply: @escaping @Sendable (Data) -> Void
+    ) {
+        daemon.enqueueScheduleWake(requestJSON, reply: reply)
     }
 
     func prepareUninstall(_ reply: @escaping @Sendable (Data) -> Void) {

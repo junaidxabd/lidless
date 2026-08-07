@@ -97,10 +97,13 @@ struct HelperTerminationSafetyTests {
         let workDirectory = try #require(start.range(
             of: "try ensureSecureWorkDirectory()"
         ))
-        let recovery = try #require(start.range(
-            of: "recoveryPass(storageFailure: storageFailure)"
+        let markerLoad = try #require(start.range(
+            of: "try loadDurableMutationMarker()"
         ))
-        let wakeLedger = try #require(start.range(of: "loadScheduledWake()"))
+        let recovery = try #require(start.range(
+            of: "recoveryPass(storageFailure: recoveryStorageFailure)"
+        ))
+        let wakeLedger = try #require(start.range(of: "loadScheduledWakeLedger()"))
         let peerValidation = try #require(start.range(
             of: "XPCPeerPolicy.validatedRequirementForCurrentProcess("
         ))
@@ -111,6 +114,8 @@ struct HelperTerminationSafetyTests {
         #expect(!start.contains("queue.async"))
         #expect(synchronousStartup.lowerBound < signalSetup.lowerBound)
         #expect(signalSetup.lowerBound < workDirectory.lowerBound)
+        #expect(workDirectory.lowerBound < markerLoad.lowerBound)
+        #expect(markerLoad.lowerBound < recovery.lowerBound)
         #expect(workDirectory.lowerBound < recovery.lowerBound)
         #expect(recovery.lowerBound < wakeLedger.lowerBound)
         #expect(wakeLedger.lowerBound < peerValidation.lowerBound)
@@ -201,5 +206,61 @@ struct HelperTerminationSafetyTests {
                 whileTerminationRequested: false
             ))
         }
+    }
+
+    @Test func unobservedMutatingChildRetainsRecoveryAndBlocksNewRisk() throws {
+        let command = try repositoryFile("Helper/PMSet.swift")
+        let helper = try repositoryFile("Helper/HelperDaemon.swift")
+
+        #expect(command.contains("final class TerminationWitness"))
+        #expect(command.contains("let terminationCertainty:"))
+        #expect(command.contains("let terminationWitness:"))
+        #expect(command.contains("exitObserved: exitObserved"))
+        #expect(command.contains("terminationCertainty == .unproven"))
+
+        #expect(helper.contains(
+            "private var unresolvedMutationWitnesses: [PMSet.TerminationWitness]"
+        ))
+        #expect(helper.contains("registerUnresolvedMutation(from:"))
+        #expect(helper.contains("unresolvedMutationRemains()"))
+
+        let arm = try section(
+            of: helper,
+            from: "fileprivate func handleArm(",
+            through: "private func rejectPreparedArm("
+        )
+        let enable = try #require(arm.range(
+            of: "try PMSet.setSleepDisabled(true)"
+        ))
+        let register = try #require(arm.range(
+            of: "registerUnresolvedMutation(from: error)"
+        ))
+        let abort = try #require(arm.range(of: "abortFreshArm("))
+        #expect(enable.lowerBound < register.lowerBound)
+        #expect(register.lowerBound < abort.lowerBound)
+
+        let restore = try section(
+            of: helper,
+            from: "private func performRestore(",
+            through: "private func parkRestore("
+        )
+        let witnessGate = try #require(restore.range(
+            of: "guard !unresolvedMutationRemains() else"
+        ))
+        let restoreMutation = try #require(restore.range(
+            of: "try PMSet.setSleepDisabled(restoreTarget)"
+        ))
+        let sentinelDelete = try #require(restore.range(
+            of: "try removeSentinelFile()"
+        ))
+        #expect(witnessGate.lowerBound < restoreMutation.lowerBound)
+        #expect(restoreMutation.lowerBound < sentinelDelete.lowerBound)
+
+        let finish = try section(
+            of: helper,
+            from: "private func finishTerminationIfSafe()",
+            through: "private func startTick()"
+        )
+        #expect(finish.contains("guard !unresolvedMutationRemains() else"))
     }
 }

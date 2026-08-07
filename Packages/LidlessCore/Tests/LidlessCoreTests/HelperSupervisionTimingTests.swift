@@ -4,19 +4,28 @@ import LidlessCore
 @Suite("Helper supervision timing")
 struct HelperSupervisionTimingTests {
     @Test func safetyCriticalRecoveryFitsInsideMinimumWatchdogTTL() {
+        #expect(HelperArmOptions.watchdogTTLRange.lowerBound == 45)
         // A timed-out enable followed by its fail-safe restore is the longest
         // sequence allowed before in-memory supervision can take over.
         #expect(HelperSupervisionTiming.maximumBlockingInterval(commandCount: 2)
             < HelperArmOptions.watchdogTTLRange.lowerBound)
     }
 
-    @Test func postProofOptionalMutationsLeaveWatchdogMargin() {
+    @Test func managedActivationMutationsLeaveWatchdogMargin() {
         // Each captured power-source scope is one grouped command. Connection
         // invalidation and the watchdog must still get queue time before the
         // minimum TTL expires.
         #expect(ManagedSettingRestorationSafety.maximumScopeCommandCount == 3)
         #expect(HelperSupervisionTiming.isWithinWatchdogBudget(
             commandCount: ManagedSettingRestorationSafety.maximumScopeCommandCount,
+            watchdogTTL: HelperArmOptions.watchdogTTLRange.lowerBound
+        ))
+    }
+
+    @Test func completeArmFailureRecoveryFitsInsideMinimumTTL() {
+        #expect(HelperSupervisionTiming.maximumArmTransactionCommandCount == 11)
+        #expect(HelperSupervisionTiming.isWithinWatchdogBudget(
+            commandCount: HelperSupervisionTiming.maximumArmTransactionCommandCount,
             watchdogTTL: HelperArmOptions.watchdogTTLRange.lowerBound
         ))
     }
@@ -36,7 +45,7 @@ struct HelperSupervisionTimingTests {
 
     @Test func budgetRejectsWorkThatCanConsumeTheWholeTTL() {
         #expect(!HelperSupervisionTiming.isWithinWatchdogBudget(
-            commandCount: 4,
+            commandCount: 12,
             watchdogTTL: HelperArmOptions.watchdogTTLRange.lowerBound
         ))
     }

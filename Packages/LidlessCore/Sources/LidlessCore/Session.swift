@@ -13,6 +13,9 @@ public enum SessionEndReason: Codable, Sendable, Equatable, Hashable {
     case helperRestored
     /// Live helper/registry proof was lost, so Lidless ended the session.
     case helperProofLost
+    /// The initial active-session journal could not be made durable, so
+    /// Lidless immediately restored normal sleep instead of claiming armed.
+    case persistenceFailure
     /// System slept anyway (user forced sleep); the override was released.
     case systemSlept
     case uninstalled
@@ -20,6 +23,34 @@ public enum SessionEndReason: Codable, Sendable, Equatable, Hashable {
     public var isCutoff: Bool {
         if case .cutoff = self { return true }
         return false
+    }
+}
+
+/// Resolves a stale active-session journal against already-durable history.
+/// A committed terminal record is stronger evidence than an older journal and
+/// must never be relabeled by a later launch fallback such as `.appQuit`.
+public enum SessionArchiveSafety {
+    public static func recordForArchive(
+        unresolved: KeepAwakeSession,
+        durableHistoryMatch: KeepAwakeSession?,
+        proposedEndReason: SessionEndReason
+    ) -> KeepAwakeSession {
+        if let durableHistoryMatch,
+           durableHistoryMatch.id == unresolved.id,
+           durableHistoryMatch.endedAt != nil,
+           durableHistoryMatch.endReason != nil {
+            return durableHistoryMatch
+        }
+
+        var record = unresolved
+        record.endedAt = record.samples.last?.time ?? record.startedAt
+        record.endReason = proposedEndReason
+        if let percent = record.samples.last?.percent, percent.isFinite {
+            record.endPercent = Int(min(100, max(0, percent.rounded())))
+        } else {
+            record.endPercent = record.startPercent
+        }
+        return record
     }
 }
 

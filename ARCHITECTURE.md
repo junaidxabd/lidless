@@ -1,451 +1,320 @@
 # Lidless Architecture
 
-The problem shapes the design: keeping a closed MacBook awake requires the
-root-only, system-wide `pmset disablesleep 1`, and the unforgivable failure
-mode is *leaving it set*. So Lidless is built as a small trusted actuator
-wrapped in redundant supervision, driven by a completely unprivileged brain.
+Lidless is a native macOS utility that can request the root-only,
+system-wide `pmset disablesleep` override needed to keep a closed MacBook
+awake. The unacceptable failure mode is leaving that override enabled without
+supervision. The architecture therefore treats every mutation as unproven
+until it is read back, keeps recovery obligations durable, and prefers a
+visible refusal over inferred success.
+
+This document describes the verified local release-candidate design. It does
+not claim that unsigned builds prove signed XPC trust, launchd behavior, real
+`pmset` mutations, reboot persistence, or hardware thermal and battery
+behavior. Those remain explicit live gates.
 
 ```
-┌───────────────────────────────────────────────┐
-│ Lidless.app (menu bar, no privileges)         │
-│  Monitors: IOKit battery events · pmset therm │
-│  polls · ProcessInfo thermal · lid & override │
-│  readback (IORegistry) · NSWorkspace wake     │
-│  Brain:    AppState (state machine)           │
-│            LidlessCore (pure decisions)       │
-│  UI:       MenuBarExtra panel · main window · │
-│            widget (app-group mirror)          │
-└──────────────┬────────────────────────────────┘
-               │ XPC (mach service, peer code-sign requirement)
-               │ arm / heartbeat(10s) / disarm / repair / wake / uninstall
-┌──────────────▼────────────────────────────────┐
-│ LidlessHelper (root launchd daemon, ~700 LOC) │
-│  pmset disablesleep|sleepnow|lpm|tcpkeepalive │
-│  + IORegistry readback verification           │
-│  Safety: sentinel file · watchdog(45s) ·      │
-│  connection supervision · boot/crash recovery │
-└───────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│ Lidless.app — unprivileged                                 │
+│                                                            │
+│  AppState          session/recovery state machine          │
+│  Monitors          battery · thermal · lid · registry      │
+│  SwiftUI           menu panel · window · onboarding        │
+│  Persistence       config · session journal · history      │
+└──────────────────────┬─────────────────────────────────────┘
+                       │ NSXPC, signed peer requirement
+                       │ status / arm / heartbeat / restore /
+                       │ repair / wake scheduling
+┌──────────────────────▼─────────────────────────────────────┐
+│ LidlessHelper — root launchd daemon                        │
+│                                                            │
+│  Narrow actuator    pmset + IORegistry verification        │
+│  Supervision        ownership · watchdog · sleep observer  │
+│  Durable recovery   sentinel · mutation marker · wake log  │
+└────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────┐
+│ LidlessCore — shared deterministic policy, no mutations    │
+│ Widget — read-only app-group projection, no authority      │
+└────────────────────────────────────────────────────────────┘
 ```
 
-## Layering
+## Boundaries and responsibilities
 
-**`Packages/LidlessCore`** — shared Swift over the Foundation, IOKit, and
-Security system frameworks; it performs no system mutations. `CutoffEngine`
-(arm assessment, planned cutoffs, per-tick
-evaluation), `ScheduleEngine` (recurring windows, midnight wrap, DST-safe),
-`DrainEstimator` (least-squares %/hr over the trailing discharge run),
-`PMSetParser` (every piece of pmset text parsing in one tested module),
-`BatterySnapshotNormalizer` (typed, fail-closed power-source evidence), the
-`ThermalEvidenceSafety` validator and source-aware strike tracker, the XPC
-payload types, battery/thermal admission and cutoff policy, and the sentinel
-model. Deterministic tests keep the policies that decide when a configured
-safety guard can be enforced out of UI code.
+`Packages/LidlessCore` holds deterministic policy: configuration
+normalization, arm admission, cutoff ordering, thermal-evidence validation,
+schedule calculation, battery normalization, helper admission, managed-setting
+restoration policy, XPC payloads, command timing, and the scheduled-wake
+ledger. It does not run privileged commands.
 
-**The app** owns all policy *state*: the session lifecycle, thermal strike
-counting, schedule automation, history recording, and every projection shown
-in UI. Battery state arrives via `IOPSNotificationCreateRunLoopSource`
-(events, not polling); thermals via a 90 s `pmset -g therm` poll fused with
-`ProcessInfo.thermalState` change notifications; lid state and the *actual*
-override value via IORegistry reads on a 15 s tick. The app never assumes an
-operation worked — the menu bar indicator is driven by reading
-`IOPMrootDomain.SleepDisabled` back, which is also what makes an override
-left behind by *any other tool* visible (with a one-click repair).
-When a battery floor is enabled, unreadable or malformed battery evidence
-refuses a new arm and sends an established session into the same
-verified-restoration coordinator. Completion remains pending until the helper
-reply and an independent registry read both prove normal sleep. Enumeration
-absence alone is not accepted as hardware-absence proof. Only a fully
-classified enumeration plus a readable root-domain topology showing no
-clamshell produces the explicit no-battery state. When thermal protection is
-enabled, the same admission/restoration rule applies to a missing, structurally
-invalid, future-dated, or more than 180-second-old `pmset` sample. Recognized
-malformed or contradictory fields invalidate the whole parsed sample instead
-of retaining a convenient nominal subset. A serious or critical `ProcessInfo`
-state remains an independent pressure signal, but cannot replace the `pmset`
-evidence needed to enforce the configured warning/speed thresholds.
+The app owns user intent and product state. It monitors battery power-source
+events, polls `pmset -g therm`, listens to `ProcessInfo.thermalState`, reads lid
+and `IOPMrootDomain.SleepDisabled` evidence, reconciles sessions, and publishes
+a read-only widget snapshot. The dark-only interface is a native safety
+instrument: semantic color, native type, quiet hierarchy, one primary action,
+and distinct normal, armed, restoring, outside-override, stale, and unknown
+states. A screenshot is presentation evidence, never system-state proof.
 
-**The helper** makes no decisions. It clamps its inputs (watchdog TTL is
-15–120 s no matter what the app asks), verifies every mutation by reading the
-registry back, and treats "restore normal sleep" as the terminal state it
-always falls back to.
+The helper owns the smallest practical privileged surface. It does not decide
+whether a cutoff should fire. It validates the requesting client, performs a
+bounded mutation, reads the result back, and retains any unresolved recovery
+obligation. The helper's current wire protocol is v6 and its safety behavior
+revision is 8.
 
-## The safety invariant
+The widget cannot arm, restore, or classify the helper. It renders a timestamped
+projection written by the app and exposes deep links back to the app. Real
+WidgetKit hosting and app-group delivery require signed runtime validation.
 
-> The sleep override must never outlive supervision.
+## Evidence model
 
-Mechanisms, layered so no single failure strands the override:
+Lidless distinguishes four ideas that must not collapse into one another:
 
-1. **Sentinel-first ordering.** Before decoding disk recovery state or arming,
-   the helper proves both `/var/db` and `/var/db/lidless` are exact root:wheel
-   0755 directories with no ACL. Creation and open of `lidless` are relative
-   to the proven parent descriptor; creation/open of `override-active` is
-   relative to the proven child descriptor, exclusive, and no-follow. The
-   helper proves a single-link root:wheel 0600 regular file with no ACL, writes
-   the complete record, requires successful `F_FULLFSYNC` requests for the
-   file and its directory entry, and checks mutation-bearing closes *before*
-   `disablesleep 1` runs. It re-applies child/parent namespace barriers even
-   when the directory already exists, closing the interrupted-creation retry
-   gap. After a Lidless mutation, removal requires verified restoration, a
-   full directory barrier, and a checked close; an unused prepared marker may
-   instead be removed after a proven pre-mutation rejection. Invalid metadata
-   or a partial/corrupt direct write is never decoded as trusted optional
-   state; proof failure selects version-0 normal-sleep recovery and keeps
-   recovery pending. These host requests fail closed, but offline tests cannot
-   prove a particular physical device honors cache-flush requests under OS
-   crash or power loss. Sentinel schema v2
-   records the LPM key
-   (`lowpowermode`/`powermode` — differs across macOS releases) and numeric
-   LPM/`tcpkeepalive` priors only for the exact Battery/AC/UPS scopes Lidless
-   mutates, plus a legacy `disablesleep` field, so recovery needs no app state.
-   A schema-v1 sentinel with optional state cannot claim those scoped
-   semantics and remains pending for explicit recovery; v1 without optional
-   state can still restore normal sleep. Protocol v5 and later
-   refuse to arm over a measured external override and always restore ordinary
-   sleep (`disablesleep 0`). The disk record is immutable while active;
-   heartbeat deadlines live only in queue-owned memory because
-   filesystem latency is not bounded.
-2. **Connection supervision.** The helper assigns each accepted connection a
-   fresh process-local identity and tracks it on the serial state queue. A
-   second arm is rejected while that session is active, only the exact live
-   requesting connection may arm, only the resulting owner may renew the
-   watchdog, and either owner XPC interruption or invalidation enters
-   restoration. Both callbacks converge
-   through one exactly-once terminal gate, so duplicate or reordered delivery
-   cannot remove another connection or repeat the restore. Other authenticated
-   connections retain de-risking restore and repair access but cannot prolong
-   the override. Actual NSXPC callback delivery and timing remain live gates;
-   the watchdog is an independent fallback.
-3. **Watchdog.** The app heartbeats every 10 s; the helper restores if no
-   beat arrives within the TTL (45 s), with a 30 s grace period after system
-   wake so a just-woken app isn't raced.
-4. **launchd configured as the last supervisor.** `KeepAlive.PathState` on the
-   sentinel requests keep/relaunch while the override may be active;
-   `RunAtLoad` requests a boot recovery pass. Every actual helper launch begins
-   with trusted sentinel inspection (restoring when present) or untrusted
-   fail-safe recovery before serving. A corrupt sentinel forces
-   `disablesleep 0`, but its optional priors are
-   unprovable: the helper marks recovery pending and retains corrupt evidence
-   rather than claiming a complete restore. Actual launchd/crash behavior is a
-   live gate.
-5. **Forced-sleep detection.** `disablesleep` makes ordinary sleep
-   impossible, so a `kIOMessageSystemWillSleep` while armed means the user
-   forced it — the helper releases the override on the way down so the Mac
-   *stays* asleep.
-6. **Restore failure never gives up.** Normal sleep is proved first. Every
-   recorded optional value is then restored through grouped per-scope
-   commands and must match a fresh `pmset -g custom` readback before the
-   sentinel can leave. A command error, invalid snapshot, missing/mismatched
-   readback, or sentinel-deletion error parks in `restorePending`; the tick
-   retries every 30 s while the process remains. A trusted on-disk marker
-   configures `KeepAlive.PathState` to request relaunch. If storage itself is
-   missing or invalid, the version-0 pending fallback can be memory-only; a
-   simultaneous restore failure followed by forced process loss has no proven
-   disk restart trigger and remains an explicit live fault gate. Arming is
-   refused while a restore is pending.
-7. **SIGTERM/SIGINT fail closed.** A signal latches termination and restores on
-   the serial state queue. It voluntarily exits only after no helper-owned
-   recovery remains; an owned sentinel or pending restore clears only after
-   exact normal-sleep proof and sentinel deletion. A no-record exit does not
-   prove the external sleep state. Failures retry on the next supervision tick;
-   new arm, repair, all wake work, and delayed force-sleep work are refused,
-   while ordinary restore stays available. The OS can
-   still force-kill the process, so launchd escalation and shutdown timing
-   remain live validation gates rather than offline guarantees.
-8. **Bounded state-queue work while armed.** Each `pmset` child gets 3 s,
-   followed by at most 1 s to observe forced termination. The critical
-   enable/rollback interval is at most two calls; post-proof optional work is
-   grouped into at most three power-scope calls, strictly below the 15 s
-   minimum TTL. Once a restore starts executing, its at-most-five child calls
-   (sleep restore, three scopes, custom readback) have a 20 s child-process
-   bound. Prior queue occupancy — including post-reply optional activation —
-   plus filesystem, process-launch, and IOKit work can still outlive the app's
-   25 s local deadline; that timeout is outcome-unknown, not cancellation or
-   restore proof. Wake scheduling is deferred while armed or recovering.
+1. **Intent** — what the user or schedule requested.
+2. **Reply** — what a helper process reported.
+3. **Independent observation** — what a fresh registry or `pmset` read showed.
+4. **Durable obligation** — what might still need reconciliation after a crash.
 
-The helper rechecks the registry after the potentially unbounded initial
-sentinel write and immediately before installing in-memory ownership and
-running `pmset`. macOS exposes no atomic check-and-set ownership primitive for
-this global Boolean, so a final cross-process registry-read-to-mutation race
-remains an explicit external validation/design gate rather than a closed
-offline claim.
+Risk-increasing work requires exact-current helper admission and operation-
+specific proof. Normal-sleep recovery can accept a narrower exact-wire,
+two-source proof: a structurally complete helper reply plus an independent
+registry-OFF observation. A malformed, negative, timed-out, stale-wire, or
+contradictory result never becomes success.
 
-The app side mirrors this: quitting while armed asks ("Disarm & Quit"), the
-session journal (`current-session.json`) folds crashed sessions into history
-on next launch, and launch reconciliation disarms an orphaned helper session
-if the app comes back before the watchdog fires. A helper interruption or any
-heartbeat that cannot prove the live override is terminal for the current
-session: the app restores normal sleep and requires a fresh user/schedule arm.
-It never automatically re-enables an override after proof has been lost. A
-never-established arm request may end without mutation if the exact current
-helper proves it owns no session or pending recovery while the app independently
-sees an outside override. Once a Lidless session was established, that evidence
-is causally ambiguous; recovery stays visible until normal sleep is proven.
-Repairing an outside override is also generation-bound: the app records the
-repair transition before its first XPC call and keeps the repair operation
-selected whenever an attempt returns without complete proof. Completion still
-requires the helper and a fresh, independent registry read to prove normal
-sleep. A repair generation cannot inherit session-finalization,
-outside-ownership, or force-sleep semantics. The generation is app-local and
-cannot cancel a remotely delivered mutation. Every app-side XPC continuation
-has a 25 s local deadline: reply, transport failure, and timeout race through
-one exactly-once completion gate. A timeout retires the exact captured
-connection and invalidates current helper proof. This bounds the local await;
-it neither cancels an already delivered mutation nor proves its remote outcome.
+Every app-side XPC request has a 25-second local deadline and an exactly-once
+completion gate. A timeout retires the captured connection and means the remote
+outcome is unknown; it neither cancels a delivered request nor proves the
+system state. For scheduled wakes, a reply this app refused after delivery is an indeterminate remote outcome, because the remote command may already have
+been applied.
 
-## XPC hardening
+## Configuration and cutoff policy
 
-The helper accepts a connection only if the peer satisfies a code-signing
-requirement applied with `NSXPCConnection.setCodeSigningRequirement`:
-`anchor apple generic and identifier "com.lidless.app" and certificate
-leaf[subject.OU] = "<team>"`, where `<team>` is read from the helper's *own*
-signing info once at startup, but only after the running helper dynamically
-validates its Apple-anchored `com.lidless.helper` identity. There is no hardcoded
-runtime team anchor; missing or invalid helper identity rejects every peer.
-Ad-hoc helpers fail closed because an identifier-only requirement is locally
-spoofable. Payloads are Codable JSON over `Data` (one
-encoding for XPC, sentinel, and logs); malformed input produces an error
-reply, never a crash. Every reply carries a fresh `HelperStatus` including
-the *read-back* override value. Risk-increasing admission remains strict:
-readiness, arming, armed-session proof, outside-ownership classification, and
-scheduled-wake acceptance require both protocol v6 and the exact safety
-behavior revision 7. A missing, older, or future revision is stale and can
-never arm. The revision is self-reported compatibility metadata, not executable
-attestation or an installation receipt.
+All externally writable cutoff values are normalized before arithmetic or date
+interpretation:
 
-De-risking normal-sleep completion has a deliberately separate boundary. A
-responder using exact protocol v6 may prove restoration despite a missing or
-mismatched behavior revision, but only when its reply is successful and
-structurally complete (`armed == false`, verified registry OFF, and
-`restorePending == false`) **and** the app independently reads the registry OFF.
-Failed-arm disposition is the narrow exception to reply-success admission: it
-does not claim the failed operation completed, and may classify the arm as
-already restored when the reply's fresh structural status plus the independent
-registry read both prove OFF despite `ok == false`.
-This broad boundary proves only the main sleep flag; it cannot authorize wake
-ledger mutation, optional-setting restoration, data deletion, or
-deregistration. Helper-side and other one-source restore decisions still
-require exact revision 7. A cutoff's optional `sleepnow` follow-up is also a
-separate power mutation: a revision-mismatched helper may complete two-source
-normal-sleep proof, but only an exact-current revision-7 reply can authorize
-the one-shot follow-up. Before any revision-mismatched recovery completion can
-finalize a session, the app synchronously demotes cached helper readiness and
-invalidates scheduled-wake reconciliation; only a later fresh exact-current
-classification can re-enable arm or wake work. Every accepted live-evidence
-ingress crosses that one boundary — sleep-transition recovery, the restore
-monitor, the force-sleep follow-up, the quit final proof, failed-arm
-disposition, launch reconciliation, the heartbeat, `scheduleWake` replies, and,
-including a refresh the client classifies itself, `refreshInstallState`. The
-refresh reads status inside `HelperClient`, so the app never sees that
-`HelperStatus`; the surviving classification is routed through the same
-boundary instead of a second copy of the rule. Cached scheduled-wake authority
-therefore survives only an exact-current `.ready` (or `.simulated`)
-classification, so a stale, different-wire, unresponsive, or unclassifiable
-responder can never inherit a wake confirmation that another responder
-produced. The boundary only demotes; it never promotes. A different wire protocol ends
-the automatic recovery generation without claiming restoration **only after**
-every dispatched arm has settled. While an arm is in flight, the generation
-and manual-recovery latch remain live and no second unsupported mutation is
-sent; this prevents a late arm from re-enabling the override after its recovery
-fence was cleared. Terminalizing keeps the pending restore and `.disarming`
-so the session and crash journal stay live, so the fence is an explicit
-generation latch rather than an implied state: the
-absence of a monitor task is not a fence, because any later helper-proof loss
-restarts a monitor from exactly that state and would re-dispatch unsupported
-mutations on a five-second loop. Both the monitor's start path and its loop
-consult the latch, and quit copy reports that automatic recovery stopped
-instead of claiming restoration is still in progress. The sleep-transition
-fence has no restore generation to latch — that path already cleared the
-pending restore — so it is keyed on the sleep generation instead, which every
-new transition bumps, so a stale fence can never be inherited. Quitting stays
-blocked while normal sleep is unverified; resolving a fenced session is a
-manual, support-guided path, and the copy says so rather than implying an
-in-app route that does not exist. A malformed or negative operation reply outside the
-failed-arm exception, either unknown observation, or any contradiction cannot
-prove completion.
+- battery floor: 5–50 percent;
+- thermal CPU-speed floor: 20–90 percent;
+- thermal strikes: 1–5;
+- duration: 30 minutes–24 hours, with non-finite values mapped to 24 hours;
+- wall-clock hour/minute: valid 24-hour components.
 
-Enabled-helper cleanup has the stricter behavior boundary because it can
-restore optional settings, cancel persisted wakes, delete helper data, and
-authorize deregistration. The responder must use exact protocol v6 **and**
-either current revision 7 or explicitly reviewed predecessor revision 6.
-Missing revisions, revisions 0–5, and future revisions are rejected before
-`commitUninstall`; wire compatibility alone never authorizes destructive
-cleanup. The client then asks that reviewed responder to prepare cleanup and
-rechecks that launchd still classifies the service as enabled. Automatic
-replacement additionally rechecks that preparation came from the exact
-protocol-v6/revision-6 target selected before the await. If revision 7 answers,
-replacement returns ready without cleanup or registration; any other changed
-responder aborts before destructive cleanup.
-Preparation returns a random authorization bound to that helper process
-lifetime. The receiving daemon validates it before advancing lifecycle state,
-restoring settings, cancelling wakes, or removing data. A commit delivered to
-a restarted or replacement process therefore rejects before cleanup mutation.
-The legacy unbound cleanup selector remains fail-closed. Only after the cleanup
-reply plus the independent registry read prove normal sleep may the client call
-asynchronous unregister; success additionally requires a fresh inactive
-registration classification and another registry-OFF read.
+An enabled battery floor requires usable power-source evidence. Enumeration
+absence alone is not proof that a machine has no battery; Lidless requires
+independent topology evidence before showing the explicit no-battery state.
+Loss of required evidence during an established session starts verified
+restoration.
 
-Replacement is user-invoked only. `install()` freshly reclassifies the live
-service instead of trusting Setup's cached state and preserves both its wire
-version and reported behavior revision. Only protocol v6 / reviewed predecessor
-revision 6 may run the cleanup/unregister proof once. It registers once after
-proven completion and then requires either exact-current readiness or the
-explicit macOS approval state. It never retries automatically. Missing,
-revisions 0–5, future revisions, a different/unknown wire version, unsupported
-cleanup selector, ambiguous cleanup or unregister outcome, or failed
-post-register verification stops without cleanup or another registration.
-Only explicit `.notRegistered` after a failed registration may surface a
-safe-but-uninstalled state. ServiceManagement `.notFound` is an error, not
-inactive-registration proof; it and every unknown classification block retry
-without claiming the helper is absent. Setup and onboarding render that state
-as unverified with Re-check plus emergency sleep-only/support guidance, never
-as an indefinite progress state or automatic-replacement opportunity. Because
-that verdict is a conclusion about the installed helper, the
-not-yet-classified state is distinct from that verdict: a separate pre-refresh
-`.checking` value is the app's initial install state, is rendered as work in
-progress, and is never produced by live evidence. Neither value is usable, reachable, or
-recovery-eligible, and both `install()` classification switches fail closed on
-`.checking` rather than install, replace, or claim success from absent
-evidence. No replacement is attempted on launch.
-Launch reconciliation may query and restore an exact-wire stale revision, but
-both cached eligibility and the post-await reply decision reject a different
-wire protocol before any automatic disarm loop can begin.
+An enabled thermal guard requires a structurally valid `pmset` sample that is
+not future-dated and is no more than 180 seconds old. Recognized malformed or
+contradictory fields invalidate the sample. Serious `ProcessInfo` pressure is
+debounced; critical pressure cuts off immediately. A clock rollback saturates
+the strike requirement instead of extending a hot session.
 
-`sudo pmset -a disablesleep 0` is an emergency normal-sleep recovery command,
-not a complete helper-removal procedure: it does not cancel a helper-managed
-wake, restore other managed settings, delete helper data, or deregister
-ServiceManagement. A helper outside the reviewed cleanup boundary must be
-kept registered and must stay registered until a separately reviewed,
-revision-specific support removal procedure is available. Running an older
-matching app's generic uninstall path is not presumed safe. The UI does not
-describe the sleep-only command as automatic or complete replacement.
+Safety cutoff reasons outrank convenience cutoffs: thermal, missing thermal
+evidence, missing battery evidence, battery floor, wall-clock time, duration,
+then schedule end. Restoration must be proven before an optional `sleepnow`
+follow-up is authorized.
 
-The process token does not bind a lingering responder to the SMAppService
-registration later unregistered, so registration/executable identity and
-enabled-to-enabled registration ABA remain open gates. The handshake and
-revision are self-reported compatibility evidence, not attestation of installed
-bytes or a receipt for the registered executable. Signed mixed-version XPC,
-real cleanup and registry behavior, asynchronous unregister/register, and
-replacement timing remain separate runtime gates.
+## Arming transaction
 
-Removal-failure guidance is likewise split by what the failing path proved.
-Most removal errors stop before any remote mutation and say so in their own
-message. Those carry an explicit marker, and the alert
-must not tell the user to disbelieve it: manual removal is what strips
-launchd's KeepAlive/RunAtLoad supervision from a helper that is provably
-intact. Only a genuinely unresolved remote outcome gets the "do not assume
-removal happened" warning and the emergency command.
+1. The app creates an immutable, process-local pending intent. It snapshots the
+   effective normalized configuration and, for an automated arm, the exact
+   schedule occurrence.
+2. The app refreshes helper admission, thermal evidence, battery evidence, and
+   the actual override registry value. Any relevant drift revokes confirmation.
+3. The helper validates the exact live connection and captures the current
+   optional-setting priors.
+4. The helper securely creates and fully synchronizes the override sentinel
+   before it can enable `disablesleep`.
+5. It re-proves the override is inactive, installs connection ownership and a
+   monotonic watchdog deadline, runs the bounded command, and reads the registry
+   back.
+6. Optional Low Power Mode and `tcpkeepalive` changes are applied only with
+   captured per-scope priors; restoration of touched state is strict.
+7. Only an exact-current successful reply plus the app's post-reply safety
+   checks may create a session. The active-session journal must then be written
+   successfully before the heartbeat starts or the UI claims armed. A journal
+   failure immediately enters verified restoration with a truthful terminal
+   reason; any other post-mutation failure does the same.
 
-Scheduled-wake outcomes distinguish the two ways a reconciliation can fail. An
-explicit negative reply is a rejection: the mutation did not happen, and the
-desired value stays plainly retryable. A reply that this app
-refused after delivery is an indeterminate remote outcome — the responder
-reported success but does not match the required safety revision, so it may
-already have programmed the RTC wake. Only that classification records the
-sticky ordering hazard that prevents a later matching success from being read
-as confirmation.
+The helper clamps watchdog TTL to 45–120 seconds. The app heartbeats every 10
+seconds. Each `pmset` child gets 3 seconds, then at most 1 second for forced
+termination and reap. The maximum arm/fail-safe path is eleven child waits, or
+44 seconds, strictly below the 45-second minimum watchdog. A timeout whose
+child exit is not observed remains a durable mutation uncertainty.
 
-Uninstall-time scheduled-wake cleanup is also fail-closed. After `pmset`
-accepts cancellation, the daemon must remove the exact persisted wake record
-before clearing its in-memory intent or attempting broader helper-data removal.
-Exact-target absence is accepted; any other ledger-removal error retains any
-known in-memory intent and returns failure, so the current client does not
-authorize deregistration. The external `pmset` mutation and filesystem unlink
-are not atomic: process death in that interval, external wake changes, and real
-cancellation/readback behavior remain live recovery gates rather than closed
-offline claims.
+## Override recovery
 
-## The arming flow (exact)
+The main invariant is:
 
-1. **Intent.** Power button in the menu panel (or a preset chip / schedule
-   window / `lidless://` URL). If the helper isn't ready, the panel routes to
-   Setup instead — arming is impossible until the one-time authorization is
-   done. Each pending intent has an unforgeable process-local identity and an
-   immutable snapshot of its effective cutoffs and helper options; a scheduled
-   intent additionally snapshots the exact active window occurrence. Manual,
-   preset, and scheduled confirmation tasks carry that exact identity, so a
-   queued task from a cancelled intent cannot confirm a later replacement. A
-   changed warning, risk-relevant setting, disabled automation, or edited or
-   expired schedule occurrence revokes the authorization. Drift before
-   mutation requires fresh confirmation, and drift after a proven mutation
-   enters verified restoration instead of accepting the session. Disabling
-   automation also terminates an already accepted scheduled session through
-   the normal verified-restoration path.
-2. **Assessment** (`CutoffEngine.assessArm`): enabled thermal protection first
-   requires a fresh, structurally meaningful `pmset` sample, and an enabled
-   floor requires usable battery/source evidence; unavailable, structurally
-   invalid, stale, or future-dated required evidence is **refused**. A fresh
-   `pmset` threshold violation or serious/critical `ProcessInfo` pressure is also
-   **refused**, so Lidless never knowingly arms hot. On AC with a valid battery
-   → ok (floor applies later if unplugged); discharging at ≤ floor + 2 % →
-   **refused**, with the reason shown; discharging below 30 % → allowed with an
-   explicit warning. Dual source/topology evidence proving there is no internal
-   battery is not telemetry failure; its configured floor is shown as inactive,
-   and the battery-only “To 20%” preset is unavailable.
-3. **Confirmation card** (always for the master button; presets skip it only
-   when there's nothing to warn about): projected runtime to empty at the
-   current drain rate, an applicable floor with its projected wall-clock time,
-   the first time-based cutoff, and the enforceable cutoff summary. The card
-   does not promise a floor when telemetry is unavailable or the machine has
-   no internal battery. Low-battery arms are visually orange; refusals disable
-   the button and say why. If topology later proves there is no internal
-   battery, a pending “To 20%” card is withdrawn before it can arm.
-4. **Actuation.** After re-proving helper eligibility, the app polls thermal
-   evidence, re-reads the override registry and battery evidence, and repeats
-   the assessment with no suspension before dispatch. `arm(options)` → helper
-   captures optional priors → proves
-   the override inactive → writes the sentinel → proves it inactive again →
-   installs the connection owner and monotonic watchdog → runs
-   `disablesleep 1` → verifies via registry read-back (restoring on mismatch)
-   → replies with proof → performs best-effort LPM/`tcpkeepalive`, grouped only
-   across scopes with captured numeric priors. A partial optional application
-   does not revoke the already-proven sleep arm, but the sentinel retains every
-   possibly touched prior and later restoration is strict. Only after the
-   proven reply, the app synchronously re-reads battery evidence and revalidates
-   the thermal sample. Only an accepted result—an unchanged assessment with
-   every source-specific endpoint still attainable for manual/preset flows, or
-   any arm-allowed assessment for a schedule flow—lets it create the session
-   record, start the 10 s heartbeat and 5-minute battery sampling, post the arm
-   notification, and spring the UI into the armed state. A result outside those
-   rules instead starts verified restoration. Any failure before proof lands
-   back in `disarmed` with the error surfaced.
-5. **While armed**, a 15 s tick evaluates the engine against live inputs.
-   Thermal violations require two strikes by default. No source can advance
-   that debounce more than once per 45 seconds: `pmset` also requires a distinct
-   violating sample, while sustained serious/critical `ProcessInfo` pressure
-   advances independently after the same gate. A distinct `pmset` sample that
-   arrives inside the gate remains eligible when the interval elapses.
-   Missing, structurally invalid, future-dated, or more than 180-second-old
-   required `pmset` evidence bypasses that debounce and initiates verified
-   restoration.
-   Plugging in suspends the floor, but loss of evidence for an enabled floor
-   also initiates verified restoration; either path keeps the session pending
-   until proof, and config edits apply live. Pre-cutoff warnings post at T-5
-   minutes and at floor + 3 %. Before helper mutation, a scheduled occurrence
-   retries after transient telemetry loss while a real floor refusal suppresses
-   that occurrence. After a proven helper mutation, any post-proof safety
-   assessment that is not accepted suppresses the occurrence before verified
-   restoration to prevent arm/restore flapping.
-6. **Cutoff:** restore normal sleep → notification + chime → `pmset sleepnow`
-   after a 3 s grace, *only if the lid is closed*. The session is finalized
-   with its reason and battery curve; the next panel open shows the recap.
+> A Lidless-owned sleep override must never outlive supervision or be reported
+> as restored without proof.
 
-## Dry-run mode
+The helper layers these mechanisms:
 
-`--simulate` swaps the three integration points (battery monitor, thermal
-monitor, helper) for simulated implementations behind the same protocols —
-everything else, from the arming card to notifications to session history,
-is the production code path. The Simulator pane drives charge level, drain
-rate, AC/charging, thermal signals, and lid state; a time-scale slider runs
-overnight scenarios in seconds. README screenshots are rendered from this
-mode (`--render-screenshots`), so the docs can never drift from the real UI.
+### Secure sentinel
 
-## Project layout
+`/var/db/lidless/override-active` is a root-owned, mode-0600 regular file in a
+validated root-owned directory. Descriptor-relative, no-follow operations,
+link-count and ACL checks, checked closes, and full synchronization defend its
+namespace and durability. The sentinel is written before `disablesleep 1` and
+removed only after exact normal-sleep and managed-setting restoration proof. A
+corrupt or legacy record selects recovery; it is not treated as absent.
+
+### Connection ownership
+
+Each accepted XPC connection receives a process-local identity. Only the exact
+owner of the active session may heartbeat. Interruption and invalidation pass
+through one terminal gate; other authenticated clients may request de-risking
+restore but cannot prolong the override.
+
+### Watchdog and launchd
+
+An expired heartbeat restores normal sleep. A 30-second post-wake grace avoids
+racing a just-resumed app. `RunAtLoad` requests a boot recovery pass, and
+`KeepAlive.PathState` watches all three durable recovery witnesses:
+
+- `/var/db/lidless/override-active`;
+- `/var/db/lidless/mutation-in-flight.json`;
+- `/var/db/lidless/scheduled-wake-recovery-required.json`.
+
+Actual callback timing, process relaunch, boot execution, and forced-kill
+escalation remain live gates.
+
+### Durable mutation marker
+
+Before a privileged child command can create an uncertain late outcome, the
+helper persists and synchronizes a root-owned marker. Marker v2 records the
+boot-session UUID. A child from the same boot may have survived and been
+reparented, so process restart alone cannot clear the obligation. A changed
+boot session proves the old child cannot still complete, after which fresh
+readback can reconcile it. Missing boot identity and legacy v1 evidence fail
+closed for new mutation authority.
+
+### Termination
+
+SIGTERM and SIGINT latch termination on the serial state queue. Risk-increasing
+work is refused, restoration remains available, and the helper voluntarily
+exits only when no helper-owned recovery remains. A no-record exit does not
+prove the external sleep state. The OS may still force-kill a blocked process;
+that is why durable markers and launchd are independent layers.
+
+## App-side recovery coordination
+
+The app never automatically re-arms after proof is lost. Established sessions,
+failed arms with ambiguous outcomes, outside overrides, cutoffs, quit, launch
+reconciliation, and sleep transitions each retain an explicit generation or
+pending restore until fresh proof resolves them.
+
+The restore monitor checks its generation before and after every suspension
+and remote call. The absence of a monitor task is not a fence: an explicit
+manual-recovery latch prevents a later retry from redispatching against an
+incompatible wire. The sleep-transition fence has no restore generation, so it
+is keyed on the sleep generation instead; every new transition advances that
+generation. Force-sleep follow-ups are separately gated and cannot borrow the
+main restoration proof.
+
+Every status ingress demotes stale authority before it can be consumed,
+including a refresh the client classifies itself. Cached wake confirmation is
+invalidated when the helper ceases to be exact-current. The helper's initial
+not-yet-classified state is distinct from that verdict: `.checking` means a
+refresh has not completed, while `.unknown` is a concluded fail-closed result.
+Only explicit `.notRegistered` may be shown as safely uninstalled after a
+registration attempt; `.notFound` and other ambiguous classifications remain
+unknown.
+
+## Scheduled-wake transaction
+
+RTC wake programming has two durable records with separate jobs:
+
+- `scheduled-wake-recovery-required.json` is synchronized before the first
+  pending ledger write and tells launchd that reconciliation is required;
+- `scheduled-wake.json` records each exact rendered event and its phase:
+  pending schedule, scheduled, or pending cancellation.
+
+The helper's parser accepts only a recognized `pmset -g sched` structure and
+throws on malformed or ambiguous candidate lines. It preserves duplicate exact
+events. Parser silence is therefore never manufactured absence.
+
+Before scheduling, the ledger persists intent. Success is committed only after
+exact readback; that single ledger transition also turns every prior committed
+event into a cancellation obligation. A cancellation obligation is removed
+only after exact absence proof. A pending schedule observed after a crash is
+cancelled, not promoted. Duplicate committed observations also become
+cancellation work. Launch and each periodic tick perform at most one recovery
+action, while a client transaction is bounded to 64 actions. Any ambiguous
+ledger write invalidates in-memory truth and requires a trusted reload.
+
+## Helper admission and stale revisions
+
+The helper validates its own signed identity and applies a same-team,
+Apple-anchored code-signing requirement to peers. Ad-hoc or identifier-only
+trust fails closed. Payloads are Codable JSON over `Data`; malformed input
+returns an error rather than crashing the daemon.
+
+Protocol v6 plus exact safety revision 8 is required for risk-increasing work,
+one-source status proof, ownership, and scheduled-wake authority. Revision
+metadata is a compatibility claim, not cryptographic attestation of installed
+bytes. A v6 responder with a different revision may participate only in the
+narrow two-source normal-sleep recovery boundary. A different wire version
+cannot.
+
+All stale revisions are terminal in the UI. Automatic replacement and helper
+cleanup are disabled. The public app and client cleanup entry points are
+immediate, side-effect-free refusals, and compatibility XPC cleanup selectors
+return `ok: false` without mutation. The helper must stay registered so its
+launchd recovery supervision is not removed from an unresolved machine. The
+manual command `sudo pmset -a disablesleep 0` is emergency normal-sleep
+recovery only; it does not cancel wakes, restore optional settings, delete
+helper data, or deregister the service. Removal requires a separately reviewed,
+signed-runtime procedure.
+
+## Persistence truth
+
+Configuration and session stores return explicit load/save results; failures
+are surfaced rather than silently replaced with apparent success. Session load
+and save outcomes remain independent, so a later successful write cannot hide
+an unresolved load failure or its active admission fence. An active session
+journal is written before the UI claims an established session. The
+in-memory witness mirrors that journal, and manual, preset, and scheduled arm
+admission stays fenced while a prior journal, launch reconciliation, or store
+failure remains unresolved. On launch, an orphan journal is retained while
+helper reconciliation decides the truthful end reason. History is written
+before that journal is deleted; a failed archival retains the selected reason
+and retries idempotently before schedule automation. Widget snapshots are
+timestamped and stale-aware.
+
+Simulation uses the production decision and presentation paths with simulated
+monitors and helper behavior. Its stores are ephemeral and it never performs a
+privileged mutation. A checked-in repository-local harness compiles the final
+app sources with the shipping entry point excluded, selects screenshot
+simulation, and renders explicit unknown, error, refusal, recovery, size, pane,
+and onboarding scenarios. Separate checked-in widget and icon renderers finish
+the matrix before contact sheets are generated. The complete artifact set is
+hash-stable across repeated runs without treating simulation as runtime proof.
+
+## Build and release boundary
+
+`project.yml` is the XcodeGen authority; the generated project is committed.
+The Core package is deterministic and locally testable without signing.
+Release automation builds both Debug and Release unsigned, runs static
+analysis, verifies XcodeGen drift, checks least-privilege CI settings, and
+requires both arm64 and x86_64 slices for each release executable before code
+identity validation.
+
+An unsigned build is compile evidence only. A distributable candidate still
+requires one real Apple team across app, widget, helper, and app group, then
+signed XPC validation, helper approval, real launchd/`pmset`/sleep/reboot tests,
+WidgetKit and deep-link checks, accessibility input testing, notarization,
+stapling, and the credentialed release gate. None of those externally mutating
+steps are implied by this local release candidate.
+
+## Project map
 
 ```
-Packages/LidlessCore/    pure logic + tests (swift test)
-App/Sources/             AppState, monitors, HelperClient, services, SwiftUI
-Helper/                  daemon (PMSet, HelperDaemon, launchd plist)
-Widget/                  WidgetKit mirror of the published snapshot
-project.yml              xcodegen definition (xcodeproj is generated + committed)
-Scripts/                 icon renderer, release pipeline
+Packages/LidlessCore/   policy, models, parsers, source contracts, tests
+App/Sources/            app state, monitors, persistence, SwiftUI
+Helper/                 root daemon, bounded pmset adapter, launchd plist
+Widget/                 read-only WidgetKit projection
+Scripts/                icon, screenshots, release verification
+Docs/                   rendered evidence, decisions, plans, handoff
+project.yml             generated-project authority
 ```

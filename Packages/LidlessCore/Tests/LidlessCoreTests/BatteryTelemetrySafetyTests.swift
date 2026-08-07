@@ -286,13 +286,14 @@ struct BatteryTelemetrySafetyTests {
         config.thermalEnabled = true
         config.thermalStrikesRequired = 1
         config.durationEnabled = true
-        config.durationSeconds = 30
+        config.durationSeconds = 30 * 60
+        let evaluationDate = now.addingTimeInterval(30 * 60)
         let evaluation = CutoffEngine.evaluate(
             config: config,
             armedAt: now,
-            now: now.addingTimeInterval(60),
+            now: evaluationDate,
             battery: .unknown(at: now),
-            thermal: ThermalReading(warningLevel: 1, sampledAt: now),
+            thermal: ThermalReading(warningLevel: 1, sampledAt: evaluationDate),
             thermalStrikes: 0,
             calendar: calendar
         )
@@ -419,7 +420,7 @@ struct BatteryTelemetrySafetyTests {
         #expect(panel.contains("No internal battery — configured floor is inactive"))
         #expect(panel.contains("showsBatteryFloor"))
         #expect(panel.contains("pending.assessment != .refusedBatteryTelemetryUnavailable"))
-        #expect(panel.contains(".disabled(state.battery.state == .noBattery)"))
+        #expect(panel.contains(".disabled(state.battery.state == .noBattery ||"))
         #expect(panel.contains("state: state.battery.state"))
     }
 
