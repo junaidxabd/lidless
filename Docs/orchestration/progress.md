@@ -36,6 +36,15 @@
   copy remain visible or safely scrollable, and two full renders produced the
   identical ordered PNG hash
   `92ea9564164860361472b8cb627e31b2c3c5d51d44d67e966418a5dd0f779b8d`.
+- Closed the remaining internal-battery topology blind spot. Simulation can now
+  represent a Mac with no internal battery; dependent battery controls disable,
+  the menu reports `No battery`, Overview suppresses the chart and truthfully
+  explains that history and floor cutoffs are inactive, and minimum/default/
+  wide plus Simulator evidence is checked in. The focused RED-to-GREEN lane
+  passed 29 tests in 2 suites; full Debug and Release runs each passed 439 tests
+  in 44 suites; unsigned Xcode Debug, Release, and analysis all passed. Two
+  complete visual renders were byte-identical at
+  `c23c3864d44f5d73433de497145c3522c1d948190ffafe5822958c302de67184`.
 - A fresh uniquely identified simulation build ran without helper or power
   mutation and exposed its status item through the accessibility tree. This
   desktop session nevertheless created zero inspectable windows for every

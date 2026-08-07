@@ -23,7 +23,7 @@ Task-contract branch: `codex/lidless-completion-clean2-2026-08-07`
 Task-contract start: `b093e3d`
 
 The founder explicitly authorized feature-branch commits and pushes. The
-implementation checkpoints through `3243509` are on
+implementation checkpoints through `de19688` are on
 `origin/codex/lidless-completion-clean2-2026-08-07`; main was not merged or
 pushed. Continue using only this task-owned repository and feature branch.
 
@@ -81,6 +81,10 @@ architecture, or the founder's latest dark-only direction.
 - A maximum-text-size stress matrix now covers the dense long-error menu,
   minimum Overview confirmation, and recovery onboarding without clipped
   actions or unsafe copy loss.
+- No-internal-battery simulation now drives truthful menu, Overview, and
+  Simulator states. Battery-dependent controls disable, history and floor
+  semantics become explicitly inactive, and the state is covered at every
+  supported Overview width plus a dedicated Simulator render.
 
 ## Fast local re-verification
 
@@ -98,13 +102,13 @@ plutil -lint App/Resources/Info.plist \
   Scripts/ExportOptions.plist
 ```
 
-The post-UI Debug and independent Release SwiftPM runs each passed **438 tests
+The post-UI Debug and independent Release SwiftPM runs each passed **439 tests
 in 44 suites**. Strict Swift 6 compilation with complete concurrency and
 warnings-as-errors passed for app, helper, and widget. Full unsigned Xcode
 Debug, Release, and static-analysis graphs also passed with the embedded helper
 and widget present. XcodeGen regenerated with an identical project hash. The
 complete visual artifact hash
-`92ea9564164860361472b8cb627e31b2c3c5d51d44d67e966418a5dd0f779b8d`
+`c23c3864d44f5d73433de497145c3522c1d948190ffafe5822958c302de67184`
 was stable across consecutive full renders.
 
 Independent product, engineering, and safety reviewers found and verified the
