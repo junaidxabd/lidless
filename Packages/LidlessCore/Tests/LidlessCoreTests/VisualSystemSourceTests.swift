@@ -147,6 +147,22 @@ struct VisualSystemSourceTests {
         #expect(contactSheet.contains("window-transition-contact-sheet.png"))
     }
 
+    @Test func accessibilityStressMatrixCoversDenseAndNarrowSurfaces() throws {
+        let renderer = try repositoryFile("App/Sources/Services/ScreenshotRenderer.swift")
+        let contactSheet = try repositoryFile("Scripts/VisualQA/ContactSheet.swift")
+
+        #expect(renderer.contains(".environment(\\.dynamicTypeSize, .accessibility5)"))
+        for filename in [
+            "accessibility-menu-long-error.png",
+            "accessibility-window-minimum-confirmation.png",
+            "accessibility-onboarding-recovery.png",
+        ] {
+            #expect(renderer.contains(filename))
+            #expect(contactSheet.contains(filename))
+        }
+        #expect(contactSheet.contains("accessibility-contact-sheet.png"))
+    }
+
     @Test func longErrorFixtureCannotClaimVerifiedNormalState() throws {
         let renderer = try repositoryFile("App/Sources/Services/ScreenshotRenderer.swift")
 

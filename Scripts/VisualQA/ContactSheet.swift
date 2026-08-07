@@ -108,6 +108,17 @@ private let sheets = [
         ]
     ),
     Sheet(
+        filename: "accessibility-contact-sheet.png",
+        width: 1_500,
+        height: 650,
+        columns: 3,
+        images: [
+            "accessibility-menu-long-error.png",
+            "accessibility-window-minimum-confirmation.png",
+            "accessibility-onboarding-recovery.png",
+        ]
+    ),
+    Sheet(
         filename: "widget-contact-sheet.png",
         width: 960,
         height: 540,

@@ -470,6 +470,11 @@ enum ScreenshotRenderer {
             )
         }
 
+        try renderAccessibilityEvidence(
+            state: state,
+            outputDirectory: outputDirectory
+        )
+
         // Stable aliases retained for existing README references.
         try write(
             panel(state, scenario: .verifiedNormal),
@@ -633,6 +638,46 @@ enum ScreenshotRenderer {
         try write(
             secondaryPane(SimulatorPane(), state: state, size: defaultSize),
             to: outputDirectory.appendingPathComponent("secondary-simulator-default.png")
+        )
+    }
+
+    private static func renderAccessibilityEvidence(
+        state: AppState,
+        outputDirectory: URL
+    ) throws {
+        let stressEnvironment = MenuPanelView(renderScenario: .longError)
+            .environment(state)
+            .frame(width: Theme.panelWidth)
+            .environment(\.dynamicTypeSize, .accessibility5)
+        try write(
+            image(stressEnvironment),
+            to: outputDirectory.appendingPathComponent(
+                "accessibility-menu-long-error.png"
+            )
+        )
+
+        try write(
+            hostedImage(
+                MainWindowView(renderScenario: .confirmationLowBattery)
+                    .environment(state)
+                    .environment(\.dynamicTypeSize, .accessibility5),
+                size: ShellRenderSize.minimum.size
+            ),
+            to: outputDirectory.appendingPathComponent(
+                "accessibility-window-minimum-confirmation.png"
+            )
+        )
+
+        try write(
+            hostedImage(
+                OnboardingView(renderScenario: .recovery)
+                    .environment(state)
+                    .environment(\.dynamicTypeSize, .accessibility5),
+                size: OnboardingLayout.size
+            ),
+            to: outputDirectory.appendingPathComponent(
+                "accessibility-onboarding-recovery.png"
+            )
         )
     }
 
