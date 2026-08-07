@@ -120,13 +120,14 @@ private let sheets = [
     Sheet(
         filename: "accessibility-contact-sheet.png",
         width: 1_500,
-        height: 1_200,
+        height: 1_800,
         columns: 2,
         images: [
             "accessibility-menu-long-error.png",
             "accessibility-window-minimum-confirmation.png",
             "accessibility-onboarding-recovery.png",
             "accessibility-schedule-editor.png",
+            "accessibility-history-selected-minimum.png",
         ]
     ),
     Sheet(

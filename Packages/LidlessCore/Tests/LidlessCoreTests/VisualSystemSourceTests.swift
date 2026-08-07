@@ -161,6 +161,7 @@ struct VisualSystemSourceTests {
             "accessibility-window-minimum-confirmation.png",
             "accessibility-onboarding-recovery.png",
             "accessibility-schedule-editor.png",
+            "accessibility-history-selected-minimum.png",
         ] {
             #expect(renderer.contains(filename))
             #expect(contactSheet.contains(filename))

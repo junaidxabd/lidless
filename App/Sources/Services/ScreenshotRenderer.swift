@@ -791,6 +791,26 @@ enum ScreenshotRenderer {
                 "accessibility-schedule-editor.png"
             )
         )
+
+        guard let sessionID = state.sessionStore.sessions.first?.id else {
+            throw NSError(domain: "Lidless", code: 12, userInfo: [
+                NSLocalizedDescriptionKey: "history stress render needs a session",
+            ])
+        }
+        try write(
+            secondaryPane(
+                HistoryPane(
+                    initialSelection: sessionID,
+                    rendersEvidence: true
+                )
+                .environment(\.dynamicTypeSize, .accessibility5),
+                state: state,
+                size: ShellRenderSize.minimum.size
+            ),
+            to: outputDirectory.appendingPathComponent(
+                "accessibility-history-selected-minimum.png"
+            )
+        )
     }
 
     private static func secondaryPane(

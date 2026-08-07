@@ -156,6 +156,20 @@ struct LiveUIRegressionSourceTests {
         #expect(contactSheet.contains("accessibility-schedule-editor.png"))
     }
 
+    @Test func populatedHistoryHasMaximumTextEvidenceAtTheMinimumWindow() throws {
+        let renderer = try repositoryFile(
+            "App/Sources/Services/ScreenshotRenderer.swift"
+        )
+        let contactSheet = try repositoryFile(
+            "Scripts/VisualQA/ContactSheet.swift"
+        )
+
+        #expect(renderer.contains("accessibility-history-selected-minimum.png"))
+        #expect(renderer.contains("HistoryPane("))
+        #expect(renderer.contains("initialSelection: sessionID"))
+        #expect(contactSheet.contains("accessibility-history-selected-minimum.png"))
+    }
+
     private func repositoryFile(_ relativePath: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         let fileManager = FileManager.default
