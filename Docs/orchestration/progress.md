@@ -30,7 +30,12 @@
   restoration, and all four arm confirmation/refusal states now render in the
   real Overview shell at minimum/default/wide sizes. The new transition sheet
   was inspected at original detail, two complete renders were byte-identical,
-  and Debug/Release now pass 437 tests in 44 suites.
+  and Debug/Release now pass 438 tests in 44 suites.
+- Added a maximum-text-size stress sheet for the densest menu error, minimum
+  Overview confirmation, and recovery onboarding step. All controls and safety
+  copy remain visible or safely scrollable, and two full renders produced the
+  identical ordered PNG hash
+  `92ea9564164860361472b8cb627e31b2c3c5d51d44d67e966418a5dd0f779b8d`.
 - A fresh uniquely identified simulation build ran without helper or power
   mutation and exposed its status item through the accessibility tree. This
   desktop session nevertheless created zero inspectable windows for every
