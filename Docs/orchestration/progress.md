@@ -4,6 +4,40 @@
 
 ---
 
+## 2026-08-08 — Live UI QA checkpoint
+
+### Fixed and verified
+
+- Ran the real unsigned app in `--simulate` mode and exercised onboarding,
+  every main pane, disclosure controls, arm confirmation, verified keep-awake,
+  normal-sleep restoration, and populated History without helper installation
+  or system power mutation.
+- Reduced onboarding to a fitted 600 × 500 sheet, replaced inaccessible native
+  disclosure rows with explicit keyboard/accessibility buttons, named every
+  safety toggle, suppressed notification/widget side effects in simulation,
+  gave battery charts one useful accessibility summary, and fixed selected
+  History clipping at the minimum 840 × 612 window.
+- Captured a new size/state History matrix. The visual pipeline ran twice with
+  identical combined PNG hash
+  `8de659865694fcc31223b3a26aeeacd02a4ab25216f12ab44276c4341a3dec7d`.
+- The live-UI bug contracts passed 7/7 after an explicit RED for the final
+  non-functional onboarding disclosure. Complete Debug and Release SwiftPM
+  runs each passed 436 tests in 44 suites.
+- Full unsigned Xcode Debug, Release, and static-analysis graphs passed with
+  embedded helper/widget layout checks; XcodeGen remained byte-clean; shell
+  syntax, property-list linting, and diff hygiene passed.
+
+### Still active
+
+- The wide Overview remains correct but visually sparse. The recommended next
+  direction is a proof spine that makes the registry → helper ownership →
+  session → cutoff/recovery chain the page's signature composition. This is a
+  product refinement, not a safety-state defect, and will be implemented only
+  after design approval and then rerun through the full matrix.
+- The desktop locked before a live menu-bar popover interaction could be
+  completed. All deterministic menu states were rendered and inspected, but a
+  fresh live popover pass remains pending when the local session is available.
+
 ## 2026-08-07 — Dark-only local release candidate
 
 ### Product and visual system

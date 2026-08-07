@@ -531,6 +531,23 @@ struct BatteryChart: View {
                 }
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Battery trend")
+        .accessibilityValue(accessibilitySummary)
+    }
+
+    private var accessibilitySummary: String {
+        guard let first = samples.first, let last = samples.last else {
+            return "No verified battery samples"
+        }
+        let start = Int(first.percent.rounded())
+        let end = Int(last.percent.rounded())
+        let elapsed = max(0, last.time.timeIntervalSince(first.time))
+        var parts = ["Battery changed from \(start)% to \(end)% over \(Format.duration(elapsed))"]
+        if let floor {
+            parts.append("Safety floor \(floor)%")
+        }
+        return parts.joined(separator: ". ")
     }
 
     private var paddedTimeDomain: ClosedRange<Date> {

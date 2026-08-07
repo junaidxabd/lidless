@@ -16,6 +16,8 @@ struct SchedulesPane: View {
                     Text("Arm automatically on schedule")
                     Text("Lidless requests keep-awake when a window starts, then requests and verifies normal sleep when it ends. Disarming skips only the current occurrence. Requires Launch at Login.")
                 }
+                .accessibilityLabel("Arm automatically on schedule")
+                .accessibilityHint("Turns recurring keep-awake windows on or off")
             } footer: {
                 Text("Lidless also registers a system wake just before each window, so a sleeping MacBook can wake up and arm itself (best effort).")
             }

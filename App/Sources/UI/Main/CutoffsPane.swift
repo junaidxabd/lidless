@@ -6,6 +6,7 @@ import LidlessCore
 struct CutoffsPane: View {
     @Environment(AppState.self) private var state
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var thermalAdvancedExpanded = false
 
     var body: some View {
         @Bindable var config = state.config
@@ -15,6 +16,8 @@ struct CutoffsPane: View {
                     Text("Battery floor")
                     Text("Lidless requests normal sleep when a verified discharging reading reaches the floor. Plugging in pauses this cutoff.")
                 }
+                .accessibilityLabel("Battery floor")
+                .accessibilityHint("Turns the verified battery cutoff on or off")
                 if config.cutoffs.batteryFloorEnabled {
                     LabeledContent("Floor: \(config.cutoffs.batteryFloorPercent)%") {
                         Slider(
@@ -37,8 +40,13 @@ struct CutoffsPane: View {
                     Text("Thermal protection")
                     Text("Ends keep-awake when macOS reports a thermal warning or sustained CPU throttling. This guard is not proof that a closed or bagged Mac is thermally safe.")
                 }
+                .accessibilityLabel("Thermal protection")
+                .accessibilityHint("Turns the thermal cutoff on or off")
                 if config.cutoffs.thermalEnabled {
-                    DisclosureGroup("Advanced") {
+                    AccessibleDisclosure(
+                        "Advanced",
+                        isExpanded: $thermalAdvancedExpanded
+                    ) {
                         Stepper(value: $config.cutoffs.thermalSpeedLimitFloor, in: 20...90, step: 5) {
                             LabeledContent("CPU speed cutoff", value: "below \(config.cutoffs.thermalSpeedLimitFloor)%")
                         }
@@ -55,6 +63,8 @@ struct CutoffsPane: View {
                 Toggle(isOn: $config.cutoffs.durationEnabled) {
                     Text("Duration limit")
                 }
+                .accessibilityLabel("Duration limit")
+                .accessibilityHint("Turns the maximum keep-awake duration on or off")
                 if config.cutoffs.durationEnabled {
                     Stepper(
                         value: Binding(
@@ -72,6 +82,8 @@ struct CutoffsPane: View {
                     Text("Off-time")
                     Text("Ends keep-awake at the next matching wall-clock time.")
                 }
+                .accessibilityLabel("Off-time")
+                .accessibilityHint("Turns the wall-clock cutoff on or off")
                 if config.cutoffs.offTimeEnabled {
                     DatePicker(
                         "Sleep at",
@@ -92,12 +104,18 @@ struct CutoffsPane: View {
                     Text("Request sleep at cutoff")
                     Text("With the lid closed, Lidless first requests and verifies normal sleep, then asks macOS to sleep. Hardware behavior still requires independent verification.")
                 }
+                .accessibilityLabel("Request sleep at cutoff")
+                .accessibilityHint("Controls whether Lidless asks macOS to sleep after normal sleep is verified")
                 Toggle(isOn: $config.behavior.notifyOnStateChanges) {
                     Text("Notify on arm, disarm & cutoff")
                 }
+                .accessibilityLabel("Notify on arm, disarm and cutoff")
+                .accessibilityHint("Controls Lidless state-change notifications")
                 Toggle(isOn: $config.behavior.playCutoffSound) {
                     Text("Play sound at cutoff")
                 }
+                .accessibilityLabel("Play sound at cutoff")
+                .accessibilityHint("Controls the cutoff alert sound")
             } header: {
                 Text("On cutoff")
             }
@@ -107,13 +125,19 @@ struct CutoffsPane: View {
                     Text("Low Power Mode while armed")
                     Text("Stretches the battery overnight; your previous power mode is restored on disarm.")
                 }
+                .accessibilityLabel("Low Power Mode while armed")
+                .accessibilityHint("Controls temporary Low Power Mode during a verified session")
                 Toggle(isOn: $config.behavior.tcpKeepAliveWhileArmed) {
                     Text("Keep network alive")
                     Text("For SSH/screen-sharing into the closed MacBook: enforces tcpkeepalive so remote connections survive; restored on disarm.")
                 }
+                .accessibilityLabel("Keep network alive")
+                .accessibilityHint("Controls temporary TCP keep-alive during a verified session")
                 Toggle(isOn: $config.behavior.countdownInMenuBar) {
                     Text("Show countdown in menu bar")
                 }
+                .accessibilityLabel("Show countdown in menu bar")
+                .accessibilityHint("Controls whether the next cutoff appears in the menu bar")
             } header: {
                 Text("While armed")
             }

@@ -52,14 +52,18 @@ private let sheets = [
     Sheet(
         filename: "secondary-contact-sheet.png",
         width: 1_500,
-        height: 1_110,
+        height: 1_480,
         columns: 3,
         images: [
             "secondary-cutoffs-default.png",
             "secondary-schedules-empty.png",
             "secondary-schedules-populated.png",
-            "secondary-history-empty.png",
-            "secondary-history-selected.png",
+            "secondary-history-empty-minimum.png",
+            "secondary-history-empty-default.png",
+            "secondary-history-empty-wide.png",
+            "secondary-history-selected-minimum.png",
+            "secondary-history-selected-default.png",
+            "secondary-history-selected-wide.png",
             "secondary-setup-simulated.png",
             "secondary-simulator-default.png",
         ]

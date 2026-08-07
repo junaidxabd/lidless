@@ -20,6 +20,12 @@ enum OnboardingRenderScenario: String, CaseIterable {
     }
 }
 
+enum OnboardingLayout {
+    static let width: CGFloat = 600
+    static let height: CGFloat = 500
+    static let size = CGSize(width: width, height: height)
+}
+
 /// Three concise first-run steps: understand the state model, authorize the
 /// narrow helper, and know how to verify recovery independently.
 struct OnboardingView: View {
@@ -29,6 +35,7 @@ struct OnboardingView: View {
 
     let renderScenario: OnboardingRenderScenario?
     @State private var step: Int
+    @State private var helperRecoveryExpanded = false
 
     private let stepCount = 3
 
@@ -60,7 +67,7 @@ struct OnboardingView: View {
                 .padding(Theme.s5)
                 .background(Theme.surface)
         }
-        .frame(width: 600, height: 640)
+        .frame(width: OnboardingLayout.width, height: OnboardingLayout.height)
         .background(Theme.canvas)
         .preferredColorScheme(.dark)
         .animation(reduceMotion ? nil : Theme.gentleTransition, value: displayedStep)
@@ -77,7 +84,7 @@ struct OnboardingView: View {
             HStack(alignment: .center, spacing: Theme.s4) {
                 LidSeamMark()
                     .frame(width: 76, height: 76)
-                    .accessibilityLabel("Lidless lid seam mark")
+                    .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: Theme.s2) {
                     StatusPill(presentation: .verifiedNormal)
@@ -160,7 +167,10 @@ struct OnboardingView: View {
                 Text("Lidless will not assume the helper is absent, current, or safe to replace.")
                     .font(.callout)
                     .foregroundStyle(Theme.textSecondary)
-                DisclosureGroup("Recovery details", isExpanded: alwaysExpanded) {
+                VStack(alignment: .leading, spacing: Theme.s2) {
+                    Text("Recovery details")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(Theme.textPrimary)
                     VStack(alignment: .leading, spacing: Theme.s3) {
                         Text("Keep any helper registered. Use the emergency command only to request the main normal-sleep flag, then independently verify the registry result. The command does not remove a helper, cancel helper-managed wakes, restore other settings, or establish registration state.")
                             .font(.callout)
@@ -171,7 +181,6 @@ struct OnboardingView: View {
                             accessibilityLabel: "Copy emergency recovery command"
                         )
                     }
-                    .padding(.top, Theme.s2)
                 }
             }
             .padding(Theme.s4)
@@ -179,10 +188,6 @@ struct OnboardingView: View {
         } else {
             liveHelperStatus
         }
-    }
-
-    private var alwaysExpanded: Binding<Bool> {
-        Binding(get: { true }, set: { _ in })
     }
 
     private var liveHelperStatus: some View {
@@ -205,7 +210,10 @@ struct OnboardingView: View {
             }
 
             if let detail = helperRecoveryDetail {
-                DisclosureGroup("Recovery details") {
+                AccessibleDisclosure(
+                    "Recovery details",
+                    isExpanded: $helperRecoveryExpanded
+                ) {
                     Text(detail)
                         .font(.callout)
                         .foregroundStyle(Theme.textSecondary)

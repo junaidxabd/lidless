@@ -238,6 +238,7 @@ final class AppState {
             self.systemMonitor = SystemStateMonitor()
         }
 
+        self.notifications.suppressed = simulated
         wire()
         surfacePersistenceErrors()
     }
@@ -2759,6 +2760,7 @@ final class AppState {
 
     @discardableResult
     private func publishWidget() -> Bool {
+        guard !isSimulation else { return true }
         let projected = projectedCutoff
         let widgetStatusLine: String
         switch sleepPresentation {

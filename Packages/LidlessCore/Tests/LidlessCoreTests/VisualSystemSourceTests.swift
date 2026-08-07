@@ -163,7 +163,7 @@ struct VisualSystemSourceTests {
         #expect(!cutoffs.contains("the reason this is safe"))
 
         #expect(setup.contains("terminalRecoveryDetail"))
-        #expect(setup.contains("DisclosureGroup(\"Recovery details\""))
+        #expect(setup.contains("AccessibleDisclosure(\n                    \"Recovery details\""))
         #expect(setup.contains("Copy registry verification command"))
         #expect(setup.contains("Copy emergency recovery command"))
         #expect(setup.contains("requires a reviewed removal procedure"))
@@ -190,7 +190,7 @@ struct VisualSystemSourceTests {
             "case recovery",
             "case helperFailure",
             "ScrollView",
-            "DisclosureGroup(\"Recovery details\"",
+            "AccessibleDisclosure(\n                    \"Recovery details\"",
         ] {
             #expect(onboarding.contains(required))
         }

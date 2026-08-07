@@ -240,6 +240,65 @@ struct PresetChip: View {
     }
 }
 
+// MARK: - Accessible disclosure
+
+/// A disclosure whose entire header is an ordinary button. SwiftUI's native
+/// macOS disclosure triangle is not consistently actionable through the live
+/// accessibility hierarchy, so user-facing expandable sections share this
+/// explicit control and its truthful expanded/collapsed semantics.
+struct AccessibleDisclosure<Content: View>: View {
+    private let title: String
+    @Binding private var isExpanded: Bool
+    private let content: Content
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(
+        _ title: String,
+        isExpanded: Binding<Bool>,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        _isExpanded = isExpanded
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                isExpanded.toggle()
+            } label: {
+                HStack(spacing: Theme.s2) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(width: Theme.s3)
+                        .accessibilityHidden(true)
+                    Text(title)
+                    Spacer(minLength: Theme.s2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(title)
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+            .accessibilityHint(accessibilityHint)
+
+            if isExpanded {
+                content
+                    .padding(.top, Theme.s2)
+            }
+        }
+        .animation(reduceMotion ? nil : Theme.quickTransition, value: isExpanded)
+    }
+
+    private var accessibilityHint: String {
+        isExpanded ? "Collapses this section" : "Expands this section"
+    }
+}
+
 // MARK: - Stat cell
 
 struct StatCell: View {

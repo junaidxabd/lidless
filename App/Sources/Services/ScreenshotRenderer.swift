@@ -430,7 +430,7 @@ enum ScreenshotRenderer {
             try write(
                 hostedImage(
                     OnboardingView(renderScenario: scenario).environment(state),
-                    size: CGSize(width: 600, height: 640)
+                    size: OnboardingLayout.size
                 ),
                 to: outputDirectory.appendingPathComponent(scenario.filename)
             )
@@ -460,7 +460,7 @@ enum ScreenshotRenderer {
         try write(
             hostedImage(
                 OnboardingView(renderScenario: .intro).environment(state),
-                size: CGSize(width: 600, height: 640)
+                size: OnboardingLayout.size
             ),
             to: outputDirectory.appendingPathComponent("onboarding.png")
         )
@@ -524,6 +524,18 @@ enum ScreenshotRenderer {
         )
 
         _ = state.sessionStore.clearHistory()
+        for size in ShellRenderSize.allCases {
+            try write(
+                secondaryPane(
+                    HistoryPane(rendersEvidence: true),
+                    state: state,
+                    size: size.size
+                ),
+                to: outputDirectory.appendingPathComponent(
+                    "secondary-history-empty-\(size.rawValue).png"
+                )
+            )
+        }
         try write(
             secondaryPane(
                 HistoryPane(rendersEvidence: true),
@@ -555,6 +567,18 @@ enum ScreenshotRenderer {
             tcpKeepAliveUsed: true
         )
         _ = state.sessionStore.append(session)
+        for size in ShellRenderSize.allCases {
+            try write(
+                secondaryPane(
+                    HistoryPane(initialSelection: sessionID, rendersEvidence: true),
+                    state: state,
+                    size: size.size
+                ),
+                to: outputDirectory.appendingPathComponent(
+                    "secondary-history-selected-\(size.rawValue).png"
+                )
+            )
+        }
         try write(
             secondaryPane(
                 HistoryPane(initialSelection: sessionID, rendersEvidence: true),

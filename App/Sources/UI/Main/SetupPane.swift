@@ -8,6 +8,9 @@ struct SetupPane: View {
     @Environment(AppState.self) private var state
     @State private var busy = false
     @State private var helperLog = ""
+    @State private var latestErrorExpanded = false
+    @State private var recoveryDetailsExpanded = false
+    @State private var helperLogExpanded = false
 
     var body: some View {
         Form {
@@ -46,7 +49,10 @@ struct SetupPane: View {
             .padding(.vertical, Theme.s1)
 
             if let error = state.lastError {
-                DisclosureGroup("Latest error") {
+                AccessibleDisclosure(
+                    "Latest error",
+                    isExpanded: $latestErrorExpanded
+                ) {
                     Text(error)
                         .font(.caption)
                         .foregroundStyle(Theme.critical)
@@ -55,7 +61,10 @@ struct SetupPane: View {
             }
 
             if let terminalRecoveryDetail {
-                DisclosureGroup("Recovery details") {
+                AccessibleDisclosure(
+                    "Recovery details",
+                    isExpanded: $recoveryDetailsExpanded
+                ) {
                     Text(terminalRecoveryDetail)
                         .font(.callout)
                         .foregroundStyle(Theme.textSecondary)
@@ -240,7 +249,10 @@ struct SetupPane: View {
 
     private var logSection: some View {
         Section("Helper log") {
-            DisclosureGroup("Show the helper's audit trail") {
+            AccessibleDisclosure(
+                "Show the helper's audit trail",
+                isExpanded: $helperLogExpanded
+            ) {
                 ScrollView {
                     Text(helperLog.isEmpty ? "No log yet — it appears after the first arm." : helperLog)
                         .font(.caption.monospaced())

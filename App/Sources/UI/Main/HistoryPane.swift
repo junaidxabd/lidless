@@ -35,9 +35,9 @@ struct HistoryPane: View {
                 } else {
                     HSplitView {
                         list
-                            .frame(minWidth: 300, idealWidth: 340, maxWidth: 420)
+                            .frame(minWidth: 220, idealWidth: 260, maxWidth: 300)
                         detail
-                            .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
+                            .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
             }
@@ -194,6 +194,7 @@ struct Sparkline: View {
         .chartXAxis(.hidden)
         .chartYAxis(.hidden)
         .chartLegend(.hidden)
+        .accessibilityHidden(true)
     }
 }
 
@@ -203,69 +204,96 @@ struct SessionDetailView: View {
     let session: KeepAwakeSession
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.s4) {
-                VStack(alignment: .leading, spacing: Theme.s1) {
-                    Text(session.startedAt.formatted(date: .complete, time: .shortened))
-                        .font(.title3.weight(.semibold))
-                    if let reason = session.endReason {
-                        Label(
-                            HistoryPane.endReasonText(reason),
-                            systemImage: HistoryPane.endReasonIsCutoff(reason) ? "moon.zzz.fill" : "hand.raised"
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.s4) {
+                    VStack(alignment: .leading, spacing: Theme.s1) {
+                        Text(session.startedAt.formatted(date: .complete, time: .shortened))
+                            .font(.title3.weight(.semibold))
+                        if let reason = session.endReason {
+                            Label(
+                                HistoryPane.endReasonText(reason),
+                                systemImage: HistoryPane.endReasonIsCutoff(reason) ? "moon.zzz.fill" : "hand.raised"
+                            )
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    if proxy.size.width >= 390 {
+                        HStack(spacing: Theme.s2) {
+                            durationStat
+                                .frame(width: 110)
+                            batteryStat
+                                .frame(width: 110)
+                            averageDrainStat
+                                .frame(width: 110)
+                        }
+                    } else {
+                        stackedStats
+                    }
+
+                    if session.samples.count >= 2 {
+                        VStack(alignment: .leading, spacing: Theme.s2) {
+                            Text("Battery curve")
+                                .font(.headline)
+                            BatteryChart(samples: session.samples, floor: nil)
+                                .frame(height: 220)
+                        }
+                        .padding(Theme.s4)
+                        .card()
+                    }
+
+                    LabeledContent("Cutoffs in force", value: session.cutoffSummary)
+                        .font(.callout)
+                    if session.lowPowerModeUsed || session.tcpKeepAliveUsed {
+                        LabeledContent(
+                            "While armed",
+                            value: [
+                                session.lowPowerModeUsed ? "Low Power Mode" : nil,
+                                session.tcpKeepAliveUsed ? "Network keep-alive" : nil,
+                            ].compactMap(\.self).joined(separator: " · ")
                         )
                         .font(.callout)
-                        .foregroundStyle(.secondary)
                     }
                 }
-
-                Grid(horizontalSpacing: Theme.s2, verticalSpacing: Theme.s2) {
-                    GridRow {
-                        StatCell(
-                            title: "Duration",
-                            systemImage: "hourglass",
-                            value: session.duration.map(Format.duration) ?? "—"
-                        )
-                        StatCell(
-                            title: "Battery",
-                            systemImage: "battery.50percent",
-                            value: batterySpan,
-                            detail: session.totalDrain.map { "\(Int($0))% drained" }
-                        )
-                        StatCell(
-                            title: "Avg drain",
-                            systemImage: "chart.line.downtrend.xyaxis",
-                            value: Format.drain(session.averageDrainPerHour)
-                        )
-                    }
-                }
-
-                if session.samples.count >= 2 {
-                    VStack(alignment: .leading, spacing: Theme.s2) {
-                        Text("Battery curve")
-                            .font(.headline)
-                        BatteryChart(samples: session.samples, floor: nil)
-                            .frame(height: 220)
-                    }
-                    .padding(Theme.s4)
-                    .card()
-                }
-
-                LabeledContent("Cutoffs in force", value: session.cutoffSummary)
-                    .font(.callout)
-                if session.lowPowerModeUsed || session.tcpKeepAliveUsed {
-                    LabeledContent(
-                        "While armed",
-                        value: [
-                            session.lowPowerModeUsed ? "Low Power Mode" : nil,
-                            session.tcpKeepAliveUsed ? "Network keep-alive" : nil,
-                        ].compactMap(\.self).joined(separator: " · ")
-                    )
-                    .font(.callout)
-                }
+                .padding(Theme.s5)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(Theme.s5)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private var durationStat: some View {
+        StatCell(
+            title: "Duration",
+            systemImage: "hourglass",
+            value: session.duration.map(Format.duration) ?? "—"
+        )
+    }
+
+    private var stackedStats: some View {
+        VStack(spacing: Theme.s2) {
+            durationStat
+            batteryStat
+            averageDrainStat
+        }
+    }
+
+    private var batteryStat: some View {
+        StatCell(
+            title: "Battery",
+            systemImage: "battery.50percent",
+            value: batterySpan,
+            detail: session.totalDrain.map { "\(Int($0))% drained" }
+        )
+    }
+
+    private var averageDrainStat: some View {
+        StatCell(
+            title: "Avg drain",
+            systemImage: "chart.line.downtrend.xyaxis",
+            value: Format.drain(session.averageDrainPerHour)
+        )
     }
 
     private var batterySpan: String {

@@ -8,5 +8,6 @@ DerivedData/
 *.xcuserdatad/
 xcuserdata/
 Packages/LidlessCore/.build/
+Packages/LidlessCore/.build-*/
 Packages/LidlessCore/.swiftpm/
 dist/
