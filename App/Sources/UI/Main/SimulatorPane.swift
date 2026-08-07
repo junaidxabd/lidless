@@ -25,6 +25,30 @@ struct SimulatorPane: View {
 private struct SimulatorControls: View {
     @Bindable var simulation: SimulationController
 
+    private var chargeLabel: String {
+        simulation.hasInternalBattery
+            ? "Charge: \(Int(simulation.batteryPercent))%"
+            : "Charge: —"
+    }
+
+    private var chargeAccessibilityValue: String {
+        simulation.hasInternalBattery
+            ? "\(Int(simulation.batteryPercent)) percent"
+            : "No internal battery"
+    }
+
+    private var drainLabel: String {
+        simulation.hasInternalBattery
+            ? "Drain rate: \(String(format: "%.1f", simulation.drainPerHour))%/hr"
+            : "Drain rate: —"
+    }
+
+    private var drainAccessibilityValue: String {
+        simulation.hasInternalBattery
+            ? "\(String(format: "%.1f", simulation.drainPerHour)) percent per hour"
+            : "No internal battery"
+    }
+
     var body: some View {
         Form {
             Section {
@@ -35,20 +59,29 @@ private struct SimulatorControls: View {
             }
 
             Section("Battery") {
-                LabeledContent("Charge: \(Int(simulation.batteryPercent))%") {
-                    Slider(value: $simulation.batteryPercent, in: 0...100, step: 1)
-                        .frame(maxWidth: 260)
-                        .accessibilityLabel("Simulated battery charge")
-                        .accessibilityValue("\(Int(simulation.batteryPercent)) percent")
+                Toggle("Internal battery present", isOn: $simulation.hasInternalBattery)
+                    .accessibilityHint(
+                        "Turn off to simulate a Mac with no internal battery"
+                    )
+
+                Group {
+                    LabeledContent(chargeLabel) {
+                        Slider(value: $simulation.batteryPercent, in: 0...100, step: 1)
+                            .frame(maxWidth: 260)
+                            .accessibilityLabel("Simulated battery charge")
+                            .accessibilityValue(chargeAccessibilityValue)
+                    }
+                    Toggle("On battery power", isOn: $simulation.onBattery)
+                    Toggle("Charging", isOn: $simulation.charging)
+                    LabeledContent(drainLabel) {
+                        Slider(value: $simulation.drainPerHour, in: 0...40, step: 0.5)
+                            .frame(maxWidth: 260)
+                            .accessibilityLabel("Simulated battery drain rate")
+                            .accessibilityValue(drainAccessibilityValue)
+                    }
                 }
-                Toggle("On battery power", isOn: $simulation.onBattery)
-                Toggle("Charging", isOn: $simulation.charging)
-                LabeledContent("Drain rate: \(String(format: "%.1f", simulation.drainPerHour))%/hr") {
-                    Slider(value: $simulation.drainPerHour, in: 0...40, step: 0.5)
-                        .frame(maxWidth: 260)
-                        .accessibilityLabel("Simulated battery drain rate")
-                        .accessibilityValue("\(String(format: "%.1f", simulation.drainPerHour)) percent per hour")
-                }
+                .disabled(!simulation.hasInternalBattery)
+
                 LabeledContent("Time scale: \(Int(simulation.timeScale))×") {
                     Slider(value: $simulation.timeScale, in: 1...600, step: 1)
                         .frame(maxWidth: 260)

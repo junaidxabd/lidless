@@ -13,10 +13,11 @@ private let sheets = [
     Sheet(
         filename: "menu-contact-sheet.png",
         width: 1_290,
-        height: 2_080,
+        height: 2_500,
         columns: 3,
         images: [
             "menu-verified-normal.png",
+            "menu-no-battery.png",
             "menu-verifying-arm.png",
             "menu-verified-armed.png",
             "menu-restoring.png",
@@ -33,12 +34,15 @@ private let sheets = [
     Sheet(
         filename: "window-contact-sheet.png",
         width: 1_500,
-        height: 1_480,
+        height: 1_850,
         columns: 3,
         images: [
             "window-minimum-verified-normal.png",
             "window-default-verified-normal.png",
             "window-wide-verified-normal.png",
+            "window-minimum-no-battery.png",
+            "window-default-no-battery.png",
+            "window-wide-no-battery.png",
             "window-minimum-verified-armed.png",
             "window-default-verified-armed.png",
             "window-wide-verified-armed.png",
@@ -93,6 +97,7 @@ private let sheets = [
             "secondary-history-selected-wide.png",
             "secondary-setup-simulated.png",
             "secondary-simulator-default.png",
+            "secondary-simulator-no-battery.png",
         ]
     ),
     Sheet(

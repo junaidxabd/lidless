@@ -35,6 +35,7 @@ struct InstrumentRenderBanner {
 /// persist, and are admitted only by the guarded simulation renderer below.
 enum InstrumentRenderScenario: String, CaseIterable {
     case verifiedNormal
+    case noBattery
     case verifyingArm
     case confirmationOK
     case confirmationLowBattery
@@ -49,6 +50,7 @@ enum InstrumentRenderScenario: String, CaseIterable {
 
     static let panelMatrix: [InstrumentRenderScenario] = [
         .verifiedNormal,
+        .noBattery,
         .verifyingArm,
         .confirmationOK,
         .confirmationLowBattery,
@@ -64,6 +66,7 @@ enum InstrumentRenderScenario: String, CaseIterable {
 
     static let shellMatrix: [InstrumentRenderScenario] = [
         .verifiedNormal,
+        .noBattery,
         .verifiedArmed,
         .outsideOverride,
         .unknown,
@@ -84,6 +87,7 @@ enum InstrumentRenderScenario: String, CaseIterable {
     var presentation: SleepPresentationState {
         switch self {
         case .verifiedNormal,
+             .noBattery,
              .confirmationOK,
              .confirmationLowBattery,
              .confirmationFloorRefusal,
@@ -108,6 +112,7 @@ enum InstrumentRenderScenario: String, CaseIterable {
     var panelFilename: String {
         switch self {
         case .verifiedNormal: "menu-verified-normal.png"
+        case .noBattery: "menu-no-battery.png"
         case .verifyingArm: "menu-verifying-arm.png"
         case .confirmationOK: "menu-confirmation-ok.png"
         case .confirmationLowBattery: "menu-confirmation-low-battery.png"
@@ -125,6 +130,7 @@ enum InstrumentRenderScenario: String, CaseIterable {
     var slug: String {
         switch self {
         case .verifiedNormal: "verified-normal"
+        case .noBattery: "no-battery"
         case .verifyingArm: "verifying-arm"
         case .confirmationOK: "confirmation-ok"
         case .confirmationLowBattery: "confirmation-low-battery"
@@ -157,6 +163,8 @@ enum InstrumentRenderScenario: String, CaseIterable {
              .confirmationFloorRefusal,
              .confirmationThermalRefusal:
             "The system override is off and normal sleep is verified."
+        case .noBattery:
+            "Normal sleep is verified. This Mac has no internal battery."
         case .verifiedArmed:
             "A verified Lidless session owns the active sleep override."
         case .verifyingArm:
@@ -296,6 +304,7 @@ enum InstrumentRenderScenario: String, CaseIterable {
 
     var batteryValue: String {
         switch self {
+        case .noBattery: "—"
         case .confirmationLowBattery: "24%"
         case .confirmationFloorRefusal: "19%"
         default: presentation == .unknown ? "—" : "68%"
@@ -303,11 +312,14 @@ enum InstrumentRenderScenario: String, CaseIterable {
     }
 
     var batteryCaption: String {
-        presentation == .unknown ? "Unverified" : "On battery"
+        if self == .noBattery { return "No battery" }
+        return presentation == .unknown ? "Unverified" : "On battery"
     }
 
     var batterySymbol: String {
         switch self {
+        case .noBattery:
+            "powerplug"
         case .confirmationLowBattery, .confirmationFloorRefusal:
             "battery.25percent"
         case .unknown, .longError:
@@ -318,7 +330,7 @@ enum InstrumentRenderScenario: String, CaseIterable {
     }
 
     var drainValue: String {
-        presentation == .unknown ? "—" : "9.0%/hr"
+        presentation == .unknown || self == .noBattery ? "—" : "9.0%/hr"
     }
 
     var thermalValue: String {
@@ -403,6 +415,7 @@ enum ScreenshotRenderer {
         state.config.onboardingComplete = true
         state.mainPane = .overview
 
+        simulation.hasInternalBattery = true
         simulation.batteryPercent = 68
         simulation.onBattery = true
         simulation.charging = false
@@ -413,13 +426,19 @@ enum ScreenshotRenderer {
         simulation.lidClosed = false
 
         let now = Date(timeIntervalSince1970: 1_786_117_600)
-        state.seedRollingSamplesForRendering((0...12).map { index in
+        let canonicalBatterySamples = (0...12).map { index in
             BatterySample(
                 time: now.addingTimeInterval(TimeInterval(index - 12) * 900),
                 percent: 68 + Double(12 - index) * 2.25,
                 isDischarging: true
             )
-        })
+        }
+        stageBatteryTopology(
+            for: .verifiedNormal,
+            state: state,
+            simulation: simulation,
+            canonicalSamples: canonicalBatterySamples
+        )
         let outputDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent("Docs/screenshots", isDirectory: true)
         try FileManager.default.createDirectory(
@@ -428,6 +447,12 @@ enum ScreenshotRenderer {
         )
 
         for scenario in InstrumentRenderScenario.panelMatrix {
+            stageBatteryTopology(
+                for: scenario,
+                state: state,
+                simulation: simulation,
+                canonicalSamples: canonicalBatterySamples
+            )
             try write(
                 panel(state, scenario: scenario),
                 to: outputDirectory.appendingPathComponent(scenario.panelFilename)
@@ -436,6 +461,12 @@ enum ScreenshotRenderer {
 
         for size in ShellRenderSize.allCases {
             for scenario in InstrumentRenderScenario.shellMatrix {
+                stageBatteryTopology(
+                    for: scenario,
+                    state: state,
+                    simulation: simulation,
+                    canonicalSamples: canonicalBatterySamples
+                )
                 try write(
                     shell(state, scenario: scenario, size: size.size),
                     to: outputDirectory.appendingPathComponent(
@@ -445,6 +476,12 @@ enum ScreenshotRenderer {
             }
 
             for scenario in InstrumentRenderScenario.shellTransitionMatrix {
+                stageBatteryTopology(
+                    for: scenario,
+                    state: state,
+                    simulation: simulation,
+                    canonicalSamples: canonicalBatterySamples
+                )
                 try write(
                     shell(state, scenario: scenario, size: size.size),
                     to: outputDirectory.appendingPathComponent(
@@ -453,6 +490,13 @@ enum ScreenshotRenderer {
                 )
             }
         }
+
+        stageBatteryTopology(
+            for: .verifiedNormal,
+            state: state,
+            simulation: simulation,
+            canonicalSamples: canonicalBatterySamples
+        )
 
         try renderSecondaryEvidence(
             state: state,
@@ -505,6 +549,24 @@ enum ScreenshotRenderer {
         )
 
         print("screenshots written to \(outputDirectory.path)")
+    }
+
+    private static func stageBatteryTopology(
+        for scenario: InstrumentRenderScenario,
+        state: AppState,
+        simulation: SimulationController,
+        canonicalSamples: [BatterySample]
+    ) {
+        let hasInternalBattery = scenario != .noBattery
+        simulation.hasInternalBattery = hasInternalBattery
+        if hasInternalBattery {
+            simulation.onBattery = true
+            simulation.charging = false
+        }
+        state.refreshSimulationBatteryForRendering()
+        state.seedRollingSamplesForRendering(
+            hasInternalBattery ? canonicalSamples : []
+        )
     }
 
     private static func panel(
@@ -639,6 +701,21 @@ enum ScreenshotRenderer {
             secondaryPane(SimulatorPane(), state: state, size: defaultSize),
             to: outputDirectory.appendingPathComponent("secondary-simulator-default.png")
         )
+
+        if let simulation = state.simulation {
+            simulation.hasInternalBattery = false
+            state.refreshSimulationBatteryForRendering()
+            try write(
+                secondaryPane(SimulatorPane(), state: state, size: defaultSize),
+                to: outputDirectory.appendingPathComponent(
+                    "secondary-simulator-no-battery.png"
+                )
+            )
+            simulation.hasInternalBattery = true
+            simulation.onBattery = true
+            simulation.charging = false
+            state.refreshSimulationBatteryForRendering()
+        }
     }
 
     private static func renderAccessibilityEvidence(

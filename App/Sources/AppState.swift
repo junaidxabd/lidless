@@ -2756,6 +2756,14 @@ final class AppState {
         recomputeDrain()
     }
 
+    /// Screenshot staging only: copy a freshly changed simulation topology
+    /// into the observable app snapshot before rasterizing a state.
+    func refreshSimulationBatteryForRendering() {
+        guard isSimulation else { return }
+        batteryMonitor.refresh()
+        battery = batteryMonitor.current
+    }
+
     // MARK: - Widget
 
     @discardableResult

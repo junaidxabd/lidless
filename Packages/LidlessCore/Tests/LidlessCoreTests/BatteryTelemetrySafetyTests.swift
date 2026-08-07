@@ -424,6 +424,35 @@ struct BatteryTelemetrySafetyTests {
         #expect(panel.contains("state: state.battery.state"))
     }
 
+    @Test func simulationAndVisualEvidenceCoverNoBatteryHardware() throws {
+        let simulation = try repositoryFile("App/Sources/Simulation/Simulation.swift")
+        let controls = try repositoryFile("App/Sources/UI/Main/SimulatorPane.swift")
+        let overview = try repositoryFile("App/Sources/UI/Main/OverviewPane.swift")
+        let app = try repositoryFile("App/Sources/AppState.swift")
+        let renderer = try repositoryFile("App/Sources/Services/ScreenshotRenderer.swift")
+        let contactSheet = try repositoryFile("Scripts/VisualQA/ContactSheet.swift")
+
+        #expect(simulation.contains("var hasInternalBattery = true"))
+        #expect(simulation.contains("guard hasInternalBattery else"))
+        #expect(simulation.contains("return .noBattery(at: date)"))
+        #expect(controls.contains("Toggle(\"Internal battery present\""))
+        #expect(controls.contains(".disabled(!simulation.hasInternalBattery)"))
+        #expect(overview.contains(
+            "No internal battery is present, so battery history and floor cutoffs are inactive."
+        ))
+        #expect(app.contains("func refreshSimulationBatteryForRendering()"))
+
+        for filename in [
+            "menu-no-battery.png",
+            "window-minimum-no-battery.png",
+            "window-default-no-battery.png",
+            "window-wide-no-battery.png",
+            "secondary-simulator-no-battery.png",
+        ] {
+            #expect(renderer.contains(filename) || contactSheet.contains(filename))
+        }
+    }
+
     @Test func batteryOnlyPresetCannotArmWithoutAnInternalBattery() throws {
         let app = try repositoryFile("App/Sources/AppState.swift")
         let begin = try section(

@@ -284,7 +284,15 @@ struct OverviewContent: View {
                 )
             }
 
-            if state.rollingSamples.count >= 2,
+            if state.battery.state == .noBattery {
+                Text(
+                    "No internal battery is present, so battery history and floor cutoffs are inactive."
+                )
+                .font(.callout)
+                .foregroundStyle(Theme.textTertiary)
+                .frame(maxWidth: .infinity, minHeight: 72, alignment: .center)
+                .multilineTextAlignment(.center)
+            } else if state.rollingSamples.count >= 2,
                presentation != .unknown {
                 BatteryChart(samples: state.rollingSamples, floor: activeFloor)
                     .frame(height: 148)
@@ -371,6 +379,7 @@ struct OverviewContent: View {
     }
 
     private var batteryFloorDescription: String {
+        if renderScenario == .noBattery { return "Inactive" }
         if renderScenario != nil { return "Request at 20%" }
         let config = state.effectiveConfig
         guard config.batteryFloorEnabled, state.battery.state != .noBattery else {
@@ -406,7 +415,7 @@ struct OverviewContent: View {
 
     private var activeFloor: Int? {
         if renderScenario != nil {
-            return presentation == .unknown ? nil : 20
+            return presentation == .unknown || renderScenario == .noBattery ? nil : 20
         }
         let config = state.effectiveConfig
         return config.batteryFloorEnabled && state.battery.state != .noBattery

@@ -10,6 +10,14 @@ import os
 @Observable
 final class SimulationController {
     // Knobs.
+    var hasInternalBattery = true {
+        didSet {
+            if !hasInternalBattery {
+                onBattery = false
+                charging = false
+            }
+        }
+    }
     var batteryPercent: Double = 68
     var onBattery = true
     var charging = false
@@ -31,6 +39,7 @@ final class SimulationController {
 
     /// Advance the simulated battery by `dt` real seconds.
     fileprivate func advance(by dt: TimeInterval) {
+        guard hasInternalBattery else { return }
         let simSeconds = dt * timeScale
         if onBattery, !charging {
             batteryPercent = max(0, batteryPercent - drainPerHour * simSeconds / 3600)
@@ -40,7 +49,10 @@ final class SimulationController {
     }
 
     fileprivate func batterySnapshot(at date: Date) -> BatterySnapshot {
-        BatterySnapshot(
+        guard hasInternalBattery else {
+            return .noBattery(at: date)
+        }
+        return BatterySnapshot(
             percent: Int(batteryPercent.rounded()),
             state: onBattery ? .battery : .ac,
             isCharging: charging,

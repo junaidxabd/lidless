@@ -40,6 +40,7 @@ struct VisualSystemSourceTests {
 
         for scenario in [
             "case verifiedNormal",
+            "case noBattery",
             "case verifyingArm",
             "case confirmationOK",
             "case confirmationLowBattery",
@@ -57,6 +58,7 @@ struct VisualSystemSourceTests {
 
         for filename in [
             "menu-verified-normal.png",
+            "menu-no-battery.png",
             "menu-verifying-arm.png",
             "menu-confirmation-ok.png",
             "menu-confirmation-low-battery.png",
