@@ -170,6 +170,20 @@ struct LiveUIRegressionSourceTests {
         #expect(contactSheet.contains("accessibility-history-selected-minimum.png"))
     }
 
+    @Test func everyScheduleRowSwitchNamesTheWindowItControls() throws {
+        let schedules = try repositoryFile(
+            "App/Sources/UI/Main/SchedulesPane.swift"
+        )
+
+        #expect(schedules.contains(
+            ".accessibilityLabel(\"Enable \\(Self.scheduleSummary(window))\")"
+        ))
+        #expect(schedules.contains(
+            ".accessibilityHint(\"Turns this recurring window on or off\")"
+        ))
+        #expect(!schedules.contains(".accessibilityLabel(\"Enable schedule\")"))
+    }
+
     private func repositoryFile(_ relativePath: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         let fileManager = FileManager.default

@@ -43,8 +43,9 @@ struct SchedulesPane: View {
                                 .labelsHidden()
                                 .toggleStyle(.switch)
                                 .controlSize(.small)
-                                .accessibilityLabel("Enable schedule")
+                                .accessibilityLabel("Enable \(Self.scheduleSummary(window))")
                                 .accessibilityValue(window.enabled ? "On" : "Off")
+                                .accessibilityHint("Turns this recurring window on or off")
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(Self.weekdaysSummary(window.weekdays))
                                     .font(.body.weight(.medium))
